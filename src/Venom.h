@@ -58,8 +58,30 @@ public:
     void updateStateFromAudio(const AudioFeatures& features);
     void updateStateFromLLM(const String& jsonEmotion);
     String getPhysiologyJson();
+    String getPerceptions();
+    void addRecentEvent(const String& event);
+    String getRecentEventsString();
+    void triggerAISync() { isAIPendingSync = true; }
+    void setAISyncInterval(uint32_t ms) { currentAISyncInterval = ms; }
+    uint32_t getAISyncInterval() const { return currentAISyncInterval; }
+    bool pullAIPendingSync() {
+        bool pending = isAIPendingSync;
+        isAIPendingSync = false;
+        return pending;
+    }
 
 private:
+    // --- [NEW] 神经意识核心心理状态 (LLM 欲望与情绪倾向驱动) ---
+    std::vector<String> recentEvents;
+    String lState_emotional_shift;
+    String lState_focus_target;
+    String lState_desire;
+    float lState_surface_instability;
+    float lState_impulse_strength;
+    float lState_social_openness;
+    float lState_curiosity_drift;
+    String lState_notes;
+
     Skeleton skeleton;
     VenomState state;
     uint32_t stateTimer;
@@ -139,6 +161,8 @@ private:
     float lastSoundLevel;         
     float lastLux;
     uint32_t lastLLMResponseTime; // [新增] 最近一次接收 AI 指令的时间
+    uint32_t currentAISyncInterval; // 自适应同步周期
+    bool isAIPendingSync;           // 主动请求心跳标志
 
     // --- 技能系统 ---
     uint32_t skillTimer;

@@ -47,6 +47,7 @@ void FluidSymbolManager::trigger(const String& type) {
     else if (type == "eye") genEYE();
     else if (type == "warning") genWARNING();
     else if (type == "splash") genSPLASH();
+    else if (type == "heart") genHEART();
 }
 
 void FluidSymbolManager::clear() {

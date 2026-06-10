@@ -1,0 +1,190 @@
+﻿Processing m5stack-sticks3 (platform: espressif32; board: esp32-s3-devkitc-1; framework: arduino)
+--------------------------------------------------------------------------------
+Verbose mode can be enabled via `-v, --verbose` option
+CONFIGURATION: https://docs.platformio.org/page/boards/espressif32/esp32-s3-devkitc-1.html
+PLATFORM: Espressif 32 (6.12.0) > Espressif ESP32-S3-DevKitC-1-N8 (8 MB QD, No PSRAM)
+HARDWARE: ESP32S3 240MHz, 320KB RAM, 8MB Flash
+DEBUG: Current (esp-builtin) On-board (esp-builtin) External (cmsis-dap, esp-bridge, esp-prog, iot-bus-jtag, jlink, minimodule, olimex-arm-usb-ocd, olimex-arm-usb-ocd-h, olimex-arm-usb-tiny-h, olimex-jtag-tiny, tumpa)
+PACKAGES: 
+ - framework-arduinoespressif32 @ 3.20017.241212+sha.dcc1105b 
+ - tool-esptoolpy @ 2.40900.250804 (4.9.0) 
+ - toolchain-riscv32-esp @ 8.4.0+2021r2-patch5 
+ - toolchain-xtensa-esp32s3 @ 8.4.0+2021r2-patch5
+LDF: Library Dependency Finder -> https://bit.ly/configure-pio-ldf
+LDF Modes: Finder ~ chain, Compatibility ~ soft
+Found 37 compatible libraries
+Scanning dependencies...
+Dependency Graph
+|-- M5GFX @ 0.2.20
+|-- M5Unified @ 0.2.14
+|-- ArduinoJson @ 7.4.3
+|-- M5-DLight @ 0.0.5
+|-- HTTPClient @ 2.0.0
+|-- WiFi @ 2.0.0
+|-- Wire @ 2.0.0
+Building in release mode
+Compiling .pio\build\m5stack-sticks3\src\Venom.cpp.o
+Compiling .pio\build\m5stack-sticks3\src\physiology\VenomPhysiology.cpp.o
+pio : src/Venom.cpp: In constructor 'Venom::Venom()':
+所在位置 行:1 字符: 1
++ pio run *>&1 | Out-File -FilePath build_log.txt -Encoding utf8
++ ~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (src/Venom.cpp: ...enom::Venom()'::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+src/Venom.cpp:36:58: error: class 'Venom' does not have any field named 'currentFace'
+ Venom::Venom() : state(VenomState::IDLE), stateTimer(0), currentFace(FRONT) {
+                                                          ^~~~~~~~~~~
+src/Venom.cpp: In member function 'virtual void Venom::update(float, float, float, float, float)':
+src/Venom.cpp:156:80: error: 'CURIOUS_PROBE' is not a member of 'VenomState'
+                           state == VenomState::OBSERVE || state == VenomState::CURIOUS_PROBE ||
+                                                                                ^~~~~~~~~~~~~
+src/Venom.cpp:157:78: error: 'TRACK_OBSERVER' is not a member of 'VenomState'
+                           state == VenomState::CLING || state == VenomState::TRACK_OBSERVER ||
+                                                                              ^~~~~~~~~~~~~~
+src/Venom.cpp:158:48: error: 'MIMICRY' is not a member of 'VenomState'
+                           state == VenomState::MIMICRY);
+                                                ^~~~~~~
+src/physiology/VenomPhysiology.cpp: In member function 'void Venom::updateAI()':
+src/physiology/VenomPhysiology.cpp:726:71: error: 'CURIOUS_PROBE' is not a member of 'VenomState'
+     else if (currentSkillName == "curious_probe") state = VenomState::CURIOUS_PROBE;
+                                                                       ^~~~~~~~~~~~~
+src/physiology/VenomPhysiology.cpp:746:66: error: 'GROOMING' is not a member of 'VenomState'
+     else if (currentSkillName == "grooming") state = VenomState::GROOMING;
+                                                                  ^~~~~~~~
+src/physiology/VenomPhysiology.cpp:748:29: error: 'WARNING_POUNCE' is not a member of 'VenomState'
+         state = VenomState::WARNING_POUNCE;
+                             ^~~~~~~~~~~~~~
+src/physiology/VenomPhysiology.cpp:752:29: error: 'MOTHER_SIGNAL' is not a member of 'VenomState'
+         state = VenomState::MOTHER_SIGNAL;
+                             ^~~~~~~~~~~~~
+src/physiology/VenomPhysiology.cpp:764:65: error: 'MIMICRY' is not a member of 'VenomState'
+     else if (currentSkillName == "mimicry") state = VenomState::MIMICRY;
+                                                                 ^~~~~~~
+src/physiology/VenomPhysiology.cpp:765:70: error: 'SILENT_WATCH' is not a member of 'VenomState'
+     else if (currentSkillName == "silent_watch") state = VenomState::SILENT_WATCH;
+                                                                      ^~~~~~~~~~~~
+src/physiology/VenomPhysiology.cpp: In member function 'virtual void Venom::updateStateFromLLM(const String&)':
+src/physiology/VenomPhysiology.cpp:790:42: warning: 'bool ArduinoJson::V743PB22::JsonDocument::containsKey(TChar*) cons
+t [with TChar = const char]' is deprecated: use doc["key"].is<T>() instead [-Wdeprecated-declarations]
+     if (doc.containsKey("emotional_shift")) lState_emotional_shift = doc["emotional_shift"].as<String>();
+                                          ^
+In file included from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.hpp:42,
+                 from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.h:9,
+                 from src/physiology/../IOrganism.h:5,
+                 from src/physiology/../Venom.h:49,
+                 from src/physiology/VenomPhysiology.cpp:1:
+.pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson/Document/JsonDocument.hpp:167:8: note: declared here
+   bool containsKey(TChar* key) const {
+        ^~~~~~~~~~~
+src/physiology/VenomPhysiology.cpp:791:39: warning: 'bool ArduinoJson::V743PB22::JsonDocument::containsKey(TChar*) cons
+t [with TChar = const char]' is deprecated: use doc["key"].is<T>() instead [-Wdeprecated-declarations]
+     if (doc.containsKey("focus_target")) lState_focus_target = doc["focus_target"].as<String>();
+                                       ^
+In file included from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.hpp:42,
+                 from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.h:9,
+                 from src/physiology/../IOrganism.h:5,
+                 from src/physiology/../Venom.h:49,
+                 from src/physiology/VenomPhysiology.cpp:1:
+.pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson/Document/JsonDocument.hpp:167:8: note: declared here
+   bool containsKey(TChar* key) const {
+        ^~~~~~~~~~~
+src/physiology/VenomPhysiology.cpp:792:33: warning: 'bool ArduinoJson::V743PB22::JsonDocument::containsKey(TChar*) cons
+t [with TChar = const char]' is deprecated: use doc["key"].is<T>() instead [-Wdeprecated-declarations]
+     if (doc.containsKey("desire")) lState_desire = doc["desire"].as<String>();
+                                 ^
+In file included from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.hpp:42,
+                 from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.h:9,
+                 from src/physiology/../IOrganism.h:5,
+                 from src/physiology/../Venom.h:49,
+                 from src/physiology/VenomPhysiology.cpp:1:
+.pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson/Document/JsonDocument.hpp:167:8: note: declared here
+   bool containsKey(TChar* key) const {
+        ^~~~~~~~~~~
+src/physiology/VenomPhysiology.cpp:794:46: warning: 'bool ArduinoJson::V743PB22::JsonDocument::containsKey(TChar*) cons
+t [with TChar = const char]' is deprecated: use doc["key"].is<T>() instead [-Wdeprecated-declarations]
+     if (doc.containsKey("surface_instability")) lState_surface_instability = doc["surface_instability"];
+                                              ^
+In file included from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.hpp:42,
+                 from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.h:9,
+                 from src/physiology/../IOrganism.h:5,
+                 from src/physiology/../Venom.h:49,
+                 from src/physiology/VenomPhysiology.cpp:1:
+.pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson/Document/JsonDocument.hpp:167:8: note: declared here
+   bool containsKey(TChar* key) const {
+        ^~~~~~~~~~~
+src/physiology/VenomPhysiology.cpp:795:43: warning: 'bool ArduinoJson::V743PB22::JsonDocument::containsKey(TChar*) cons
+t [with TChar = const char]' is deprecated: use doc["key"].is<T>() instead [-Wdeprecated-declarations]
+     if (doc.containsKey("impulse_strength")) lState_impulse_strength = doc["impulse_strength"];
+                                           ^
+In file included from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.hpp:42,
+                 from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.h:9,
+                 from src/physiology/../IOrganism.h:5,
+                 from src/physiology/../Venom.h:49,
+                 from src/physiology/VenomPhysiology.cpp:1:
+.pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson/Document/JsonDocument.hpp:167:8: note: declared here
+   bool containsKey(TChar* key) const {
+        ^~~~~~~~~~~
+src/physiology/VenomPhysiology.cpp:796:42: warning: 'bool ArduinoJson::V743PB22::JsonDocument::containsKey(TChar*) cons
+t [with TChar = const char]' is deprecated: use doc["key"].is<T>() instead [-Wdeprecated-declarations]
+     if (doc.containsKey("social_openness")) lState_social_openness = doc["social_openness"];
+                                          ^
+In file included from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.hpp:42,
+                 from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.h:9,
+                 from src/physiology/../IOrganism.h:5,
+                 from src/physiology/../Venom.h:49,
+                 from src/physiology/VenomPhysiology.cpp:1:
+.pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson/Document/JsonDocument.hpp:167:8: note: declared here
+   bool containsKey(TChar* key) const {
+        ^~~~~~~~~~~
+src/physiology/VenomPhysiology.cpp:797:42: warning: 'bool ArduinoJson::V743PB22::JsonDocument::containsKey(TChar*) cons
+t [with TChar = const char]' is deprecated: use doc["key"].is<T>() instead [-Wdeprecated-declarations]
+     if (doc.containsKey("curiosity_drift")) lState_curiosity_drift = doc["curiosity_drift"];
+                                          ^
+In file included from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.hpp:42,
+                 from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.h:9,
+                 from src/physiology/../IOrganism.h:5,
+                 from src/physiology/../Venom.h:49,
+                 from src/physiology/VenomPhysiology.cpp:1:
+.pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson/Document/JsonDocument.hpp:167:8: note: declared here
+   bool containsKey(TChar* key) const {
+        ^~~~~~~~~~~
+src/physiology/VenomPhysiology.cpp:798:32: warning: 'bool ArduinoJson::V743PB22::JsonDocument::containsKey(TChar*) cons
+t [with TChar = const char]' is deprecated: use doc["key"].is<T>() instead [-Wdeprecated-declarations]
+     if (doc.containsKey("notes")) lState_notes = doc["notes"].as<String>();
+                                ^
+In file included from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.hpp:42,
+                 from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.h:9,
+                 from src/physiology/../IOrganism.h:5,
+                 from src/physiology/../Venom.h:49,
+                 from src/physiology/VenomPhysiology.cpp:1:
+.pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson/Document/JsonDocument.hpp:167:8: note: declared here
+   bool containsKey(TChar* key) const {
+        ^~~~~~~~~~~
+src/physiology/VenomPhysiology.cpp:808:42: warning: 'bool ArduinoJson::V743PB22::JsonDocument::containsKey(TChar*) cons
+t [with TChar = const char]' is deprecated: use doc["key"].is<T>() instead [-Wdeprecated-declarations]
+     if (doc.containsKey("social_openness")) {
+                                          ^
+In file included from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.hpp:42,
+                 from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.h:9,
+                 from src/physiology/../IOrganism.h:5,
+                 from src/physiology/../Venom.h:49,
+                 from src/physiology/VenomPhysiology.cpp:1:
+.pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson/Document/JsonDocument.hpp:167:8: note: declared here
+   bool containsKey(TChar* key) const {
+        ^~~~~~~~~~~
+src/physiology/VenomPhysiology.cpp:813:46: warning: 'bool ArduinoJson::V743PB22::JsonDocument::containsKey(TChar*) cons
+t [with TChar = const char]' is deprecated: use doc["key"].is<T>() instead [-Wdeprecated-declarations]
+     if (doc.containsKey("surface_instability")) {
+                                              ^
+In file included from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.hpp:42,
+                 from .pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson.h:9,
+                 from src/physiology/../IOrganism.h:5,
+                 from src/physiology/../Venom.h:49,
+                 from src/physiology/VenomPhysiology.cpp:1:
+.pio/libdeps/m5stack-sticks3/ArduinoJson/src/ArduinoJson/Document/JsonDocument.hpp:167:8: note: declared here
+   bool containsKey(TChar* key) const {
+        ^~~~~~~~~~~
+*** [.pio\build\m5stack-sticks3\src\Venom.cpp.o] Error 1
+*** [.pio\build\m5stack-sticks3\src\physiology\VenomPhysiology.cpp.o] Error 1
+========================= [FAILED] Took 19.60 seconds =========================

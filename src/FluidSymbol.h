@@ -20,6 +20,9 @@ public:
     void update();
     void trigger(const String& type);
     void clear();
+    void wipePoints(float screenX, float screenY, float radius);
+    bool isDissipating() const; // [新增] 判定当前屏幕上活跃的符号是否正处于消散期（平均生命残余）
+    String getCurrentType() const { return currentType; }
     
     int getPointCount() const { return pointCount; }
     const SymbolPoint& getPoint(int i) const { return points[i]; }

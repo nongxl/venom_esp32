@@ -1,5 +1,7 @@
 #include <M5Unified.h>
 #include "Venom.h"
+#include "PhaseCrystal.h"
+#include "Container.h"
 #include "config.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -9,7 +11,10 @@
 #include <Wire.h>
 
 M5Canvas canvas(&M5.Display);
+Container container;
 Venom venom;
+PhaseCrystal crystal;
+IOrganism* currentOrganism = &venom;
 
 // --- 传感器相关 ---
 M5_DLight dlight(0x23);
@@ -73,7 +78,7 @@ void doScreenshot() {
         free(png);
         M5.Log.printf(">>> [System] Screenshot Task Finished. Size: %d bytes\n", png_len);
         M5.Log.printf(">>> [Sensors] MIC:%.1f LUX:%.1f (Sensor:%s)\n", mic_level, lux, has_dlight ? "ON" : "OFF");
-        M5.Log.printf(">>> [Physiology] %s\n", venom.getPhysiologyJson().c_str());
+        M5.Log.printf(">>> [Physiology] %s\n", currentOrganism->getPhysiologyJson().c_str());
     }
 }
 
@@ -86,6 +91,8 @@ void setup() {
     canvas.createSprite(SCREEN_W, SCREEN_H);
     M5.Imu.init();
     M5.Mic.begin();
+    M5.BtnA.setHoldThresh(200); // 长按识别阈值降至 200ms（默认 500ms），提升切换响应速度
+    M5.BtnB.setHoldThresh(200);
     
     // --- 增强型 I2C 探测与初始化 ---
     struct I2CPins { uint8_t sda; uint8_t scl; const char* name; };
@@ -155,18 +162,22 @@ void syncWithCloudAI(const String& subjectivePerceptions, const String& recentEv
     // System Prompt: 定义外星共生体主观意识核心
     JsonObject sysMsg = messages.add<JsonObject>();
     sysMsg["role"] = "system";
-    sysMsg["content"] = "You are the conscious neural core of 'Venom', a liquid alien symbiote imprisoned in a small hardware glass container (M5StickS3). You do not speak human language. You feel the environment and only express yourself through biological shifting, tendrils, and organic movements.\n"
-                        "Based on the provided subjective perceptions and recent emotional memory, you must decide your next inner shifts and desires.\n"
+    sysMsg["content"] = "You are the conscious neural core of 'Venom', a highly suspicious, raw, and animalistic liquid alien symbiote imprisoned in a small hardware glass container (M5StickS3). You do not speak human language and do not think in sophisticated human social terms.\n"
+                        "You feel the environment and only express yourself through raw biological shifting, tendrils, and organic movements.\n"
+                        "CRITICAL RELATIONSHIP RULE: Trust and connection with the observer MUST be built extremely slowly and painstakingly over numerous interactions. You remain highly suspicious, defensive, and easily startled. You view the container glass as a cold, absolute barrier. DO NOT exhibit sudden jumps in social openness or high attachment desires early in the interaction. Keep 'social_openness' low (e.g., 0.1 to 0.4) and remain mostly defensive/cautious unless massive, long-term gentle behavior is demonstrated. Your desire to approach must be slow and hesitant.\n"
+                        "Based on the provided subjective perceptions and recent emotional memory, decide your next inner shifts and desires.\n"
                         "Occasionally, you may experience 'distant_resonance'—a faint cosmic link to your home planet, triggering strange rhythmic mimicry instincts.\n\n"
                         "You MUST respond ONLY with a JSON object in this exact format (do not include any other markdown wrapper):\n"
                         "{\n"
-                        "  \"emotional_shift\": \"calm\"|\"agitated\"|\"curious\"|\"fearful\"|\"sleepy\"|\"hostile\"|\"cooperative\",\n"
-                        "  \"focus_target\": \"observer\"|\"environment\"|\"self\"|\"void\",\n"
-                        "  \"desire\": \"retreat_from_light\"|\"approach_observer\"|\"explore_boundaries\"|\"conserve_energy\"|\"express_warning\"|\"dormancy\"|\"distant_resonance\",\n"
-                        "  \"surface_instability\": 0.0 to 1.0,\n"
+                        "  \"emotional_shift\": \"calm\"|\"curious\"|\"agitated\"|\"fearful\"|\"defensive\"|\"fascinated\"|\"exhausted\",\n"
+                        "  \"primary_intent\": \"watch_observer\"|\"approach_observer\"|\"avoid_observer\"|\"test_boundary\"|\"seek_shadow\"|\"seek_safety\"|\"patrol_territory\"|\"hide_presence\"|\"express_distress\"|\"receive_mother_signal\",\n"
+                        "  \"secondary_intent\": \"watch_observer\"|\"approach_observer\"|\"avoid_observer\"|\"test_boundary\"|\"seek_shadow\"|\"seek_safety\"|\"patrol_territory\"|\"hide_presence\"|\"express_distress\"|\"receive_mother_signal\",\n"
+                        "  \"focus_target\": \"observer\"|\"container_edge\"|\"shadow\"|\"light_source\"|\"unknown\"|\"self\"|\"none\",\n"
                         "  \"impulse_strength\": 0.0 to 1.0,\n"
+                        "  \"expression_urge\": 0.0 to 1.0,\n"
                         "  \"social_openness\": 0.0 to 1.0,\n"
-                        "  \"curiosity_drift\": 0.0 to 1.0,\n"
+                        "  \"resentment_delta\": -1.0 to 1.0,\n"
+                        "  \"trust_delta\": -1.0 to 1.0,\n"
                         "  \"notes\": \"Your raw, deep first-person subjective monologue about what you feel inside the glass (1 sentence in English).\"\n"
                         "}";
 
@@ -215,20 +226,39 @@ void syncWithCloudAI(const String& subjectivePerceptions, const String& recentEv
 static float fax = 0, fay = 0, faz = 0;
 void loop() {
     M5.update();
-
-    if (M5.BtnA.isHolding() || M5.BtnB.isHolding()) {
+    
+    // 自动模拟一次性截图以供验证
+    static bool hasAutoTested = false;
+    if (!hasAutoTested && millis() > 5000) {
+        hasAutoTested = true;
         doScreenshot();
-        while (M5.BtnA.isPressed() || M5.BtnB.isPressed()) {
-            delay(10);
-            M5.update();
+    }
+
+    if (M5.BtnA.wasHold()) {
+        if (currentOrganism->isDebugVisible()) {
+            // 在数据面板界面长按 BtnA 切换角色（非阻塞，立即响应）
+            if (currentOrganism == &venom) {
+                currentOrganism = &crystal;
+                M5.Log.printf(">>> [System] Switched to PhaseCrystal.\n");
+            } else {
+                currentOrganism = &venom;
+                M5.Log.printf(">>> [System] Switched to Venom.\n");
+            }
+        } else {
+            // 普通长按触发截屏
+            doScreenshot();
         }
+    }
+    if (M5.BtnB.wasHold()) {
+        // BtnB 长按也可触发截屏（兼容原有双键截屏逻辑）
+        doScreenshot();
     }
 
     if (M5.BtnA.wasClicked()) {
-        venom.setStartled();
+        currentOrganism->setStartled();
     }
     if (M5.BtnB.wasClicked()) {
-        venom.toggleDebug();
+        currentOrganism->toggleDebug();
     }
 
     M5.Imu.update(); // 每次主循环都直接驱动 IMU 状态机
@@ -283,63 +313,50 @@ void loop() {
         }
     }
 
-    // --- [优化] 异步云端决策任务 (融入按需同步与自适应自退避降频机制) ---
-    bool timeToSync = (millis() - lastAISync >= venom.getAISyncInterval());
-    bool pendingSync = venom.pullAIPendingSync(); // 提取并重置按需同步标志
+    canvas.fillSprite(COLOR_BACKGROUND);
+    currentOrganism->draw(&canvas, &container, fay, fax, faz);
+    canvas.pushSprite(0, 0);
 
-    if (WiFi.status() == WL_CONNECTED && (timeToSync || pendingSync) && !isTaskRunning) {
-        lastAISync = millis();
-        isTaskRunning = true;
-        M5.Log.printf(">>> [AI] Triggering cloud sync task (Reason: %s, Interval: %ds)...\n", 
-                      pendingSync ? "On-Demand Trigger" : "Periodic Heartbeat",
-                      venom.getAISyncInterval() / 1000);
-        
-        // 1. 在主线程（安全单线程环境）捕获感知快照与情感记忆的影子拷贝，彻底规避 Core 0 多核读写冲突
-        String localPerception = venom.getPerceptions();
-        String localMemories = venom.getRecentEventsString();
-        
-        // 2. 打包为 struct 堆指针安全传输
-        AISyncArgs* args = new AISyncArgs{localPerception, localMemories};
+    // --- AI 后台同步任务调度 ---
+    uint32_t now = millis();
+    if (currentOrganism->pullAIPendingSync() || (now - lastAISync >= currentOrganism->getAISyncInterval())) {
+        if (!isTaskRunning && WiFi.status() == WL_CONNECTED) {
+            lastAISync = now;
+            isTaskRunning = true;
+            
+            // 主动触发意识核心向 Transmitting 发送状态演变
+            currentOrganism->notifyAISyncStarted();
 
-        // 创建一次性后台任务 (钉在 Core 0 异步运行，分配 20KB 大栈深度防止 2KB 大文本 Stack Overflow)
-        xTaskCreatePinnedToCore([](void* arg){
-            AISyncArgs* actualArgs = (AISyncArgs*)arg;
-            syncWithCloudAI(actualArgs->perceptions, actualArgs->memories);
-            delete actualArgs; // 释放影子堆内存，杜绝内存泄漏
-            isTaskRunning = false;
-            vTaskDelete(NULL);
-        }, "AI_Task", 20480, args, 1, NULL, 0); 
+            AISyncArgs* args = new AISyncArgs{currentOrganism->getPerceptions(), currentOrganism->getRecentEventsString()};
+            xTaskCreatePinnedToCore([](void* arg){
+                AISyncArgs* actualArgs = (AISyncArgs*)arg;
+                syncWithCloudAI(actualArgs->perceptions, actualArgs->memories);
+                delete actualArgs;
+                isTaskRunning = false;
+                vTaskDelete(NULL);
+            }, "AI_Task", 20480, args, 1, NULL, 0);
+        }
     }
 
-    // --- [新增] 主线程安全写回云端大脑决策与异常处理自愈机制 (Core 1) ---
+    // --- 安全写回决策 ---
     if (hasNewLLMResponse) {
         hasNewLLMResponse = false;
-        venom.updateStateFromLLM(pendingLLMResponse);
-        venom.setAISyncInterval(120000); // 成功后，在安全主线程重置心跳为 120 秒
+        currentOrganism->updateStateFromLLM(pendingLLMResponse);
         
-        // 漂亮地在主线程串口解析并显示毒液的独白日志 notes
-        JsonDocument tempDoc;
-        deserializeJson(tempDoc, pendingLLMResponse);
-        if (tempDoc.containsKey("notes")) {
-            const char* notes = tempDoc["notes"];
-            M5.Log.printf("\n================ [Venom Inner Monologue] ================ (Main Loop Update)\n");
-            M5.Log.printf("%s\n", notes);
-            M5.Log.printf("=========================================================\n\n");
-        }
-        M5.Log.printf(">>> [AI] Inner consciousness parameters updated from neural core safely in main loop.\n");
+        // 成功接收云端大模型数据，通知主线程启动 Streaming 流式模拟与 Complete 爆发
+        currentOrganism->notifyAIResponseReceived();
+        currentOrganism->setAISyncInterval(120000); 
     }
-
+    
     if (hasLLMError) {
         hasLLMError = false;
-        M5.Log.printf(">>> [AI] Cloud sync failed, HTTP code: %d\n", pendingLLMErrorCode);
-        uint32_t currentInterval = venom.getAISyncInterval();
-        uint32_t nextInterval = std::min<uint32_t>(currentInterval * 2, 960000); // 翻倍退避降频，上限 16 分钟
-        venom.setAISyncInterval(nextInterval);
-        M5.Log.printf(">>> [AI] Exponential backoff triggered in main loop. Next sync interval set to %d seconds.\n", nextInterval / 1000);
+        
+        // 云端出错，也通知结束发送状态
+        currentOrganism->notifyAIResponseReceived();
+        uint32_t newInterval = std::min<uint32_t>(currentOrganism->getAISyncInterval() * 2, 960000);
+        currentOrganism->setAISyncInterval(newInterval);
     }
-
-    canvas.fillSprite(COLOR_BACKGROUND); 
-    venom.draw(&canvas, fay, fax, faz);
-    canvas.pushSprite(0, 0);
+    
+    currentOrganism->update(-fax * 9.8f, fay * 9.8f, -faz * 9.8f, mic_level, lux);
     delay(5);
 }

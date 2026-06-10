@@ -60,7 +60,16 @@ def listen_for_screenshots(target_port=None):
                                 filename = f"screenshot/venom_{datetime.now().strftime('%H%M%S')}.png"
                                 with open(filename, 'wb') as f:
                                     f.write(image_data)
-                                print(f"✅✅✅ 图片保存成功: {filename}\n")
+                                abs_path = os.path.abspath(filename)
+                                print(f"✅✅✅ 图片保存成功: {abs_path}\n")
+                                
+                                # 自动同步至 artifacts 目录以便 walkthrough 引用
+                                dest_dir = r"C:\Users\666\.gemini\antigravity\brain\97ed3039-9108-4904-9c91-dd06c8ef59ac\.tempmediaStorage"
+                                if not os.path.exists(dest_dir):
+                                    os.makedirs(dest_dir)
+                                import shutil
+                                shutil.copy(filename, os.path.join(dest_dir, "media_97ed3039-9108-4904-9c91-dd06c8ef59ac_meniscus.png"))
+                                shutil.copy(filename, os.path.join(os.path.dirname(dest_dir), "venom_meniscus_result.png"))
                             except Exception as decode_err:
                                 print(f"!!! 解码失败: {decode_err}")
                         collecting = False

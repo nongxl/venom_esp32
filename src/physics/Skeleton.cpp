@@ -8,23 +8,35 @@ Skeleton::Skeleton() {
         nodes[i].z = 0; 
         nodes[i].vx = nodes[i].vy = nodes[i].vz = 0;
         if (i == 0) {
-            nodes[i].radius = NODE_RADIUS_BASE; 
+            nodes[i].baseRadius = NODE_RADIUS_BASE; 
         } else {
             // 将衰减系数从 0.65 下调至 0.55，使“头大尾尖”的生物感更加极端明显
-            nodes[i].radius = NODE_RADIUS_BASE * powf(0.55f, i);
+            nodes[i].baseRadius = NODE_RADIUS_BASE * powf(0.55f, i);
         }
+        nodes[i].radius = nodes[i].baseRadius;
         nodes[i].is_stuck = false;
         nodes[i].tension = 0; 
         nodes[i].impactGrace = 0; 
+        nodes[i].contactPressure = 0.0f; // [新增] 初始化
         hasTarget[i] = false;
         targetStrength[i] = 0;
     }
     stiffnessMultiplier = 1.0f;
     dampingMultiplier = 1.0f;
     restLengthScale = 1.0f; // [新增] 初始化
+    shapeArchetype = 0;    // [新增] 初始化形态学原型
     lastGx = lastGy = lastGz = 0;
     fallingTimer = 0;
     isFalling = false;
+    isSwinging = false; // [新增] 荡秋千物理覆盖默认初始化为 false
+    maxCollisionSpeed = 0.0f;
+}
+
+float Skeleton::getMinDistToSurface(float x, float y, float z) const {
+    float dX = CUBE_W - abs(x);
+    float dY = CUBE_H - abs(y);
+    // 忽略 Z 轴对接触压力的影响，使毒液只在屏幕四壁（左、右、上、下）贴附时发生形变与贴合
+    return fminf(dX, dY);
 }
 
 void Skeleton::update(float gx, float gy, float gz) {
@@ -34,8 +46,64 @@ void Skeleton::update(float gx, float gy, float gz) {
     gy = fminf(20.0f, fmaxf(-20.0f, gy));
     gz = fminf(20.0f, fmaxf(-20.0f, gz));
 
-    // 1. 每帧清零外部牵引力
-    for (int i = 0; i < MAX_NODES; i++) nodes[i].externalForce = 0;
+    maxCollisionSpeed = 0.0f;
+
+    // -------------------------------------------------------------
+    // 【新物理层：节点压力场与形态学原型解算】
+    // -------------------------------------------------------------
+    float totalPressure = 0.0f;
+    int groundContactCount = 0;
+    int ceilingContactCount = 0;
+    int wallContactCount = 0;
+    int cornerContactCount = 0;
+
+    for (int i = 0; i < MAX_NODES; i++) {
+        Node& n = nodes[i];
+        float minDist = getMinDistToSurface(n.x, n.y, n.z);
+        // 基于 ADHESION_RANGE (15.0) 归一化计算压力 [0.0 - 1.0]
+        n.contactPressure = 1.0f - fminf(1.0f, fmaxf(0.0f, minDist / ADHESION_RANGE));
+        totalPressure += n.contactPressure;
+
+        if (minDist < 12.0f) {
+            float dX = CUBE_W - abs(n.x);
+            float dY = CUBE_H - abs(n.y);
+            float dZ = CUBE_D - abs(n.z);
+            
+            int wallsNear = 0;
+            if (dX < 12.0f) wallsNear++;
+            if (dY < 12.0f) wallsNear++;
+            if (dZ < 12.0f) wallsNear++;
+            
+            if (wallsNear >= 2) {
+                cornerContactCount++;
+            } else if (dY == minDist) {
+                if (n.y > 0) groundContactCount++; // 靠近 BOTTOM 地面
+                else ceilingContactCount++;       // 靠近 TOP 天花板
+            } else {
+                wallContactCount++;               // 靠近侧面墙壁/前后屏
+            }
+        }
+    }
+
+    // 联合判定整体形态
+    float avgPressure = totalPressure / MAX_NODES;
+    if (avgPressure < 0.08f) {
+        shapeArchetype = 0; // FREE (空中自由形态)
+    } else if (cornerContactCount >= 2) {
+        shapeArchetype = 4; // CORNER (角落史莱姆形态)
+    } else if (groundContactCount >= ceilingContactCount && groundContactCount >= wallContactCount) {
+        shapeArchetype = 1; // GROUND (底面融化水滴形态)
+    } else if (ceilingContactCount >= groundContactCount && ceilingContactCount >= wallContactCount) {
+        shapeArchetype = 3; // CEILING (悬挂液滴形态)
+    } else {
+        shapeArchetype = 2; // WALL (压扁鼻涕虫形态)
+    }
+
+    // 1. 每帧清零外部牵引力并恢复基础半径 (为后文的体积再分配作底)
+    for (int i = 0; i < MAX_NODES; i++) {
+        nodes[i].externalForce = 0;
+        nodes[i].radius = nodes[i].baseRadius;
+    }
 
     // 2. 计算内部弹簧力和外部触手牵引力 (填充 externalForce)
     applyInternalForces(); 
@@ -101,11 +169,26 @@ void Skeleton::applyAntigravityBehavior(float gx, float gy, float gz) {
         fallingTimer = millis();
     }
 
+    // 1. 计算所有接触墙面节点的投影重心，用于切向扩散力 (Surface Spread Force)
+    float sumX = 0, sumY = 0, sumZ = 0;
+    int contactCount = 0;
+    for (int k = 0; k < MAX_NODES; k++) {
+        if (nodes[k].contactPressure > 0.15f) {
+            sumX += nodes[k].x;
+            sumY += nodes[k].y;
+            sumZ += nodes[k].z;
+            contactCount++;
+        }
+    }
+    float centerX = (contactCount > 0) ? (sumX / contactCount) : 0.0f;
+    float centerY = (contactCount > 0) ? (sumY / contactCount) : 0.0f;
+    float centerZ = (contactCount > 0) ? (sumZ / contactCount) : 0.0f;
+
     for (int i = 0; i < MAX_NODES; i++) {
         Node& n = nodes[i];
         
         // --- 1. 环境感应与应力计算 ---
-        bool onWall = (abs(n.x) >= CUBE_W - STICK_DISTANCE || abs(n.y) >= CUBE_H - STICK_DISTANCE || abs(n.z) >= CUBE_D - STICK_DISTANCE);
+        bool onWall = (abs(n.x) >= CUBE_W - STICK_DISTANCE || abs(n.y) >= CUBE_H - STICK_DISTANCE);
 
         // 计算物理应力
         float stressMag = n.externalForce; 
@@ -121,30 +204,53 @@ void Skeleton::applyAntigravityBehavior(float gx, float gy, float gz) {
             
             stressMag += fmaxf(0, dist - rest) * 8.5f; // 进一步增加拉伸应力权重，使得一旦拉伸立刻剥离
             
-            // 【强制剥离逻辑】如果与父节点距离拉长过大，直接产生巨大应力，彻底拔起尾巴
-            if (dist > rest * 1.5f && !nodes[i-1].is_stuck) {
-                stressMag += 45.0f; 
+            // 【强制剥离逻辑】如果与父节点距离拉长过大，直接产生巨大应力，彻底拔起尾巴（不再受前一节点是否 stuck 的限制）
+            if (dist > rest * 1.25f) {
+                stressMag += 65.0f; 
             }
         }
 
-        // 【核心力学重构：头重尾轻】
-        // 1. 质量估算：半径越大，质量越大，受重力拉扯越猛
-        float massFactor = n.radius / NODE_RADIUS_BASE; 
+        // 【力学重构：拖尾解粘门槛与主动爬行解耦】
+        // 1. 质量估算：半径越大，质量越大，受重力拉扯越猛 (使用 baseRadius 防重算污染)
+        float massFactor = n.baseRadius / NODE_RADIUS_BASE; 
         
-        // 2. 粘附门槛：越细的节点粘得越牢 (反比关系)
-        float baseThreshold = UNSTICK_THRESHOLD * (1.5f - massFactor * 0.8f);
+        // 2. 吸附门槛优化：越往尾部的节点，吸附力越小（防止尾部被粘在原地拽不动）
+        float tailAttenuation = 1.0f - ((float)i / MAX_NODES) * 0.75f; 
+        float baseThreshold = UNSTICK_THRESHOLD * (1.5f - massFactor * 0.8f) * tailAttenuation;
         float dynamicThreshold = baseThreshold;
 
-        // 3. 滞后效应：如果已经粘住了，需要 5 倍的力量才能撕下来 (模拟胶带)
-        if (n.is_stuck) dynamicThreshold *= 5.0f;
+        // 3. 滞后效应：如果已经粘住了，需要 3.5 倍的力量才能撕下来 (比原本的 5.0 倍稍微温和，减少死锁)
+        if (n.is_stuck) {
+            dynamicThreshold *= 3.5f;
+            // 【高空天花板粘性强化】：若处于高空，将门槛再度拔高 2.5 倍
+            if (n.y < -CUBE_H * 0.40f) {
+                dynamicThreshold *= 2.5f;
+            }
+        }
 
-        // 3. 剥离波：如果父节点已撕开，本节点门槛骤降
+        // 4. 【核心突破】主动爬行牵引期门槛骤降：若前部节点有自主牵引目标，解粘门槛降至 20%，全力支持前行！
+        bool hasActivePull = false;
+        for (int k = 0; k <= i; k++) {
+            if (hasTarget[k]) { hasActivePull = true; break; }
+        }
+        if (hasActivePull) {
+            dynamicThreshold *= 0.20f; 
+        }
+
+        // 5. 顺次剥离波：如果前一个节点已经撕开，本节点脱粘门槛大幅降低
         if (i > 0 && !nodes[i-1].is_stuck) dynamicThreshold *= 0.15f; 
         
         bool underHeavyStress = (stressMag > dynamicThreshold); 
         
         float gMag = sqrtf(gx*gx + gy*gy + gz*gz);
         bool externalShock = (gMag > IMU_DETACH_FORCE); 
+        
+        // -------------------------------------------------------------
+        // 【物理重构：静态防滑锁定机制】
+        // -------------------------------------------------------------
+        if (stiffnessMultiplier < 1.5f && !externalShock && !forceDetach) {
+            underHeavyStress = false;
+        }
 
         // --- 2. 剥离与吸附逻辑 (Peeling Logic) ---
         float suctionX = 0, suctionY = 0, suctionZ = 0;
@@ -154,22 +260,32 @@ void Skeleton::applyAntigravityBehavior(float gx, float gy, float gz) {
         if (i > 0 && !nodes[i-1].is_stuck) currentSuctionK *= (PEELING_SOFTEN_RATIO); 
 
         // [整合] 强力吸附逻辑：使用 forceMag = 15.5 进行贴合
-        float dX = CUBE_W - abs(n.x), dY = CUBE_H - abs(n.y), dZ = CUBE_D - abs(n.z);
-        float minDist = fminf(dX, fminf(dY, dZ));
-        if (minDist < 15.0f && !forceDetach) {
+        // 独立解算每个轴向的贴壁强力吸引力，忽略 Z 轴深度混淆，支持多向吸引
+        float dX = CUBE_W - abs(n.x);
+        float dY = CUBE_H - abs(n.y);
+        float minDist = fminf(dX, dY); // 定义 minDist 供后面的切向扩散和各向异性粘附使用
+        
+        if (!forceDetach) {
             float velMag = sqrtf(n.vx*n.vx + n.vy*n.vy + n.vz*n.vz);
             float vAttractionScale = fmaxf(0.1f, 1.0f - velMag / 10.0f);
-            float softZoneScale = (minDist < 0.8f) ? (minDist / 0.8f) : 1.0f;
-            float strength = (1.0f - minDist/15.0f) * 15.5f * vAttractionScale * softZoneScale;
             
-            if (dX == minDist) suctionX = (n.x > 0 ? 1 : -1) * strength;
-            else if (dY == minDist) suctionY = (n.y > 0 ? 1 : -1) * strength;
-            else if (dZ == minDist) suctionZ = (n.z > 0 ? 1 : -1) * strength;
+            if (dX < 15.0f) {
+                float softZoneScale = (dX < 0.8f) ? (dX / 0.8f) : 1.0f;
+                float strengthX = (1.0f - dX/15.0f) * 15.5f * vAttractionScale * softZoneScale;
+                suctionX = (n.x > 0 ? 1 : -1) * strengthX;
+            }
+            if (dY < 15.0f) {
+                float softZoneScale = (dY < 0.8f) ? (dY / 0.8f) : 1.0f;
+                float strengthY = (1.0f - dY/15.0f) * 15.5f * vAttractionScale * softZoneScale;
+                // 天花板高粘性强化
+                if (n.y < 0) {
+                    strengthY *= 2.0f;
+                }
+                suctionY = (n.y > 0 ? 1 : -1) * strengthY;
+            }
         } else if (forceDetach) {
-            // 剥离态下仅保留极微弱回弹
             if (abs(n.x) > CUBE_W - 5.0f) suctionX = (n.x > 0 ? (CUBE_W - n.x) : (-CUBE_W - n.x)) * currentSuctionK;
             if (abs(n.y) > CUBE_H - 5.0f) suctionY = (n.y > 0 ? (CUBE_H - n.y) : (-CUBE_H - n.y)) * currentSuctionK;
-            if (abs(n.z) > CUBE_D - 5.0f) suctionZ = (n.z > 0 ? (CUBE_D - n.z) : (-CUBE_D - n.z)) * currentSuctionK;
         }
 
         if (underHeavyStress || forceDetach) {
@@ -179,47 +295,133 @@ void Skeleton::applyAntigravityBehavior(float gx, float gy, float gz) {
 
         // --- 3. 状态更新与物理积分 ---
         bool canStickState = (dampingMultiplier < 0.7f || dampingMultiplier > 0.9f);
-        if (onWall && !underHeavyStress && !externalShock && canStickState) {
+        
+        bool extremelyHeavyStress = underHeavyStress && (stressMag > dynamicThreshold * 1.5f);
+        bool slidingMode = underHeavyStress && !extremelyHeavyStress && !externalShock && !forceDetach && n.is_stuck;
+
+        if (onWall && !externalShock && canStickState && (!underHeavyStress || slidingMode) && !isSwinging) {
             n.is_stuck = true; 
             n.lastStuckTime = millis();
-            n.vx = 0; n.vy = 0; n.vz = 0; // 粘住状态下严格归零，杜绝任何位移
+            
+            if (slidingMode) {
+                n.vx = n.vx * 0.10f + gx * 0.02f;
+                n.vy = n.vy * 0.10f + gy * 0.02f;
+                n.vz = n.vz * 0.10f + gz * 0.02f;
+            } else {
+                n.vx = 0; n.vy = 0; n.vz = 0; 
+            }
         } else {
-            // 【修正破冰逻辑】降低胶带撕开瞬间的冲量
+            // 【剥离弹射力学】
             if (n.is_stuck) {
                 if (i > 0) {
-                    float dx = nodes[i-1].x - n.x, dy = nodes[i-1].y - n.y, dz = nodes[i-1].z - n.z;
-                    float d = sqrtf(dx*dx+dy*dy+dz*dz);
-                    if (d > 0.1f) {
-                        n.vx += (dx/d) * 1.5f; n.vy += (dy/d) * 1.5f; n.vz += (dz/d) * 1.5f;
-                    }
+                    float dx = nodes[i-1].x - n.x;
+                    float dy = nodes[i-1].y - n.y;
+                    float dz = nodes[i-1].z - n.z;
+                    float d = sqrtf(dx*dx + dy*dy + dz*dz + 0.001f);
+                    
+                    float kickForce = underHeavyStress ? 3.8f : 1.5f; 
+                    n.vx += (dx / d) * kickForce;
+                    n.vy += (dy / d) * kickForce;
+                    n.vz += (dz / d) * kickForce;
                 }
             }
             n.is_stuck = false;
-            // 自由运动：计算抗重力和阻尼
+            
             uint32_t timeSinceStuck = millis() - n.lastStuckTime;
             float viscousResist = (timeSinceStuck < 1500) ? 0.98f : ADHESION_THRESHOLD;
             float gravityResist = (dampingMultiplier < 0.6f) ? 0.98f : viscousResist;
             
             float resist = (isFalling) ? ((millis() - fallingTimer < FALLING_STRUGGLE_MS) ? 0.99f : 0.4f) : gravityResist;
             
-            // 质量力学应用
             float gPull = (1.0f - resist) * (0.2f + massFactor * 1.6f);
-            n.vx += gx * gPull; n.vy += gy * gPull; n.vz += gz * gPull;
             
-            n.vx *= SPRING_DAMPING * dampingMultiplier;
-            n.vy *= SPRING_DAMPING * dampingMultiplier;
-            n.vz *= SPRING_DAMPING * dampingMultiplier;
-
-            // 【核心修正：速度死区】
+            float effGx = gx;
+            float effGy = gy;
+            if (abs(gz) > 7.0f) {
+                effGx = 0.0f;
+                effGy = 9.8f;
+            }
+            
+            float swingGPull = gPull;
+            if (isSwinging) {
+                swingGPull = 0.45f; 
+            }
+            n.vx += effGx * swingGPull; n.vy += effGy * swingGPull; n.vz += gz * swingGPull;
+            
+            if (isSwinging) {
+                n.vx *= 0.82f; 
+                n.vy *= 0.82f;
+                n.vz *= 0.82f;
+            } else {
+                n.vx *= SPRING_DAMPING * dampingMultiplier;
+                n.vy *= SPRING_DAMPING * dampingMultiplier;
+                n.vz *= SPRING_DAMPING * dampingMultiplier;
+            }
+ 
             if (dampingMultiplier < 0.6f && (n.vx*n.vx + n.vy*n.vy + n.vz*n.vz) < 0.02f) {
                 n.vx = 0; n.vy = 0; n.vz = 0;
             }
         }
 
-        // 【核心修正：速度上限重构】
-        // 闲置状态 (Damping ~0.45) 限制在 8.0
-        // 移动状态 (Damping ~0.8) 限制在 25.0
-        // 暴走状态 (ForceDetach) 允许到 100.0
+        // -------------------------------------------------------------
+        // 【新物理层：切向扩散力 (Surface Spread Force) 实现】
+        // -------------------------------------------------------------
+        if (n.contactPressure > 0.15f && contactCount > 1) {
+            float toNodeX = n.x - centerX;
+            float toNodeY = n.y - centerY;
+            float toNodeZ = n.z - centerZ;
+            
+            float normalX = 0, normalY = 0, normalZ = 0;
+            if (minDist == dX) normalX = (n.x > 0) ? 1.0f : -1.0f;
+            else if (minDist == dY) normalY = (n.y > 0) ? 1.0f : -1.0f;
+            else normalZ = (n.z > 0) ? 1.0f : -1.0f;
+            
+            // 投影至切面上
+            float dot = toNodeX * normalX + toNodeY * normalY + toNodeZ * normalZ;
+            float tX = toNodeX - dot * normalX;
+            float tY = toNodeY - dot * normalY;
+            float tZ = toNodeZ - dot * normalZ;
+            
+            float len = sqrtf(tX*tX + tY*tY + tZ*tZ + 0.001f);
+            tX /= len; tY /= len; tZ /= len;
+            
+            float spreadF = n.contactPressure * SPREAD_FORCE_MAG;
+            n.vx += tX * spreadF;
+            n.vy += tY * spreadF;
+            n.vz += tZ * spreadF;
+        }
+
+        // -------------------------------------------------------------
+        // 【新物理层：各向异性粘附投影 (Anisotropic Adhesion) 实现】
+        // -------------------------------------------------------------
+        if (minDist < 6.0f && !forceDetach) {
+            float normalX = 0, normalY = 0, normalZ = 0;
+            if (minDist == dX) normalX = (n.x > 0) ? 1.0f : -1.0f;
+            else if (minDist == dY) normalY = (n.y > 0) ? 1.0f : -1.0f;
+            else normalZ = (n.z > 0) ? 1.0f : -1.0f;
+            
+            float v_dot_n = n.vx * normalX + n.vy * normalY + n.vz * normalZ;
+            float v_nX = v_dot_n * normalX;
+            float v_nY = v_dot_n * normalY;
+            float v_nZ = v_dot_n * normalZ;
+            
+            float v_tX = n.vx - v_nX;
+            float v_tY = n.vy - v_nY;
+            float v_tZ = n.vz - v_nZ;
+            
+            float kNormal = 0.05f;  // 垂直墙面方向极高阻抗，消除脱离和高频抖动
+            float kTangent = 0.96f; // 沿墙滑动阻力极低
+            
+            if (n.is_stuck && !slidingMode) {
+                kTangent = 0.15f; // stuck 时限制切向，使其极难滑移以固形
+            }
+            
+            n.vx = v_nX * kNormal + v_tX * kTangent;
+            n.vy = v_nY * kNormal + v_tY * kTangent;
+            n.vz = v_nZ * kNormal + v_tZ * kTangent;
+        }
+
+        // 限制速度上限
         float maxVel = 25.0f;
         if (forceDetach) maxVel = 100.0f;
         else if (dampingMultiplier < 0.6f) maxVel = 8.0f; 
@@ -232,6 +434,34 @@ void Skeleton::applyAntigravityBehavior(float gx, float gy, float gz) {
 
         // 位移应用
         n.x += n.vx; n.y += n.vy; n.z += n.vz;
+    }
+
+    // -------------------------------------------------------------
+    // 【新物理层：基于接触压力的体积再分配 (Volume Redistribution)】
+    // -------------------------------------------------------------
+    float sumPressure = 0.0f;
+    int freeNodesCount = 0;
+    for (int i = 0; i < MAX_NODES; i++) {
+        sumPressure += nodes[i].contactPressure;
+        if (nodes[i].contactPressure < 0.20f) {
+            freeNodesCount++;
+        }
+    }
+    
+    // 膨胀补偿强度
+    float volumeCompensation = sumPressure * 0.16f; 
+    
+    for (int i = 0; i < MAX_NODES; i++) {
+        Node& n = nodes[i];
+        if (n.contactPressure < 0.20f && freeNodesCount > 0) {
+            // 远离接触面的背部/悬空节点获得膨胀补偿
+            n.radius = n.baseRadius * (1.0f + (volumeCompensation / freeNodesCount) * 4.5f);
+            // 限制最大膨胀上限为 1.45 倍，防止过度畸变
+            if (n.radius > n.baseRadius * 1.45f) n.radius = n.baseRadius * 1.45f;
+        } else {
+            // 接触面上的节点物理半径保持饱满，不进行过度收缩 (至多收缩 4%)
+            n.radius = n.baseRadius * (1.0f - n.contactPressure * 0.04f);
+        }
     }
 
     // 重置状态检测
@@ -283,6 +513,7 @@ void Skeleton::applyInternalForces() {
             }
         }
         else if (stiffnessMultiplier < 0.5f) restDist *= 0.7f; // 闲置时更紧凑
+        else if (isSwinging) restDist *= 0.45f; // 荡秋千状态：极致压缩身体节段间距，抵消强吊挂拉力以保型
 
         if (dist > 0.01f) {
             float stiffness = SPRING_STIFFNESS * powf(SPRING_STIFFNESS_DECAY, i-1) * stiffnessMultiplier;
@@ -310,12 +541,16 @@ void Skeleton::applyInternalForces() {
                 if (forceDetach && delta > 0) {
                     force = powf(delta / restDist, 1.5f) * stiffness * 25.0f * forceScale;
                 } else {
-                    force = delta * stiffness * 0.8f * forceScale; 
+                    if (isSwinging && delta > 0) {
+                        force = delta * stiffness * 4.5f * forceScale; // 荡秋千状态强力保型，将内部刚度提至4.5倍
+                    } else {
+                        force = delta * stiffness * 0.8f * forceScale; 
+                    }
                 }
             }
             
             // 严格限制最大力输出，防止系统发散
-            float maxForce = (stiffnessMultiplier > 1.1f) ? 80.0f : 20.0f; 
+            float maxForce = (stiffnessMultiplier > 1.1f || isSwinging) ? 80.0f : 20.0f; 
             force = fmaxf(-maxForce, fminf(maxForce, force));
             
             // 【质心迁移】计算张力：反映节点的拉伸状态
@@ -335,15 +570,58 @@ void Skeleton::applyInternalForces() {
                 if (i > 0 && hasTarget[i-1]) {
                     backPullScale = 0.05f; 
                 }
+                // 【新物理层：非对称生物拖尾质量分配】
+                // 头部更轻(0.7x)，尾部更重(2.2x)，实现凌厉的头部探索与滞后性极强、长丝流体感的拖尾！
+                float massScale_i = (i <= 2) ? 0.7f : (i >= 7 ? 2.2f : 1.0f);
+                float massScale_prev = ((i-1) <= 2) ? 0.7f : ((i-1) >= 7 ? 2.2f : 1.0f);
+                
+                m_i = (1.0f + ((float)i / MAX_NODES) * 1.5f) * massScale_i;
+                m_prev = (1.0f + ((float)(i-1) / MAX_NODES) * 1.5f) * massScale_prev;
             }
 
-            nodes[i].vx += ((dx / dist) * force) / m_i;
-            nodes[i].vy += ((dy / dist) * force) / m_i;
-            nodes[i].vz += ((dz / dist) * force) / m_i;
+            // 【核心物理重构：粘弹性拉伸松弛】
+            // 毒液作为高粘稠流体，在被拉伸挂墙时，其内部骨骼弹簧刚度应当产生“应力松弛 (Stress Relaxation)”。
+            // 如果处于拉伸状态 (delta > 0) 且并非瞬间爆发态 (stiffnessMultiplier < 1.5f)，我们将刚度维持力减弱 45% (relaxation = 0.55f)，
+            // 这给流体全身骨架提供了极好的柔韧延展与松弛形变空间，是消除僵硬钢丝感的第一步！
+            float relaxation = 1.0f;
+            if (delta > 0 && stiffnessMultiplier < 1.5f && !isSwinging) {
+                relaxation = 0.55f;
+            }
             
-            nodes[i-1].vx -= ((dx / dist) * force * backPullScale) / m_prev;
-            nodes[i-1].vy -= ((dy / dist) * force * backPullScale) / m_prev;
-            nodes[i-1].vz -= ((dz / dist) * force * backPullScale) / m_prev;
+            // 【新物理层：自适应接触面刚度松弛 (Stiffness Relaxation)】
+            // 当相邻节点贴在墙壁上受压时，弹簧恢复刚度会随着压力自适应衰减 (最低可降至 10%)
+            float avgPressure = (nodes[i-1].contactPressure + nodes[i].contactPressure) * 0.5f;
+            if (avgPressure > 0.15f) {
+                relaxation *= (1.0f - avgPressure * 0.85f);
+            }
+            
+            float finalForce = force * relaxation;
+
+            nodes[i].vx += ((dx / dist) * finalForce) / m_i;
+            nodes[i].vy += ((dy / dist) * finalForce) / m_i;
+            nodes[i].vz += ((dz / dist) * finalForce) / m_i;
+            
+            nodes[i-1].vx -= ((dx / dist) * finalForce * backPullScale) / m_prev;
+            nodes[i-1].vy -= ((dy / dist) * finalForce * backPullScale) / m_prev;
+            nodes[i-1].vz -= ((dz / dist) * finalForce * backPullScale) / m_prev;
+
+            // 【核心物理重构：重力悬链线下坠补偿 (Catenary Sag Impulse)】
+            // 解决“被粘在侧壁上时，拉伸的身体是一条极反物理的绝对直线”！
+            // 如果节点处于拉伸挂墙态且未被 stuck 焊死，我们沿着真实的重力方向注入一个与拉伸量成正比的沉坠冲量，
+            // 这模拟了黏糊糊、沉甸甸的沥青胶体顺着重力方向在半空中向下坠落、弯曲成优美悬链线弧形的高保真视觉力学！
+            if (delta > 0 && stiffnessMultiplier < 1.5f) {
+                float sagWeight = (delta / restDist) * 0.16f; // 与拉伸强度正相关的下坠系数
+                if (!nodes[i].is_stuck) {
+                    nodes[i].vx += lastGx * sagWeight;
+                    nodes[i].vy += lastGy * sagWeight;
+                    nodes[i].vz += lastGz * sagWeight;
+                }
+                if (!nodes[i-1].is_stuck) {
+                    nodes[i-1].vx += lastGx * sagWeight;
+                    nodes[i-1].vy += lastGy * sagWeight;
+                    nodes[i-1].vz += lastGz * sagWeight;
+                }
+            }
 
             // 【内部阻尼优化：动态粘滞力】
             float rvx = nodes[i-1].vx - nodes[i].vx;
@@ -388,21 +666,40 @@ void Skeleton::applyInternalForces() {
             float dz = targetZ[i] - nodes[i].z;
             float dist = sqrtf(dx*dx + dy*dy + dz*dz);
             if (dist > 0.01f) {
-                // 【力量平滑】限制单次牵引力的最大值，防止“瞬移”导致的物理逻辑崩溃
-                const float maxPullForce = 25.0f;
-                float k = targetStrength[i] * stiffnessMultiplier * 0.008f; 
-                float fx = dx * k;
-                float fy = dy * k;
-                float fz = dz * k;
+                float fx = 0.0f, fy = 0.0f, fz = 0.0f;
+                float fMag = 0.0f;
                 
-                // 彻底放开牵引力上限，配合内部弹簧传导，使得移动极速干脆
-                float fMagSq = fx*fx + fy*fy + fz*fz;
-                const float maxF = 150.0f; 
-                float fMag = sqrtf(fMagSq);
-                if (fMag > maxF) {
-                    float s = maxF / fMag;
-                    fx *= s; fy *= s; fz *= s;
-                    fMag = maxF;
+                // -------------------------------------------------------------
+                // 【物理重构：秋千悬吊手臂拉长与主体保型机制】
+                // -------------------------------------------------------------
+                // 当处于荡秋千 swing 状态时，头部与挂载点之间被重塑为一个具有 35.0f 像素 rest 臂长的弹簧！
+                // 这将巨大的拉扯形变负荷彻底交由手臂（Bezier 曲线）承担，而让头节点 Node 0 和主体重新维持饱满短小圆润，杜绝过度拉长穿模！
+                if (isSwinging && i == 0) {
+                    const float armRest = 35.0f; // 手臂的物理悬吊静止长度
+                    if (dist > armRest) {
+                        float extension = dist - armRest;
+                        // 精细调校刚度系数，使得悬挂状态既有张力又十分稳固
+                        float k = targetStrength[i] * stiffnessMultiplier * 0.015f; 
+                        fx = (dx / dist) * extension * k * 35.0f; 
+                        fy = (dy / dist) * extension * k * 35.0f; 
+                        fz = (dz / dist) * extension * k * 35.0f; 
+                    }
+                    fMag = sqrtf(fx*fx + fy*fy + fz*fz);
+                } else {
+                    // 正常抓墙/移动锁定引力（静态 rest 长度为 0）
+                    float k = targetStrength[i] * stiffnessMultiplier * 0.008f; 
+                    fx = dx * k;
+                    fy = dy * k;
+                    fz = dz * k;
+                    
+                    float fMagSq = fx*fx + fy*fy + fz*fz;
+                    const float maxF = 150.0f; 
+                    fMag = sqrtf(fMagSq);
+                    if (fMag > maxF) {
+                        float s = maxF / fMag;
+                        fx *= s; fy *= s; fz *= s;
+                        fMag = maxF;
+                    }
                 }
                 
                 nodes[i].vx += fx;
@@ -413,28 +710,6 @@ void Skeleton::applyInternalForces() {
             }
         }
     }
-
-    /* 
-    // 【移除：全节点排斥力】这是产生“身体抖动”的主要根源
-    for (int i = 0; i < MAX_NODES; i++) {
-        for (int j = i + 1; j < MAX_NODES; j++) {
-            float dx = nodes[i].x - nodes[j].x;
-            float dy = nodes[j].y - nodes[i].y; 
-            float dz = nodes[i].z - nodes[j].z;
-            float distSq = dx*dx + dy*dy + dz*dz;
-            float repulsionMult = (stiffnessMultiplier > 1.2f) ? 0.35f : 0.45f;
-            float repulsionDist = (nodes[i].radius + nodes[j].radius) * repulsionMult;
-            if (distSq < repulsionDist * repulsionDist && distSq > 0.001f) {
-                float dist = sqrtf(distSq);
-                float repulsionStrength = (stiffnessMultiplier > 1.2f) ? 0.6f : 0.4f;
-                float force = (repulsionDist - dist) * repulsionStrength;
-                float nx = dx / dist; float ny = dy / dist; float nz = dz / dist;
-                nodes[i].vx += nx * force; nodes[i].vy += ny * force; nodes[i].vz += nz * force;
-                nodes[j].vx -= nx * force; nodes[j].vy -= ny * force; nodes[j].vz -= nz * force;
-            }
-        }
-    }
-    */
 }
 
 void Skeleton::applyConstraints() {
@@ -445,12 +720,42 @@ void Skeleton::applyConstraints() {
         bool heavyImpact = false;
         const float bounce = 0.3f; 
         const float impactThreshold = 2.5f; // 必须有明显的速度撞击才算着陆
-        if (n.x < -CUBE_W) { n.x = -CUBE_W; if (n.vx < -impactThreshold) heavyImpact = true; n.vx = abs(n.vx) * bounce; }
-        if (n.x >  CUBE_W) { n.x =  CUBE_W; if (n.vx >  impactThreshold) heavyImpact = true; n.vx = -abs(n.vx) * bounce; }
-        if (n.y < -CUBE_H) { n.y = -CUBE_H; if (n.vy < -impactThreshold) heavyImpact = true; n.vy = abs(n.vy) * bounce; }
-        if (n.y >  CUBE_H) { n.y =  CUBE_H; if (n.vy >  impactThreshold) heavyImpact = true; n.vy = -abs(n.vy) * bounce; }
-        if (n.z < -CUBE_D) { n.z = -CUBE_D; if (n.vz < -impactThreshold) heavyImpact = true; n.vz = abs(n.vz) * bounce; }
-        if (n.z >  CUBE_D) { n.z =  CUBE_D; if (n.vz >  impactThreshold) heavyImpact = true; n.vz = -abs(n.vz) * bounce; }
+        if (n.x < -CUBE_W) { 
+            n.x = -CUBE_W; 
+            maxCollisionSpeed = fmaxf(maxCollisionSpeed, abs(n.vx));
+            if (n.vx < -impactThreshold) heavyImpact = true; 
+            n.vx = abs(n.vx) * bounce; 
+        }
+        if (n.x >  CUBE_W) { 
+            n.x =  CUBE_W; 
+            maxCollisionSpeed = fmaxf(maxCollisionSpeed, abs(n.vx));
+            if (n.vx >  impactThreshold) heavyImpact = true; 
+            n.vx = -abs(n.vx) * bounce; 
+        }
+        if (n.y < -CUBE_H) { 
+            n.y = -CUBE_H; 
+            maxCollisionSpeed = fmaxf(maxCollisionSpeed, abs(n.vy));
+            if (n.vy < -impactThreshold) heavyImpact = true; 
+            n.vy = -abs(n.vy) * bounce; 
+        }
+        if (n.y >  CUBE_H) { 
+            n.y =  CUBE_H; 
+            maxCollisionSpeed = fmaxf(maxCollisionSpeed, abs(n.vy));
+            if (n.vy >  impactThreshold) heavyImpact = true; 
+            n.vy = -abs(n.vy) * bounce; 
+        }
+        if (n.z < -CUBE_D) { 
+            n.z = -CUBE_D; 
+            maxCollisionSpeed = fmaxf(maxCollisionSpeed, abs(n.vz));
+            if (n.vz < -impactThreshold) heavyImpact = true; 
+            n.vz = abs(n.vz) * bounce; 
+        }
+        if (n.z >  CUBE_D) { 
+            n.z =  CUBE_D; 
+            maxCollisionSpeed = fmaxf(maxCollisionSpeed, abs(n.vz));
+            if (n.vz >  impactThreshold) heavyImpact = true; 
+            n.vz = -abs(n.vz) * bounce; 
+        }
 
         // 【啪嗒着陆保护】只有当节点真实撞穿墙面（即具有朝向墙外的较高速度并越界）时才触发着陆保护
         // 彻底消除了由于弹簧微小弹力将节点压入墙面所导致的假死死锁
@@ -463,6 +768,34 @@ void Skeleton::applyConstraints() {
         n.x = fmaxf(-CUBE_W, fminf(CUBE_W, n.x));
         n.y = fmaxf(-CUBE_H, fminf(CUBE_H, n.y));
         n.z = fmaxf(-CUBE_D, fminf(CUBE_D, n.z));
+    }
+
+    // -------------------------------------------------------------
+    // 【物理重构：双重迭代全局刚性距离投影解算器 (PBD Solver v6.7)】
+    // -------------------------------------------------------------
+    // 通过 2 次几何坐标投影迭代（Double-Iteration Solver），确保骨骼绝对不产生数值发散和拉伸。
+    // 强制限制相邻节点的最大物理空间距离：
+    // - 荡秋千悬挂 (isSwinging) 状态下：严格压死在 3.8f 像素内，使得身体在渲染层绝对保型为超萌的圆形黑糯米滋。
+    // - 其它状态 (Move/Idle 等) 状态下：强制锁在 6.8f 像素内，拉伸量 100% 被触手承担，身体绝对拒绝任何面条状拉长！
+    float maxLimitDist = isSwinging ? 3.8f : 6.8f; 
+    for (int iter = 0; iter < 2; iter++) {
+        for (int i = 1; i < MAX_NODES; i++) {
+            float dx = nodes[i].x - nodes[i-1].x;
+            float dy = nodes[i].y - nodes[i-1].y;
+            float dz = nodes[i].z - nodes[i-1].z;
+            float d = sqrtf(dx*dx + dy*dy + dz*dz);
+            if (d > maxLimitDist && d > 0.01f) {
+                // 几何投影：强行将子节点坐标拉回至 maxLimitDist 刚性边界
+                nodes[i].x = nodes[i-1].x + (dx / d) * maxLimitDist;
+                nodes[i].y = nodes[i-1].y + (dy / d) * maxLimitDist;
+                nodes[i].z = nodes[i-1].z + (dz / d) * maxLimitDist;
+                
+                // 动能衰减与能量分摊，消除残余的物理惯性
+                nodes[i].vx = nodes[i-1].vx * 0.70f;
+                nodes[i].vy = nodes[i-1].vy * 0.70f;
+                nodes[i].vz = nodes[i-1].vz * 0.70f;
+            }
+        }
     }
 }
 

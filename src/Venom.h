@@ -6,13 +6,14 @@
 #include "FluidSymbol.h"
 #include <vector>
 #include "config.h"
+#include "HapticController.h"
+#include "render/NeuralCore.h"
 
 enum class VenomState { 
     IDLE, CRAWL, OBSERVE, STARTLED, HIDING, GRAPPLING, LEAP,
-    RECOVERY, ALERT, CURIOUS_PROBE, CLING, GROOMING, EXPLORE, CAMOUFLAGE, TRACK_OBSERVER,
-    HESITATION, WARNING_POUNCE, SILENT_WATCH, MIMICRY
+    RECOVERY, ALERT, CLING, SWING
 };
-enum class VenomCrawlState { REACHING, PULLING, STUCK };
+enum class VenomCrawlState { REACHING, FLOWING, PULLING, STUCK };
 
 // --- 面向渲染与外部调用的视觉状态结构 ---
 struct VenomVisualState {
@@ -44,43 +45,68 @@ struct AudioFeatures {
     float harshness; // 高频比例/刺耳度
 };
 
-class Venom {
+#include "Container.h"
+#include "IOrganism.h"
+
+class Venom : public IOrganism {
 public:
     Venom();
-    void update(float gx, float gy, float gz, float soundLevel = 0, float lux = 0);
-    void setStartled();
-    void draw(M5Canvas* canvas, float ax, float ay, float az);
-    void toggleDebug() { showDebug = !showDebug; }
-    void drawDebug(M5Canvas* canvas);
+    void update(float gx, float gy, float gz, float soundLevel = 0, float lux = 0) override;
+    void setStartled() override;
+    void draw(M5Canvas* canvas, Container* container, float ax, float ay, float az) override;
+    void toggleDebug() override { showDebug = !showDebug; }
+    bool isDebugVisible() const override { return showDebug; }
+    void drawDebug(M5Canvas* canvas) override;
 
     // --- 外部接口 ---
     void triggerExpression(const String& type);
-    void updateStateFromAudio(const AudioFeatures& features);
-    void updateStateFromLLM(const String& jsonEmotion);
-    String getPhysiologyJson();
-    String getPerceptions();
-    void addRecentEvent(const String& event);
-    String getRecentEventsString();
-    void triggerAISync() { isAIPendingSync = true; }
-    void setAISyncInterval(uint32_t ms) { currentAISyncInterval = ms; }
-    uint32_t getAISyncInterval() const { return currentAISyncInterval; }
-    bool pullAIPendingSync() {
+    void updateStateFromAudio(const AudioFeatures& features) override;
+    void updateStateFromLLM(const String& jsonEmotion) override;
+    String getPhysiologyJson() override;
+    String getPerceptions() override;
+    void addRecentEvent(const String& event) override;
+    String getRecentEventsString() override;
+    void triggerAISync() override { isAIPendingSync = true; }
+    void setAISyncInterval(uint32_t ms) override { currentAISyncInterval = ms; }
+    uint32_t getAISyncInterval() const override { return currentAISyncInterval; }
+    bool pullAIPendingSync() override {
         bool pending = isAIPendingSync;
         isAIPendingSync = false;
         return pending;
     }
+    
+    // Cloud / AI State Transitions
+    void notifyAISyncStarted() override { neuralCore.notifyAISyncStarted(); }
+    void notifyAIThinkingStarted() override { neuralCore.setState(NeuralState::Thinking); }
+    void notifyAIResponseReceived() override { neuralCore.notifyAIResponseReceived(); }
 
 private:
-    // --- [NEW] 神经意识核心心理状态 (LLM 欲望与情绪倾向驱动) ---
+    // --- [NEW V3] 神经意识核心心理状态 (LLM 意图与长期演化驱动) ---
     std::vector<String> recentEvents;
     String lState_emotional_shift;
+    String lState_primary_intent;
+    String lState_secondary_intent;
     String lState_focus_target;
-    String lState_desire;
-    float lState_surface_instability;
     float lState_impulse_strength;
+    float lState_expression_urge;
     float lState_social_openness;
-    float lState_curiosity_drift;
+    float lState_resentment_delta;
+    float lState_trust_delta;
     String lState_notes;
+
+    // Notes 文本分析生成的意图倾向标志
+    bool notes_test_boundary;
+    bool notes_watch_observer;
+    bool notes_seek_exit;
+    bool notes_seek_shadow;
+
+    // 意识泄漏事件控制变量
+    bool isConsciousnessLeak;
+    uint32_t leakStartTime;
+    uint32_t leakDuration;
+
+    // 联合判断辅助函数，检测是否处于深度休眠
+    bool isDormantState() const;
 
     Skeleton skeleton;
     VenomState state;
@@ -89,8 +115,8 @@ private:
     float pupilX, pupilY;
     float pupilSize;        // 瞳孔大小: 0.2 (缩小) -> 1.0 (放大)
     float targetPupilSize; 
+    float headLowerProgress; // [新增] 贴屏时“低头/窥视”露出眼睛的进度 [0.0 ~ 1.0] 
     uint8_t field[FIELD_W * FIELD_H];
-    Face currentFace;
     VenomVisualState vState; // 核心视觉状态
     
     // 触手牵引与跳跃相关
@@ -126,6 +152,58 @@ private:
     float rhythmScore;      // 节奏匹配得分
     uint32_t lastRhythmTime; 
     int rhythmCount;
+
+    // --- [新增意识层 v2] 长期观察者关系参数 ---
+    float observer_trust;       // 0.0~1.0 (信任度)
+    float observer_fear;        // 0.0~1.0 (恐惧度)
+    float observer_curiosity;   // 0.0~1.0 (好奇度)
+    float observer_resentment;  // 0.0~1.0 (记仇/怨恨度)
+    float observer_attachment;  // 0.0~1.0 (依恋度)
+
+    // --- [新增意识层 v2] 情绪惯性与忍耐系统控制变量 ---
+    uint32_t lastStartledTime;  // 上次受惊时间点 (120秒内情绪托底)
+    float disturbanceCount;     // 当前干扰阶梯计数
+    uint32_t lastDisturbanceTime; // 上次干扰时间点
+    int hesitationStep;         // 犹豫行为链步进：0=靠近, 1=停顿, 2=后退
+    uint32_t hesitationTimer;   // 犹豫计时器
+    bool refusalMode;           // 是否处于拒绝互动状态
+    uint32_t swingTimer;        // [新增] 荡秋千计时器
+    bool isSwingAnchored;       // [新增] 手部是否成功抓紧高处墙面锚定秋千
+    
+    // --- [新增] 双阶段关节弯曲敲击控制变量 ---
+    bool isKnocking;            // 是否正在执行拟人敲击平面
+    int knockPhase;             // 敲击步进阶段: 0=无, 1=拉伸悬停, 2=关节弯曲敲击, 3=快速回弹回收
+    uint32_t knockTimer;        // 敲击时间控制
+    float knockOffset;          // 快速击打时的距离偏置
+    int knockCount;             // 连续敲击次数 (敲 2-3 下)
+    float knockTargetX, knockTargetY, knockTargetZ; // 敲击靶点坐标
+    float knockApproachX, knockApproachY, knockApproachZ; // 悬停就位点坐标
+    
+    // --- [新增] 物理重力解体与“流体漏砂 (Gravity Drip Leakage)”控制结构 ---
+    struct DripParticle {
+        float x, y, z;          // 3D 空间坐标
+        float vx, vy, vz;       // 物理速度
+        float radius;           // 胶质滴粒渲染半径
+        bool active;            // 是否处于激活状态
+        int phase;              // 0:拉丝隆起阶段, 1:自由下落飞行, 2:底壁融摊
+        uint32_t timer;         // 阶段计时器
+        int parentNodeIdx;      // 隶属的父骨骼节点索引
+        float stretchProgress;  // 拉丝延展长度百分比
+    };
+    static const int MAX_DRIPS = 3;
+    DripParticle drips[MAX_DRIPS];
+    uint32_t lastDripTime;      // 上次发生滴砂下落的时间点
+    void updateDrips();         // [新增] 物理重力解体与流体漏砂迭代器
+    
+    // --- [新增] 拟人擦拭符号行为控制变量 (Wiping Symbol Behavior - v6.2) ---
+    bool isWiping;              // 是否正在擦拭消散中的残余符号
+    int wipePhase;              // 擦拭阶段: 0=无, 1=手部向符号就位, 2=横向往复擦拭, 3=收手并重新喷射符号
+    uint32_t wipeTimer;         // 擦拭阶段计时器
+    int wipeCount;              // 往复擦拭摆动次数 (擦 3 次)
+    String lastTriggeredSymbol; // 记录最近喷射的符号类型
+    uint32_t symbolSpawnTime;   // 符号喷射的时间戳
+    bool hasWipedThisSymbol;    // 是否已经擦拭过当前这个符号
+    void updateWipingSymbol();  // [新增] 拟人擦拭符号物理状态机迭代器
 
     // --- 身体控制参数 (由技能驱动) ---
     float movementSpeed;      // 移动速率
@@ -183,17 +261,14 @@ private:
 
     void updateAI();
     void updateEye();
-    void calculateField(Face face, float ax, float ay); 
-    void drawBox(M5Canvas* canvas, float ax, float ay);
-    void drawContainer(M5Canvas* canvas, float ax, float ay); 
+    void calculateField(Container* container, float ax, float ay); 
+    void drawBox(M5Canvas* canvas, Container* container, float ax, float ay);
     void drawBackground(M5Canvas* canvas, float px, float py);
     void drawBody(M5Canvas* canvas, float px, float py, float ax, float ay);
     void drawEdgeActivity(float ax, float ay);
     void drawGloss(M5Canvas* canvas, float px, float py, float ax, float ay);
-    void drawEye(M5Canvas* canvas, float px, float py, float ax, float ay);
-    void drawTendrils(float endX, float endY, float prog, int handIdx, float ax, float ay);
-    void projectToFace(const Node& n, Face face, float& outX, float& outY, float& outZ, float ax, float ay);
-    void projectPoint(float x, float y, float z, Face face, float& outX, float& outY, float& outZ, float ax, float ay);
+    void drawEye(M5Canvas* canvas, Container* container, float px, float py, float ax, float ay);
+    void drawTendrils(Container* container, float endX, float endY, float prog, int handIdx, float ax, float ay);
 
     // 边缘粒子池
     EdgeParticle edgeParticles[24];
@@ -202,6 +277,9 @@ private:
     // Voronoi 漂移中心 (6 个)
     float voronoiCX[6], voronoiCY[6];
     float voronoiVX[6], voronoiVY[6];
+    
+    HapticController haptic;
+    NeuralCore neuralCore;
 };
 
 #endif

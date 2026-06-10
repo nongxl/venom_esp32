@@ -33,7 +33,7 @@ const int FastNoise::p[] = { 151,160,137,91,90,15,
 };
 
 
-Venom::Venom() : state(VenomState::IDLE), stateTimer(0), currentFace(FRONT) {
+Venom::Venom() : state(VenomState::IDLE), stateTimer(0) {
     targetX = 0; targetY = 0; targetZ = CUBE_D;
     pupilX = 0; pupilY = 0;
     grappleProgress = 0;
@@ -100,6 +100,7 @@ Venom::Venom() : state(VenomState::IDLE), stateTimer(0), currentFace(FRONT) {
 
     pupilSize = 0.5f;
     targetPupilSize = 0.5f;
+    headLowerProgress = 0.0f; // [初始化] 贴屏窥视进度
     expressionDesire = 0;
     rhythmScore = 0;
     lastRhythmTime = 0;
@@ -120,6 +121,30 @@ Venom::Venom() : state(VenomState::IDLE), stateTimer(0), currentFace(FRONT) {
     currentFPS = 0;
     lastFrameTime = millis();
     lastLLMResponseTime = 0;
+
+    // V3 意识层初值初始化
+    lState_emotional_shift = "calm";
+    lState_primary_intent = "watch_observer";
+    lState_secondary_intent = "";
+    lState_focus_target = "observer";
+    lState_impulse_strength = 0.5f;
+    lState_expression_urge = 0.3f;
+    lState_social_openness = 0.4f;
+    lState_resentment_delta = 0.0f;
+    lState_trust_delta = 0.0f;
+    lState_notes = "";
+
+    notes_test_boundary = false;
+    notes_watch_observer = false;
+    notes_seek_exit = false;
+    notes_seek_shadow = false;
+
+    isConsciousnessLeak = false;
+    leakStartTime = 0;
+    leakDuration = 0;
+
+    hesitationStep = -1;
+    hesitationTimer = 0;
 }
 
 void Venom::update(float gx, float gy, float gz, float soundLevel, float lux) {
@@ -153,19 +178,42 @@ void Venom::update(float gx, float gy, float gz, float soundLevel, float lux) {
 
     // --- 核心移动逻辑：伸缩拉动循环 ---
     bool isMovingState = (state == VenomState::GRAPPLING || state == VenomState::HIDING || 
-                          state == VenomState::OBSERVE || state == VenomState::CURIOUS_PROBE || 
-                          state == VenomState::CLING || state == VenomState::TRACK_OBSERVER ||
-                          state == VenomState::MIMICRY);
+                          state == VenomState::OBSERVE || state == VenomState::CLING || 
+                          state == VenomState::CRAWL || state == VenomState::SWING);
 
     if (isMovingState) {
+        Node& head = skeleton.getNode(0);
         if (crawlCycle == VenomCrawlState::REACHING) {
             // 伸手阶段：手部向目标移动，增加一点张力准备拉扯
             skeleton.setDynamicPhysics(bodyTension * 1.2f, bodyDamping);
+            skeleton.setRestLengthScale(1.0f); // 保证常态
             if (handProgressL >= 1.0f && handProgressR >= 1.0f) {
-                crawlCycle = VenomCrawlState::PULLING;
+                crawlCycle = VenomCrawlState::FLOWING;
                 crawlTimer = millis();
             }
         } 
+        else if (crawlCycle == VenomCrawlState::FLOWING) {
+            // 【新物理阶段：FLOWING 粘性流动】
+            // 伸手锚定之后，头部首先温和拉伸，内部骨架刚度降低至20%，骨骼间距拉大至 1.8倍
+            // 这让身体产生极其惊艳优雅的液态细长拉丝流动，而不是僵硬的一体挪移！
+            float tx = (activeHand == 0) ? handLX : handRX;
+            float ty = (activeHand == 0) ? handLY : handRY;
+            float tz = (activeHand == 0) ? handLZ : handRZ;
+            
+            float pullForce = PULL_FORCE_MAGNITUDE * speedMult * pullForceScale * 0.45f; 
+            skeleton.setTargetNode(0, tx, ty, tz, pullForce);
+            
+            skeleton.setDynamicPhysics(bodyTension * 0.20f, 0.85f);
+            skeleton.setRestLengthScale(1.8f);
+            
+            vState.lastMoveTime = millis();
+
+            // 流变流动 600ms 后，全身收缩紧绷进入 PULLING 收尾
+            if (millis() - crawlTimer > 600) {
+                crawlCycle = VenomCrawlState::PULLING;
+                crawlTimer = millis();
+            }
+        }
         else if (crawlCycle == VenomCrawlState::PULLING) {
             // 拉动阶段：利用锚点物理拉扯身体
             float tx = (activeHand == 0) ? handLX : handRX;
@@ -179,8 +227,9 @@ void Venom::update(float gx, float gy, float gz, float soundLevel, float lux) {
             float pullForce = PULL_FORCE_MAGNITUDE * speedMult * pullForceScale; 
             skeleton.setTargetNode(0, tx, ty, tz, pullForce);
             
-            // 【肌肉爆发力重构】爬行时强制进入高张力模式，张力 2.8 (极硬) + 动能保留 0.85 (极滑)，确保拉力瞬间传导
+            // 【肌肉爆发力重构】收缩收尾时刚度大幅提升 (2.8)，同时恢复 restLengthScale 为常态 1.0 迫使尾部回弹跟上
             skeleton.setDynamicPhysics(2.8f, 0.85f);
+            skeleton.setRestLengthScale(1.0f);
             vState.lastMoveTime = millis(); // 保持计时器更新
 
             // 【核心重构】动态完成判定：不再死等时间，而是看尾巴有没有跟上
@@ -209,6 +258,7 @@ void Venom::update(float gx, float gy, float gz, float soundLevel, float lux) {
             }
             // 就位休止：在墙面上完全放松
             skeleton.setDynamicPhysics(bodyTension * 0.7f, bodyDamping * 0.7f); 
+            skeleton.setRestLengthScale(1.0f); // 保证常态
             if (millis() - crawlTimer > (uint32_t)(movementPause / (0.5f + speedMult * 0.5f))) {
                 selectNewCrawlTarget();
                 crawlCycle = VenomCrawlState::REACHING;
@@ -385,7 +435,8 @@ void Venom::update(float gx, float gy, float gz, float soundLevel, float lux) {
 }
 
 void Venom::updateEye() {
-    if (currentSkillName == "sleep") {
+    // V3: 睡觉时眼睛闭上或处于休眠状态
+    if (currentSkillName == "rest" && (fatigue > 0.7f || isDormantState())) {
         pupilX = 0.0f;
         pupilY = 0.0f;
         isBlinking = false;
@@ -395,7 +446,7 @@ void Venom::updateEye() {
     uint32_t now = millis();
     
     // 好奇/观察时的眼部扫描逻辑
-    bool isScanning = (currentSkillName == "observe_user" || currentSkillName == "curious_probe" || currentSkillName == "trust_observe");
+    bool isScanning = (currentSkillName == "observe");
     int scanChance = isScanning ? 12 : 5; // 增加扫描频率
 
     if (random(100) < scanChance) {
@@ -415,6 +466,15 @@ void Venom::updateEye() {
     if (isBlinking && now - lastBlinkTime > 150) {
         isBlinking = false;
     }
+
+    // 贴屏低头窥视物理进度动态计算 (平滑插值)
+    // 只有在主动观察 (observe) 或 交互 (interact) 或 探索 (explore，需好奇心较高) 时，才会在贴屏时触发低头张望
+    float targetLower = 0.0f;
+    if (currentSkillName == "observe" || currentSkillName == "interact" || (currentSkillName == "explore" && curiosity > 0.6f)) {
+        // 呼吸式或者随机式的低头张望 [0.4 ~ 0.95]
+        targetLower = 0.4f + 0.55f * (0.5f + 0.5f * sinf(now * 0.002f)); 
+    }
+    headLowerProgress = headLowerProgress * 0.9f + targetLower * 0.1f;
 }
 
 void Venom::setStartled() {
@@ -464,31 +524,37 @@ void Venom::selectNewCrawlTarget() {
     // 始终有一定概率尝试贴近屏幕 (FRONT)
     if (random(100) < 40) wall = FRONT;
 
-    // 根据技能覆盖目标
-    if (currentSkillName == "observe_user" || currentSkillName == "track_observer" || currentSkillName == "curious_probe" || currentSkillName == "trust_observe") {
+    // --- V3 领地与偏好巢穴机制 ---
+    // 领地 Nesting: 如果有高依恋或在此处休息，高概率回到固定巢穴区域
+    bool useTerritory = false;
+    if (currentSkillName == "rest" && (observer_attachment > 0.5f || random(100) < 35)) {
+        if (memory.territoryX != 0.0f || memory.territoryY != 0.0f || memory.territoryZ != 0.0f) {
+            useTerritory = true;
+        }
+    }
+
+    if (useTerritory) {
+        targetX = memory.territoryX + random(-8, 9);
+        targetY = memory.territoryY + random(-8, 9);
+        targetZ = memory.territoryZ + random(-4, 5);
+        targetX = fmaxf(-CUBE_W + 2, fminf(CUBE_W - 2, targetX));
+        targetY = fmaxf(-CUBE_H + 2, fminf(CUBE_H - 2, targetY));
+        targetZ = fmaxf(-CUBE_D + 2, fminf(CUBE_D - 2, targetZ));
+    }
+    // --- 基于 8 个 Base Skills 与 Emotion / Desire Modifiers 进行目标选择 ---
+    else if (currentSkillName == "observe") {
+        // 观察：尝试贴近 Front 屏幕
         targetX = random(-CUBE_W * 0.7f, CUBE_W * 0.7f);
         targetY = random(-CUBE_H * 0.7f, CUBE_H * 0.7f);
-        targetZ = (currentSkillName == "curious_probe") ? CUBE_D * 0.6f : CUBE_D; 
-    } else if (currentSkillName == "warning") {
-        targetX = random(-5, 6);
-        targetY = random(-5, 6);
-        targetZ = CUBE_D + 10.0f; // 冲出屏幕感
-    } else if (currentSkillName == "hesitation") {
-        static bool push = true;
-        targetX = random(-30, 31);
-        targetY = random(-30, 31);
-        targetZ = push ? CUBE_D : CUBE_D * 0.4f;
-        push = !push;
-    } else if (currentSkillName == "cling" || currentSkillName == "trust_observe") {
-        targetX = random(-15, 16);
-        targetY = random(-15, 16);
-        targetZ = CUBE_D;
-    } else if (currentSkillName == "mimicry") {
-        static float phase = 0; phase += 1.5f;
-        targetX = sinf(phase) * CUBE_W * 0.6f;
-        targetY = cosf(phase * 0.5f) * CUBE_H * 0.4f;
-        targetZ = CUBE_D * 0.8f;
-    } else if (currentSkillName == "hiding" || currentSkillName == "camouflage" || isShy) {
+        
+        // Trust vs Fear Modifier:
+        // 信任高更贴近前面，恐惧高更往后缩离得远一点
+        float zOffset = observer_trust * 10.0f - observer_fear * 15.0f;
+        targetZ = CUBE_D + zOffset;
+        targetZ = fmaxf(-CUBE_D + 2, fminf(CUBE_D - 2, targetZ));
+        
+    } else if (currentSkillName == "hide" || isShy) {
+        // 隐藏：退到后壁 (BACK) 或角落边缘
         int hideType = random(100);
         float nextX = 0, nextY = 0, nextZ = 0;
 
@@ -496,33 +562,43 @@ void Venom::selectNewCrawlTarget() {
             wall = (random(100) < 50) ? TOP : BOTTOM;
             nextX = random(-CUBE_W * 0.6f, CUBE_W * 0.6f);
             nextY = (wall == TOP) ? -CUBE_H : CUBE_H;
-            nextZ = CUBE_D + 2.0f; // 紧贴并压在玻璃边缘
-        } else if (hideType < 75 || currentSkillName == "camouflage") {
+            nextZ = CUBE_D + 2.0f; // 压在玻璃边缘
+        } else if (hideType < 75) {
             wall = BACK;
             nextX = random(-CUBE_W, CUBE_W); nextY = random(-CUBE_H, CUBE_H); nextZ = -CUBE_D;
         } else {
             wall = (random(100) < 50) ? LEFT : RIGHT;
             nextX = (wall == LEFT) ? -CUBE_W : CUBE_W; nextY = random(-CUBE_H, CUBE_H); nextZ = random(-CUBE_D, CUBE_D);
         }
-        
         targetX = nextX; targetY = nextY; targetZ = nextZ;
+        
     } else if (currentSkillName == "explore") {
-        if (random(100) < 30) {
-            targetX = memory.territoryX + random(-20, 21);
-            targetY = memory.territoryY + random(-20, 21);
-            targetZ = memory.territoryZ + random(-5, 6);
+        // 探索：游走，Curiosity Modifiers 好奇心高探索范围更大
+        float rScale = 0.5f + curiosity * 0.5f; 
+        targetX = random(-CUBE_W * rScale, CUBE_W * rScale);
+        targetY = random(-CUBE_H * rScale, CUBE_H * rScale);
+        targetZ = random(-CUBE_D * rScale, CUBE_D * rScale);
+        
+    } else if (currentSkillName == "interact") {
+        // 交互：荡秋千挂载或拍前玻璃
+        if (random(100) < 40 && observer_trust > 0.4f) {
+            targetX = random(-CUBE_W * 0.5f, CUBE_W * 0.5f);
+            targetY = random(-CUBE_H * 0.5f, CUBE_H * 0.5f);
+            targetZ = CUBE_D;
         } else {
-            wall = random(6);
+            // 抓天花板
+            if (abs(gx) > abs(gy)) wall = (gx > 0) ? LEFT : RIGHT;
+            else wall = (gy > 0) ? TOP : BOTTOM;
+            
             float nextX = 0, nextY = 0, nextZ = 0;
-            if (wall == LEFT) { nextX = -CUBE_W; nextY = random(-CUBE_H, CUBE_H); nextZ = random(-CUBE_D, CUBE_D); }
-            else if (wall == RIGHT) { nextX = CUBE_W; nextY = random(-CUBE_H, CUBE_H); nextZ = random(-CUBE_D, CUBE_D); }
-            else if (wall == TOP) { nextX = random(-CUBE_W, CUBE_W); nextY = -CUBE_H; nextZ = random(-CUBE_D, CUBE_D); }
-            else if (wall == BOTTOM) { nextX = random(-CUBE_W, CUBE_W); nextY = CUBE_H; nextZ = random(-CUBE_D, CUBE_D); }
-            else if (wall == BACK) { nextX = random(-CUBE_W, CUBE_W); nextY = random(-CUBE_H, CUBE_H); nextZ = -CUBE_D; }
-            else { nextX = random(-CUBE_W, CUBE_W); nextY = random(-CUBE_H, CUBE_H); nextZ = CUBE_D; } 
+            if (wall == LEFT) { nextX = -CUBE_W; nextY = random(-CUBE_H*0.5f, CUBE_H*0.5f); nextZ = random(-CUBE_D*0.5f, CUBE_D*0.5f); }
+            else if (wall == RIGHT) { nextX = CUBE_W; nextY = random(-CUBE_H*0.5f, CUBE_H*0.5f); nextZ = random(-CUBE_D*0.5f, CUBE_D*0.5f); }
+            else if (wall == TOP) { nextX = random(-CUBE_W*0.5f, CUBE_W*0.5f); nextY = -CUBE_H; nextZ = random(-CUBE_D*0.5f, CUBE_D*0.5f); }
+            else if (wall == BOTTOM) { nextX = random(-CUBE_W*0.5f, CUBE_W*0.5f); nextY = CUBE_H; nextZ = random(-CUBE_D*0.5f, CUBE_D*0.5f); }
             targetX = nextX; targetY = nextY; targetZ = nextZ;
         }
     } else {
+        // 默认通用目标（REST, MOVE, EXPRESS, RECOVER 等的兜底）
         float nextX = 0, nextY = 0, nextZ = 0;
         if (wall == LEFT) { nextX = -CUBE_W; nextY = random(-CUBE_H, CUBE_H); nextZ = random(-CUBE_D, CUBE_D); }
         else if (wall == RIGHT) { nextX = CUBE_W; nextY = random(-CUBE_H, CUBE_H); nextZ = random(-CUBE_D, CUBE_D); }
@@ -532,16 +608,20 @@ void Venom::selectNewCrawlTarget() {
         targetX = nextX; targetY = nextY; targetZ = nextZ;
     }
 
-    // 【架构级修复】活动手重置进度，不活跃手标记为“已回收”
+    // 活动手和进度重置
     if (random(100) < 50) {
         handLX = targetX; handLY = targetY; handLZ = targetZ;
         handProgressL = 0;
         activeHand = 0;
-        handProgressR = 1.0f; // 右手立即标记为已收回
+        handProgressR = 1.0f; 
     } else {
         handRX = targetX; handRY = targetY; handRZ = targetZ;
         handProgressR = 0;
         activeHand = 1;
-        handProgressL = 1.0f; // 左手立即标记为已收回
+        handProgressL = 1.0f;
     }
+}
+
+bool Venom::isDormantState() const {
+    return (lState_emotional_shift == "exhausted" || (lState_primary_intent == "seek_safety" && fatigue > 0.6f));
 }

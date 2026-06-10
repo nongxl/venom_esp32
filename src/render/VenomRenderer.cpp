@@ -4,51 +4,78 @@
 #include "../Noise.h"
 #include "../Skills.h"
 
-void Venom::projectToFace(const Node& n, Face face, float& outX, float& outY, float& outZ, float ax, float ay) {
-    projectPoint(n.x, n.y, n.z, face, outX, outY, outZ, ax, ay);
-}
 
-void Venom::projectPoint(float x, float y, float z, Face face, float& outX, float& outY, float& outZ, float ax, float ay) {
-    float u = 0, v = 0, depth = 0;
-    const float baseScale = (float)SCREEN_W / (CUBE_W * 2.5f); 
-    const float cx = SCREEN_W / 2.0f, cy = SCREEN_H / 2.0f;
 
-    switch (face) {
-        case FRONT:  u = x;  v = y;  depth = CUBE_D - z; break;
-        case BACK:   u = -x; v = y;  depth = z + CUBE_D; break;
-        case LEFT:   u = z;  v = y;  depth = x + CUBE_W; break;
-        case RIGHT:  u = -z; v = y;  depth = CUBE_W - x; break;
-        case TOP:    u = x;  v = -z; depth = CUBE_D - y; break;
-        case BOTTOM: u = x;  v = z;  depth = y + CUBE_H; break;
-    }
-    
-    // 【核心增强】显著提升透视位移系数与基础深度感
-    const float tiltFactor = 4.5f; 
-    u += depth * (ay * tiltFactor); 
-    v -= depth * (ax * tiltFactor); 
-
-    // 增强近大远小效果：将透视基准从 250 降至 180
-    float perspective = 180.0f / (180.0f + depth); 
-    outX = cx + u * baseScale * perspective;
-    outY = cy + v * baseScale * perspective;
-    outZ = depth;
-}
-
-void Venom::calculateField(Face face, float ax, float ay) {
+void Venom::calculateField(Container* container, float ax, float ay) {
     memset(field, 0, sizeof(field));
     float gMag = sqrtf(ax*ax + ay*ay);
     bool isStartled = (currentSkillName == "startled");
+
+    // 呼吸相位差辅助解算器
+    auto calcNodeBreathing = [&](float nodeIdx) -> float {
+        float breathRange = BREATH_RANGE_BASE + stress * 0.15f;
+        if (millis() - lastStartledTime < 120000) {
+            breathRange *= 0.5f;
+        }
+        if (observer_trust > 0.6f) {
+            breathRange *= 1.3f;
+        }
+        return 1.0f + sinf(breathingPhase - nodeIdx * 0.45f) * breathRange;
+    };
     
-    auto drawBlob = [&](float mx, float my, float mz, float nodeRadius, float vx, float vy, float vz) {
+    auto drawBlob = [&](float mx, float my, float mz, float nodeRadius, float vx, float vy, float vz, float nodeBreathing, int nodeIdx) {
+        const Node& n = skeleton.getNode(nodeIdx);
+        float pressure = n.contactPressure;
+        
+        float render_mx = mx;
+        float render_my = my;
+        float render_mz = mz;
+        float render_radius = nodeRadius;
+        
+        // -------------------------------------------------------------
+        // 【非对称贴墙饱满膨胀与偏移机制 (Asymmetric Adhesion Swell & Offset)】
+        // -------------------------------------------------------------
+        if (pressure > 0.0f) {
+            float dX_left = mx - (-CUBE_W);
+            float dX_right = CUBE_W - mx;
+            float dY_top = my - (-CUBE_H);
+            float dY_bottom = CUBE_H - my;
+            
+            float threshold = 15.0f;
+            float rx_offset = 0.0f;
+            float ry_offset = 0.0f;
+            
+            if (dX_left < threshold) {
+                // 受左侧挤压，中心朝右偏移
+                rx_offset += (1.0f - dX_left / threshold) * nodeRadius * 0.45f;
+            }
+            if (dX_right < threshold) {
+                // 受右侧挤压，中心朝左偏移
+                rx_offset -= (1.0f - dX_right / threshold) * nodeRadius * 0.45f;
+            }
+            if (dY_top < threshold) {
+                // 受顶侧挤压，中心朝下偏移
+                ry_offset += (1.0f - dY_top / threshold) * nodeRadius * 0.45f;
+            }
+            if (dY_bottom < threshold) {
+                // 受底侧挤压，中心朝上偏移
+                ry_offset -= (1.0f - dY_bottom / threshold) * nodeRadius * 0.45f;
+            }
+            
+            render_mx += rx_offset;
+            render_my += ry_offset;
+            render_radius = nodeRadius * (1.0f + 0.38f * pressure);
+        }
+
         float px, py, pz;
-        projectPoint(mx, my, mz, face, px, py, pz, ax, ay);
+        container->projectPoint(render_mx, render_my, render_mz, container->currentFace, px, py, pz, ax, ay);
         if (pz > 150.0f) return;
         
         float perspective = 200.0f / (200.0f + pz);
         
         // 【物理对齐修复】获取投影后的 2D 速度矢量
         float px2, py2, pz2;
-        projectPoint(mx + vx * 0.1f, my + vy * 0.1f, mz + vz * 0.1f, face, px2, py2, pz2, ax, ay);
+        container->projectPoint(render_mx + vx * 0.1f, render_my + vy * 0.1f, render_mz + vz * 0.1f, container->currentFace, px2, py2, pz2, ax, ay);
         float v2dx = px2 - px;
         float v2dy = py2 - py;
         float vMag = sqrtf(v2dx*v2dx + v2dy*v2dy) * 10.0f;
@@ -60,7 +87,15 @@ void Venom::calculateField(Face face, float ax, float ay) {
         if (isStartled) thinning = fmaxf(0.75f, thinning); // 确保即便高速下也不要细过 0.75
         
         // 引入呼吸起伏 (Breathing effect)
-        float r = (nodeRadius * VISUAL_RADIUS_MULT + VISUAL_RADIUS_OFFSET) * vState.body_scale * thinning * breathingIntensity * powf(perspective, 0.8f) / FIELD_SCALE;
+        float r = (render_radius * VISUAL_RADIUS_MULT + VISUAL_RADIUS_OFFSET) * vState.body_scale * thinning * nodeBreathing * powf(perspective, 0.8f) / FIELD_SCALE;
+
+        // 张力引起的各向异性形变比例 (Tension-induced anisotropy)
+        // 呼吸胀大时如果是强吸气 (nodeBreathing > 1.0)，自动拉伸，体现“张力拉伸”
+        float breathTensionFactor = fmaxf(0.0f, nodeBreathing - 1.0f) * 0.8f;
+        float finalTension = vState.surface_tension + breathTensionFactor;
+        
+        float tStretch = 1.0f + 0.35f * finalTension;
+        float nSqueeze = 1.0f + 0.15f * finalTension;
 
         float nx1 = px / FIELD_SCALE, ny1 = py / FIELD_SCALE;
         float nx0 = (px - v2dx * trailScale * 0.5f) / FIELD_SCALE;
@@ -80,15 +115,50 @@ void Venom::calculateField(Face face, float ax, float ay) {
             for (int x = fmaxf(0, rx_min); x < fminf(FIELD_W, rx_max); x++) {
                 // 计算点到线段 (Capsule) 的距离
                 float dist_px;
+                float proj_x, proj_y;
                 if (l2 < 0.001f) {
-                    float dx = x - nx1, dy = y - ny1;
-                    dist_px = sqrtf(dx*dx + dy*dy);
+                    proj_x = nx1;
+                    proj_y = ny1;
                 } else {
                     float t = fmaxf(0, fminf(1, ((x - nx0) * line_dx + (y - ny0) * line_dy) / l2));
-                    float proj_x = nx0 + t * line_dx;
-                    float proj_y = ny0 + t * line_dy;
-                    float dx = x - proj_x, dy = y - proj_y;
-                    dist_px = sqrtf(dx*dx + dy*dy);
+                    proj_x = nx0 + t * line_dx;
+                    proj_y = ny0 + t * line_dy;
+                }
+                
+                float dx = x - proj_x;
+                float dy = y - proj_y;
+                
+                if (l2 > 0.001f) {
+                    float len = sqrtf(l2);
+                    float tx = line_dx / len;
+                    float ty = line_dy / len;
+                    float nx_dir = -ty;
+                    float ny_dir = tx;
+                    
+                    float dotT = dx * tx + dy * ty;
+                    float dotN = dx * nx_dir + dy * ny_dir;
+                    
+                    float scaledT = dotT / tStretch;
+                    float scaledN = dotN * nSqueeze;
+                    dist_px = sqrtf(scaledT * scaledT + scaledN * scaledN);
+                } else {
+                    // 如果 l2 太小，以重力方向作为虚拟主轴进行微弱拉伸以凸显静态重力张力
+                    float gMag = sqrtf(ax*ax + ay*ay);
+                    if (gMag > 0.01f) {
+                        float tx = ax / gMag;
+                        float ty = ay / gMag;
+                        float nx_dir = -ty;
+                        float ny_dir = tx;
+                        
+                        float dotT = dx * tx + dy * ty;
+                        float dotN = dx * nx_dir + dy * ny_dir;
+                        
+                        float scaledT = dotT / tStretch;
+                        float scaledN = dotN * nSqueeze;
+                        dist_px = sqrtf(scaledT * scaledT + scaledN * scaledN);
+                    } else {
+                        dist_px = sqrtf(dx*dx + dy*dy);
+                    }
                 }
 
                 float dist_ratio = dist_px / r;
@@ -102,9 +172,34 @@ void Venom::calculateField(Face face, float ax, float ay) {
     };
 
     // --- 1. 核心节点与插值路径 (主体场) ---
+    auto applyHeadArchBump = [&](float& x, float& y, float& z, int nodeIdx) {
+        if (nodeIdx > 2) return;
+        float dX = CUBE_W - abs(x);
+        float dY = CUBE_H - abs(y);
+        float dZ = (z > 0) ? (CUBE_D - z) : (z + CUBE_D);
+        float minDist = fminf(dX, fminf(dY, dZ));
+        if (minDist < 12.0f) {
+            float flatFactor = (1.0f - minDist / 12.0f);
+            float strength = flatFactor * 4.6f * (1.0f - (float)nodeIdx * 0.4f);
+            if (dY == minDist) {
+                if (y > 0) y -= strength;
+                else y += strength;
+            } else if (dX == minDist) {
+                if (x > 0) x -= strength;
+                else x += strength;
+            } else if (dZ == minDist) {
+                if (z > 0) z -= strength * 0.8f;
+                else z += strength * 0.8f;
+            }
+        }
+    };
+
     for (int i = 0; i < MAX_NODES; i++) {
         const Node& curr = skeleton.getNode(i);
-        drawBlob(curr.x, curr.y, curr.z, curr.radius, curr.vx, curr.vy, curr.vz);
+        float cx = curr.x, cy = curr.y, cz = curr.z;
+        applyHeadArchBump(cx, cy, cz, i);
+        float nodeBreathing = calcNodeBreathing((float)i);
+        drawBlob(cx, cy, cz, curr.radius, curr.vx, curr.vy, curr.vz, nodeBreathing, i);
 
         // 始终开启插值，确保在任何状态下身体都不会断裂成散点
         if (i > 0) {
@@ -123,7 +218,83 @@ void Venom::calculateField(Face face, float ax, float ay) {
                 float interpolatedVx = prev.vx * (1.0f - t) + curr.vx * t;
                 float interpolatedVy = prev.vy * (1.0f - t) + curr.vy * t;
                 float interpolatedVz = prev.vz * (1.0f - t) + curr.vz * t;
-                drawBlob(mx, my, mz, interpolatedRadius, interpolatedVx, interpolatedVy, interpolatedVz);
+                
+                // 为插值点计算过渡的头部耸起
+                float interpNodeIdx = (float)(i-1) + t;
+                applyHeadArchBump(mx, my, mz, (interpNodeIdx < 1.0f) ? 0 : 1);
+                
+                float interpBreathing = calcNodeBreathing(interpNodeIdx);
+                drawBlob(mx, my, mz, interpolatedRadius, interpolatedVx, interpolatedVy, interpolatedVz, interpBreathing, (int)interpNodeIdx);
+            }
+        }
+    }
+ 
+    // --- 1.25. [新增] 绘制重力漏砂解离滴粒 (Gravity Drips Rendering) ---
+    for (int i = 0; i < MAX_DRIPS; i++) {
+        if (drips[i].active) {
+            float dripBreathing = calcNodeBreathing(0.0f);
+            drawBlob(drips[i].x, drips[i].y, drips[i].z, drips[i].radius, drips[i].vx, drips[i].vy, drips[i].vz, dripBreathing, 0);
+        }
+    }
+
+    // --- 1.3. [新增] 绘制眼眶隆起场以随眼球转动而动态凸起包裹 (Orbital Bulge Rendering) ---
+    if (currentSkillName != "sleep") {
+        // 直接用骨骼头节点 (Node 0) 的屏幕投影坐标作为基准
+        const Node& headNode = skeleton.getNode(0);
+        float hx, hy, hz;
+        container->projectToFace(headNode, container->currentFace, hx, hy, hz, ax, ay);
+
+        // 计算与 drawBlob 相同尺度和透视感下的 headVisualRadius
+        float perspective = 200.0f / (200.0f + hz);
+        float vMag = sqrtf(headNode.vx*headNode.vx + headNode.vy*headNode.vy) * 10.0f;
+        float thinning = 1.0f / sqrtf(1.0f + vMag * (isStartled ? 0.25f : 0.12f));
+        if (isStartled) thinning = fmaxf(0.75f, thinning);
+        float headBreathing = calcNodeBreathing(0.0f);
+        float r_head = (headNode.radius * VISUAL_RADIUS_MULT + VISUAL_RADIUS_OFFSET) * vState.body_scale * thinning * headBreathing * powf(perspective, 0.8f);
+
+        // 贴屏因子：越靠近屏幕（hz越小），clingFactor越接近 1.0f
+        float clingFactor = fmaxf(0.0f, fminf(1.0f, (6.0f - hz) / 6.0f));
+
+        // 眼睛的 2D 投影中心 (与 drawEye 的偏移算法完全对齐)
+        float ex = hx + pupilX * 8.0f;
+        float ey = hy + pupilY * 6.0f;
+
+        if (clingFactor > 0.0f) {
+            float peekEyeX = hx + pupilX * 4.0f;
+            float peekEyeY = hy - r_head * 0.72f + pupilY * 2.0f;
+            ex = (1.0f - clingFactor) * ex + clingFactor * peekEyeX;
+            ey = (1.0f - clingFactor) * ey + clingFactor * (hy - r_head * 0.72f * headLowerProgress + pupilY * (6.0f - 4.0f * headLowerProgress));
+        }
+
+        // 眼睛眼眶隆起的半径：正常为头部半径 of 75%，确保有充足的身体黑色组织包裹眼白
+        float er = r_head * 0.75f;
+        // 与 drawEye 中的背面隐藏条件完全对齐：当贴屏且未主动低头时，眼睛隐藏在背面，则不绘制眼眶隆起
+        if (clingFactor > 0.8f && headLowerProgress < 0.15f) {
+            er = 0.0f;
+        }
+
+        if (er > 0.5f) {
+            float ex_grid = ex / FIELD_SCALE;
+            float ey_grid = ey / FIELD_SCALE;
+            float er_grid = er / FIELD_SCALE;
+
+            int rx_min = (int)(ex_grid - er_grid) - 2;
+            int rx_max = (int)(ex_grid + er_grid) + 2;
+            int ry_min = (int)(ey_grid - er_grid) - 2;
+            int ry_max = (int)(ey_grid + er_grid) + 2;
+
+            for (int y = fmaxf(0, ry_min); y < fminf(FIELD_H, ry_max); y++) {
+                for (int x = fmaxf(0, rx_min); x < fminf(FIELD_W, rx_max); x++) {
+                    float dx = x - ex_grid;
+                    float dy = y - ey_grid;
+                    float dist_px = sqrtf(dx*dx + dy*dy);
+                    float dist_ratio = dist_px / er_grid;
+                    if (dist_ratio < 1.0f) {
+                        float inv_ratio = 1.0f - dist_ratio * dist_ratio;
+                        float val = inv_ratio * inv_ratio * 195.0f; // 稍低于主体的 210.0f 场强以保持圆润和过渡平滑
+                        field[y * FIELD_W + x] = fminf(255, field[y * FIELD_W + x] + (int)val);
+                    }
+                }
             }
         }
     }
@@ -137,7 +308,7 @@ void Venom::calculateField(Face face, float ax, float ay) {
 
     const Node& head = skeleton.getNode(0);
     float hpx, hpy, hpz;
-    projectToFace(head, face, hpx, hpy, hpz, ax, ay);
+    container->projectToFace(head, container->currentFace, hpx, hpy, hpz, ax, ay);
     float hnx = hpx / FIELD_SCALE, hny = hpy / FIELD_SCALE;
 
     for (int hand = 0; hand < 2; hand++) {
@@ -148,8 +319,15 @@ void Venom::calculateField(Face face, float ax, float ay) {
         float hy = (hand == 0) ? handLY : handRY;
         float hz = (hand == 0) ? handLZ : handRZ;
 
+        // 计算手部距头部的 3D 距离，如果已重吸收贴近，则彻底隐藏触手和手指
+        float armDX = hx - head.x;
+        float armDY = hy - head.y;
+        float armDZ = hz - head.z;
+        float armDist = sqrtf(armDX*armDX + armDY*armDY + armDZ*armDZ);
+        if (armDist < 2.0f) continue;
+
         float tx, ty, tz;
-        projectPoint(hx, hy, hz, face, tx, ty, tz, ax, ay);
+        container->projectPoint(hx, hy, hz, container->currentFace, tx, ty, tz, ax, ay);
         float tnx = tx/FIELD_SCALE, tny = ty/FIELD_SCALE;
         float endX = hnx + (tnx-hnx)*prog, endY = hny + (tny-hny)*prog;
 
@@ -207,7 +385,7 @@ void Venom::calculateField(Face face, float ax, float ay) {
                 }
             }
             // 绘制生物爪指 (新爪形系统)
-            drawTendrils(endX, endY, prog, hand, ax, ay);
+            drawTendrils(container, endX, endY, prog, hand, ax, ay);
         }
     }
 
@@ -215,7 +393,7 @@ void Venom::calculateField(Face face, float ax, float ay) {
     for (int i = 2; i < MAX_NODES; i += 2) {
         const Node& n = skeleton.getNode(i);
         float px, py, pz;
-        projectToFace(n, face, px, py, pz, ax, ay);
+        container->projectToFace(n, container->currentFace, px, py, pz, ax, ay);
         if (pz > 120.0f) continue;
         float nx = px/FIELD_SCALE, ny = py/FIELD_SCALE;
         float tailDim = 1.0f - (float)i / (MAX_NODES * 1.2f);
@@ -270,7 +448,11 @@ void Venom::calculateField(Face face, float ax, float ay) {
 
                 float dist_ratio = scaledDist / r;
                 if (dist_ratio < 1.0f) {
-                    float val = (0.5f + 0.5f * cosf(dist_ratio * 3.14159f)) * 200.0f * sp.life * (1.0f + (dx*gx + dy*gy)/r * 0.5f);
+                    // 显著提升符号的势能贡献，并注入核心偏置防止低于身体阈值(45)导致空心圈噪点
+                    float val = (0.5f + 0.5f * cosf(dist_ratio * 3.14159f)) * 270.0f * sp.life * (1.0f + (dx*gx + dy*gy)/r * 0.5f);
+                    if (dist_ratio < 0.85f) {
+                        val = fmaxf(val, 55.0f * sp.life);
+                    }
                     field[y * FIELD_W + x] = fminf(255, field[y * FIELD_W + x] + (int)val);
                 }
             }
@@ -278,31 +460,122 @@ void Venom::calculateField(Face face, float ax, float ay) {
     }
 }
 
-void Venom::drawTendrils(float endX, float endY, float prog, int handIdx, float ax, float ay) {
-    // 【生物级爪形系统】实现 5 根非对称、随机长度的纤细手指
+void Venom::drawTendrils(Container* container, float endX, float endY, float prog, int handIdx, float ax, float ay) {
+    // 【生物级自适应爪形系统】实现 5 根非对称、随机长度、具有壁面吸附折弯与手臂延伸对齐的手指
     const int numFingers = 5;
     bool isGripping = (prog > 0.9f);
     
-    // 爪部扇面分布：集中在 120 度左右的“爪状”扇区
-    float baseAngle = (handIdx == 0 ? 3.14f + 0.8f : -0.8f) + sinf(millis() * 0.004f) * 0.2f;
+    // -------------------------------------------------------------
+    // 【自适应基准角度解算 (对齐手臂延伸与吸附壁面)】
+    // -------------------------------------------------------------
+    // 获取手臂从头 (hnx, hny) 到手心 (endX, endY) 的延伸方向
+    const Node& head = skeleton.getNode(0);
+    float hpx, hpy, hpz;
+    container->projectToFace(head, container->currentFace, hpx, hpy, hpz, ax, ay);
+    float hnx = hpx / FIELD_SCALE, hny = hpy / FIELD_SCALE;
+    
+    // 计算手臂延伸矢量角度，作为手指在空中探寻游动时的朝向
+    float armAngle = atan2f(endY - hny, endX - hnx);
+    float baseAngle = armAngle; 
+    
+    // 如果手掌进入吸附墙壁状态，自适应转动爪部展开面朝向，使其面朝对应侧壁完全摊开！
+    if (isGripping) {
+        float distX_left = endX;
+        float distX_right = (float)FIELD_W - endX;
+        float distY_top = endY;
+        float distY_bottom = (float)FIELD_H - endY;
+        float minDist = fminf(distX_left, fminf(distX_right, fminf(distY_top, distY_bottom)));
+        
+        if (minDist < 6.0f) {
+            if (minDist == distX_left) {
+                baseAngle = 3.14159f; // 贴附左壁：朝左张开
+            } else if (minDist == distX_right) {
+                baseAngle = 0.0f; // 贴附右壁：朝右张开
+            } else if (minDist == distY_top) {
+                baseAngle = -3.14159f / 2.0f; // 贴附顶壁：朝上张开
+            } else {
+                baseAngle = 3.14159f / 2.0f; // 贴附底壁：朝下张开
+            }
+        }
+    }
+    
+    // -------------------------------------------------------------
+    // 【物理重构：贴壁抓附手指完全静止机制】
+    // -------------------------------------------------------------
+    // 如果手掌已经粘住壁面（isGripping），手指必须百分之百稳固地吸在墙上动弹不得。
+    // 只有在空中游动没有抓墙时，才允许手指有呼吸般的正弦波晃动。
+    if (!isGripping) {
+        baseAngle += sinf(millis() * 0.004f) * 0.15f;
+    }
     
     for (int f = 0; f < numFingers; f++) {
-        // 非均匀角度分布
-        float relativeAng = (f - 2) * 0.4f + sinf(f * 1.5f + millis()*0.001f) * 0.1f; 
+        // 贴壁时扇形角度绝对恒定，空中时添加 sin 微弱起伏
+        float relativeAng = (f - 2) * 0.45f;
+        if (!isGripping) {
+            relativeAng += sinf(f * 1.5f + millis() * 0.001f) * 0.1f; 
+        }
         float fAng = baseAngle + relativeAng;
 
-        // 随机且动态的长度 (缩减 1/3)
-        float fLenBase = isGripping ? 7.0f : (4.0f + sinf(millis() * 0.008f + f) * 2.0f);
-        float fLenVar = (float)((millis() + f*100) % 27) * 0.1f; 
-        float fLen = fmaxf(4.0f, (fLenBase + fLenVar) * (0.7f + vState.edge_activity * 0.5f));
+        // 随机且动态的长度 (抓附时指骨伸展紧绷且完全静止，空中时灵动呼吸收缩与微颤)
+        float fLenBase = isGripping ? 4.75f : (2.75f + sinf(millis() * 0.008f + f) * 1.0f);
+        float fLenVar = isGripping ? 0.0f : (float)((millis() + f * 100) % 27) * 0.05f; 
+        float fLen = fmaxf(2.0f, (fLenBase + fLenVar) * (0.7f + vState.edge_activity * 0.5f));
 
         for (float fl = 0; fl < fLen; fl += 0.8f) {
             float t = fl / fLen;
             float fx = endX + cosf(fAng) * fl;
             float fy = endY + sinf(fAng) * fl;
             
-            // 极致纤细处理
-            float fr = fmaxf(0.2f, 1.0f * (1.0f - t * 0.9f));
+            // -------------------------------------------------------------
+            // 【几何碰壁物理折弯平贴算法】
+            // -------------------------------------------------------------
+            // 如果手指尖在生长延伸中碰到了玻璃四壁边缘，我们将溢出的长度(overLen)物理偏折并沿该壁面切线抹平，重现完美吸附贴紧！
+            if (isGripping) {
+                float margin = 1.0f;
+                // 左壁碰壁：限制 fx，并将溢出长度向 y 轴折弯
+                if (fx < margin) {
+                    float overLen = margin - fx;
+                    fx = margin;
+                    fy += (sinf(fAng) > 0.0f ? 1.0f : -1.0f) * overLen;
+                }
+                // 右壁碰壁
+                else if (fx > (float)FIELD_W - margin) {
+                    float overLen = fx - ((float)FIELD_W - margin);
+                    fx = (float)FIELD_W - margin;
+                    fy += (sinf(fAng) > 0.0f ? 1.0f : -1.0f) * overLen;
+                }
+                
+                // 顶壁碰壁
+                if (fy < margin) {
+                    float overLen = margin - fy;
+                    fy = margin;
+                    fx += (cosf(fAng) > 0.0f ? 1.0f : -1.0f) * overLen;
+                }
+                // 底壁碰壁
+                else if (fy > (float)FIELD_H - margin) {
+                    float overLen = fy - ((float)FIELD_H - margin);
+                    fy = (float)FIELD_H - margin;
+                    fx += (cosf(fAng) > 0.0f ? 1.0f : -1.0f) * overLen;
+                }
+            }
+            
+            // 边界剪切强保护：确保折弯后也绝不超出 field 缓冲区
+            fx = fmaxf(0.0f, fminf((float)FIELD_W - 1.0f, fx));
+            fy = fmaxf(0.0f, fminf((float)FIELD_H - 1.0f, fy));
+
+            // -------------------------------------------------------------
+            // 【树蛙吸盘渲染模型 (Frog-like Suction Pads v6.5)】
+            // -------------------------------------------------------------
+            // 指骨前半段 (t < 0.7f) 自然渐细，后半段 (t >= 0.7f) 迅速平滑膨大，形成圆润可爱的吸盘小球！
+            float fr;
+            if (t < 0.7f) {
+                fr = 1.3f * (1.0f - t * 0.45f); // 渐细指骨 (从 1.3f 缩减到 0.7f)
+            } else {
+                float padMax = isGripping ? 2.3f : 1.7f; // 吸附态下吸盘会因为 Metaball 压强瞬间拍扁变宽
+                float padT = (t - 0.7f) / 0.3f; // 归一化吸盘段进度 (0.0 到 1.0)
+                fr = 0.7f + padT * (padMax - 0.7f); // 平滑膨大到 padMax 半径
+            }
+            
             int ir = (int)fmaxf(1, fr);
             
             for (int dy = -ir; dy <= ir; dy++) {
@@ -311,8 +584,14 @@ void Venom::drawTendrils(float endX, float endY, float prog, int handIdx, float 
                     if (ifx >= 0 && ifx < FIELD_W && ify >= 0 && ify < FIELD_H) {
                         float dist = sqrtf(dx * dx + dy * dy);
                         if (dist <= fr) {
-                            float opacity = (1.0f - dist / (fr + 0.1f)) * (1.0f - t * 0.5f);
-                            field[ify * FIELD_W + ifx] = fminf(255, field[ify * FIELD_W + ifx] + (int)(180 * opacity));
+                            float opacity;
+                            if (t < 0.7f) {
+                                opacity = (1.0f - dist / (fr + 0.1f)) * (1.0f - t * 0.3f);
+                            } else {
+                                // 吸盘膨大部分保持高饱和度的实心度（不随 t 衰减），确保渲染出绝对饱满可爱的圆形圆轮
+                                opacity = (1.0f - dist / (fr + 0.1f)) * 0.95f;
+                            }
+                            field[ify * FIELD_W + ifx] = fminf(255, field[ify * FIELD_W + ifx] + (int)(190 * opacity));
                         }
                     }
                 }
@@ -321,89 +600,31 @@ void Venom::drawTendrils(float endX, float endY, float prog, int handIdx, float 
     }
 }
 
-void Venom::draw(M5Canvas* canvas, float ax, float ay, float az) {
+void Venom::draw(M5Canvas* canvas, Container* container, float ax, float ay, float az) {
     float cax = fmaxf(-0.85f, fminf(0.85f, ax * 0.45f));
     float cay = fmaxf(-0.85f, fminf(0.85f, ay * 0.45f));
 
-    currentFace = FRONT;
+    container->currentFace = FRONT;
 
-    calculateField(currentFace, cax, cay);
+    calculateField(container, cax, cay);
     float px = cay * 0.1f, py = -cax * 0.1f;
-    drawContainer(canvas, cax, cay);
+    container->drawContainer(canvas, cax, cay, skeleton);
     drawBackground(canvas, px * 0.5f, py * 0.5f);
     drawBody(canvas, px, py, cax, cay);
     drawGloss(canvas, px * 1.1f, py * 1.1f, cax, cay);
-    drawEye(canvas, px * 1.1f, py * 1.1f, cax, cay);
+    drawEye(canvas, container, px * 1.1f, py * 1.1f, cax, cay);
 
     if (showDebug) drawDebug(canvas);
 }
 
-void Venom::drawContainer(M5Canvas* canvas, float ax, float ay) {
-    static const float inner_v[4][3] = {
-        {-CUBE_W, -CUBE_H, -CUBE_D}, {CUBE_W, -CUBE_H, -CUBE_D},
-        {CUBE_W, CUBE_H, -CUBE_D}, {-CUBE_W, CUBE_H, -CUBE_D}
-    };
-    static const float screen_v[4][2] = {
-        {0, 0}, {SCREEN_W, 0}, {SCREEN_W, SCREEN_H}, {0, SCREEN_H}
-    };
-    float px[4], py[4], pz[4];
-    for (int i = 0; i < 4; i++) {
-        projectPoint(inner_v[i][0], inner_v[i][1], inner_v[i][2], currentFace, px[i], py[i], pz[i], ax, ay);
-    }
-    
-    // --- 高亮所有与毒液有接触的 3D 面 ---
-    bool touched[6] = {false};
-    float threshold = 12.0f; // 接触判定阈值
-    for (int i = 0; i < MAX_NODES; i++) {
-        const Node& n = skeleton.getNode(i);
-        if (abs(n.x - (-CUBE_W)) < threshold) touched[LEFT] = true;
-        if (abs(n.x - CUBE_W) < threshold) touched[RIGHT] = true;
-        if (abs(n.y - (-CUBE_H)) < threshold) touched[TOP] = true;
-        if (abs(n.y - CUBE_H) < threshold) touched[BOTTOM] = true;
-        if (abs(n.z - (-CUBE_D)) < threshold) touched[BACK] = true;
-        if (abs(n.z - CUBE_D) < threshold) touched[FRONT] = true;
-    }
 
-    uint16_t highlightColor = 0x0115;
-    if (touched[FRONT]) {
-        canvas->drawRect(0, 0, SCREEN_W, SCREEN_H, highlightColor);
-        canvas->drawRect(1, 1, SCREEN_W-2, SCREEN_H-2, highlightColor);
-    }
-    if (touched[BACK]) {
-        canvas->fillTriangle(px[0], py[0], px[1], py[1], px[2], py[2], highlightColor);
-        canvas->fillTriangle(px[0], py[0], px[2], py[2], px[3], py[3], highlightColor);
-    }
-    // 侧面高亮
-    for (int f = 0; f < 4; f++) {
-        Face sideFace;
-        if (f == 0) sideFace = TOP;
-        else if (f == 1) sideFace = RIGHT;
-        else if (f == 2) sideFace = BOTTOM;
-        else sideFace = LEFT;
-
-        if (touched[sideFace]) {
-            int v1 = f;
-            int v2 = (f + 1) % 4;
-            canvas->fillTriangle(px[v1], py[v1], px[v2], py[v2], screen_v[v2][0], screen_v[v2][1], highlightColor);
-            canvas->fillTriangle(px[v1], py[v1], screen_v[v2][0], screen_v[v2][1], screen_v[v1][0], screen_v[v1][1], highlightColor);
-        }
-    }
-
-    // 绘制容器线框
-    for (int i = 0; i < 4; i++) {
-        canvas->drawLine(px[i], py[i], px[(i+1)%4], py[(i+1)%4], 0x5AEB); // 使用更亮一点的深青色作为线框
-    }
-    for (int i = 0; i < 4; i++) {
-        canvas->drawLine(screen_v[i][0], screen_v[i][1], px[i], py[i], 0x5AEB);
-    }
-}
 
 void Venom::drawBackground(M5Canvas* canvas, float px, float py) {
     uint32_t t = millis() / 80;
     for (int y = 0; y < FIELD_H; y++) {
         for (int x = 0; x < FIELD_W; x++) {
             int val = field[y * FIELD_W + x];
-            if (val > 30) {
+            if (val > 38) {
                 float jx = (float)((x * 17 + y * 31 + t) % 7 - 3) * 0.15f;
                 float jy = (float)((x * 23 + y * 13 + t) % 7 - 3) * 0.15f;
                 // 稍微增加阴影半径确保融合
@@ -564,17 +785,13 @@ void Venom::drawGloss(M5Canvas* canvas, float px, float py, float ax, float ay) 
     }
 }
 
-void Venom::drawEye(M5Canvas* canvas, float px, float py, float ax, float ay) {
+void Venom::drawEye(M5Canvas* canvas, Container* container, float px, float py, float ax, float ay) {
     if (currentSkillName != "sleep" && isBlinking && millis() - lastBlinkTime < 120) return;
 
     // 直接用骨骼头节点 (Node 0) 的屏幕投影坐标作为眼睛位置
     const Node& head = skeleton.getNode(0);
     float hx, hy, hz;
-    projectToFace(head, currentFace, hx, hy, hz, ax, ay);
-
-    // 眼睛偏移：跟随瞳孔视线方向
-    float eyeX = hx + pupilX * 8.0f;
-    float eyeY = hy + pupilY * 6.0f;
+    container->projectToFace(head, container->currentFace, hx, hy, hz, ax, ay);
 
     if (currentSkillName == "sleep") {
         // [修复] 锁定眼部位置在头部中心，完全忽略 pupilX/Y 的偏移
@@ -586,26 +803,85 @@ void Venom::drawEye(M5Canvas* canvas, float px, float py, float ax, float ay) {
         return;
     }
 
-    // 纯白色眼白
-    canvas->fillEllipse((int)eyeX, (int)eyeY, 14, 10, COLOR_EYE_WHITE);
-    canvas->drawEllipse((int)eyeX, (int)eyeY, 14, 10, COLOR_VENOM_BODY);
+    // 计算与 drawBlob 相同尺度和透视感下的 headVisualRadius
+    float breathRange = BREATH_RANGE_BASE + stress * 0.15f;
+    if (millis() - lastStartledTime < 120000) breathRange *= 0.5f;
+    if (observer_trust > 0.6f) breathRange *= 1.3f;
+    float headBreathing = 1.0f + sinf(breathingPhase) * breathRange;
 
-    // 瞳孔
+    bool isStartled = (currentSkillName == "startled");
+    float perspective = 200.0f / (200.0f + hz);
+    float vMag = sqrtf(head.vx*head.vx + head.vy*head.vy) * 10.0f;
+    float thinning = 1.0f / sqrtf(1.0f + vMag * (isStartled ? 0.25f : 0.12f));
+    if (isStartled) thinning = fmaxf(0.75f, thinning);
+    float r_head = (head.radius * VISUAL_RADIUS_MULT + VISUAL_RADIUS_OFFSET) * vState.body_scale * thinning * headBreathing * powf(perspective, 0.8f);
+
+    // 贴屏因子：越靠近屏幕（hz越小），clingFactor越接近 1.0f
+    float clingFactor = fmaxf(0.0f, fminf(1.0f, (6.0f - hz) / 6.0f));
+
+    // 如果贴屏且没有主动低头窥视，眼睛完全隐藏在背面
+    if (clingFactor > 0.8f && headLowerProgress < 0.15f) {
+        return;
+    }
+
+    // 眼睛位置解算
+    float normalEyeX = hx + pupilX * 8.0f;
+    float normalEyeY = hy + pupilY * 6.0f;
+    float eyeX = normalEyeX;
+    float eyeY = normalEyeY;
+
+    if (clingFactor > 0.0f) {
+        float peekEyeX = hx + pupilX * 4.0f;
+        // 低头时，眼睛从背面滑动到头部上边缘
+        float peekEyeY = hy - r_head * 0.72f + pupilY * 2.0f;
+        
+        eyeX = (1.0f - clingFactor) * normalEyeX + clingFactor * peekEyeX;
+        eyeY = (1.0f - clingFactor) * normalEyeY + clingFactor * (hy - r_head * 0.72f * headLowerProgress + pupilY * (6.0f - 4.0f * headLowerProgress));
+    }
+
+    // 眼睛形变尺寸
+    float eyeW = 14.0f;
+    float eyeH = 10.0f;
+    
+    if (clingFactor > 0.0f) {
+        float maxPeekH = 6.5f;
+        float minPeekH = 2.0f;
+        float peekH = minPeekH + (maxPeekH - minPeekH) * headLowerProgress;
+        
+        eyeH = (1.0f - clingFactor) * 10.0f + clingFactor * peekH;
+        eyeW = (1.0f - clingFactor) * 14.0f + clingFactor * (10.0f + 4.0f * headLowerProgress);
+    }
+
+    // 纯白色眼白
+    canvas->fillEllipse((int)eyeX, (int)eyeY, (int)eyeW, (int)eyeH, COLOR_EYE_WHITE);
+    canvas->drawEllipse((int)eyeX, (int)eyeY, (int)eyeW, (int)eyeH, COLOR_VENOM_BODY);
+
+    // 瞳孔大小与偏移
     float pSize = 3.5f * pupilSize;
+    if (clingFactor > 0.0f) {
+        pSize = pSize * (0.4f + 0.6f * headLowerProgress);
+    }
     if (pSize < 1.0f) pSize = 1.0f;
-    canvas->fillCircle((int)(eyeX + pupilX * 3.5f),
-                       (int)(eyeY + pupilY * 2.5f),
+
+    float pOffsetX = pupilX * 3.5f;
+    float pOffsetY = pupilY * 2.5f;
+    if (clingFactor > 0.0f) {
+        pOffsetX = pupilX * (1.5f + 2.0f * headLowerProgress);
+        pOffsetY = pupilY * (1.0f + 1.5f * headLowerProgress);
+    }
+    canvas->fillCircle((int)(eyeX + pOffsetX),
+                       (int)(eyeY + pOffsetY),
                        (int)pSize, COLOR_VENOM_BODY);
 
     // 高压反光点
-    canvas->drawPixel((int)(eyeX - 4), (int)(eyeY - 3), 0xFFFF);
+    canvas->drawPixel((int)(eyeX - eyeW * 0.28f), (int)(eyeY - eyeH * 0.3f), 0xFFFF);
 
-    // 紧张状态：极轻微血丝
-    if (stress > 0.72f) { 
+    // 紧张状态：极轻微血丝 (仅在未贴屏或贴屏但完全低头展开时绘制，以保证高对比度)
+    if (stress > 0.72f && (clingFactor < 0.8f || headLowerProgress > 0.5f)) { 
         int dotCount = (int)((stress - 0.72f) * 15.0f) + 2;
         for (int i = 0; i < dotCount; i++) {
             float ang = (float)random(360) * 0.0174f;
-            float dist = 7.0f + (float)random(5);
+            float dist = (eyeW * 0.5f) + (float)random(3);
             canvas->drawPixel((int)(eyeX + cosf(ang) * dist),
                              (int)(eyeY + sinf(ang) * dist * 0.75f), 0xF800);
         }
@@ -724,30 +1000,58 @@ void Venom::drawDebug(M5Canvas* canvas) {
     sprintf(buf, "LUX %.1f", lastLux);
     drawGlowText(buf, x2, ry, (lastLux > 1000) ? 0xF800 : 0xFFE0); 
 
-    // --- [新增] AI 驱动指示器 (黑海胆动态图标) ---
-    uint32_t now = millis();
-    // 判定逻辑：最近 5 分钟内收到过 AI 指令则显示
-    if (lastLLMResponseTime > 0 && (now - lastLLMResponseTime < 300000)) {
-        int ux = x2 + 55, uy = ry + 25; // 居右下方
-        float time = now * 0.003f;
+    // --- [彻底重构] 毒液生命感意识神经核心 (Procedural Neural Core) ---
+    {
+        int ux = x2 + 55, uy = ry + 25; // 居右下方定位
+        neuralCore.draw(canvas, ux, uy);
         
-        // 1. 绘制核心
-        canvas->fillCircle(ux, uy, 4, COLOR_VENOM_BODY);
-        
-        // 2. 绘制动态尖刺 (12 根不规则尖刺)
-        for(int i=0; i<12; i++) {
-            float angle = (i * 30 + (int)(sinf(time + i) * 12)) * 0.0174f;
-            float len = 6 + sinf(time * 2.0f + i * 1.5f) * 5; // 长度伸缩
-            int x1 = ux + cosf(angle) * 3;
-            int y1 = uy + sinf(angle) * 3;
-            int x2_p = ux + cosf(angle) * len;
-            int y2_p = uy + sinf(angle) * len;
-            canvas->drawLine(x1, y1, x2_p, y2_p, COLOR_VENOM_BODY);
-            canvas->drawPixel(x2_p, y2_p, 0x4208); 
+        // 标注神经核心 (通过它的 procedual 状态行为可以直接识别意识状态)
+        drawGlowText("NEURAL_CORE", ux - 32, uy + 13, 0x4208);
+    }
+
+    // --- [新增意识层 V3] 意识泄漏 HUD 覆盖劫持逻辑 (Cognitive Leak Hijack Overlay) ---
+    if (isConsciousnessLeak && !lState_notes.isEmpty()) {
+        uint32_t age = millis() - leakStartTime;
+        if (age < leakDuration) {
+            // 在 HUD 面板内进行高亮覆盖
+            int lx = bx + 4;
+            int ly = by + 4;
+            int lw = bw - 8;
+            int lh = bh - 8;
+            
+            // 绘制深色极客质感底座
+            canvas->fillRect(lx, ly, lw, lh, canvas->color565(6, 12, 10));
+            canvas->drawRect(lx, ly, lw, lh, canvas->color565(40, 180, 160)); // 青色发光边框
+            
+            // 绘制闪烁的红色警告头
+            uint16_t warnColor = (millis() / 200) % 2 == 0 ? 0xF800 : 0x059d;
+            canvas->setTextColor(warnColor);
+            canvas->setCursor(lx + 8, ly + 8);
+            canvas->print("WARNING: COGNITIVE LEAK DETECTED!");
+            
+            // 解码器状态标题
+            canvas->setTextColor(0x028A); // 暗绿色 glow
+            canvas->setCursor(lx + 8 + 1, ly + 20 + 1);
+            canvas->print("SYMBIOSE RAW THOUGHTS DECODED:");
+            canvas->setTextColor(0x059d); // 青色 text
+            canvas->setCursor(lx + 8, ly + 20);
+            canvas->print("SYMBIOSE RAW THOUGHTS DECODED:");
+            
+            // 动态打字机效果
+            int charsToShow = age / 30; // 30ms 逐字显现
+            int len = lState_notes.length();
+            if (charsToShow > len) charsToShow = len;
+            String visibleText = lState_notes.substring(0, charsToShow);
+            if (charsToShow < len || (millis() / 250) % 2 == 0) {
+                visibleText += "_"; // 光标闪烁
+            }
+            
+            canvas->setTextColor(canvas->color565(200, 240, 230)); // 柔和的亮色文字
+            canvas->setCursor(lx + 8, ly + 36);
+            canvas->print(visibleText.c_str());
+        } else {
+            isConsciousnessLeak = false; // 自动关闭
         }
-        
-        // 3. 标注 AI 状态
-        drawGlowText("NEURAL_LINK", ux - 35, uy + 12, 0x4208);
     }
 
     // --- 4. 动态装饰: 扫描线 ---
@@ -757,7 +1061,7 @@ void Venom::drawDebug(M5Canvas* canvas) {
     canvas->drawFastHLine(bx + 2, by + (int)scanY, bw - 4, 0x18C3); // 极淡的扫描线
 }
 
-void Venom::drawBox(M5Canvas* canvas, float ax, float ay) {
+void Venom::drawBox(M5Canvas* canvas, Container* container, float ax, float ay) {
     // 绘制 3D 盒子的线框以增强空间感
     static const float corners[8][3] = {
         {-CUBE_W, -CUBE_H, -CUBE_D}, {CUBE_W, -CUBE_H, -CUBE_D},
@@ -768,7 +1072,7 @@ void Venom::drawBox(M5Canvas* canvas, float ax, float ay) {
     
     float px[8], py[8], pz[8];
     for (int i = 0; i < 8; i++) {
-        projectPoint(corners[i][0], corners[i][1], corners[i][2], currentFace, px[i], py[i], pz[i], ax, ay);
+        container->projectPoint(corners[i][0], corners[i][1], corners[i][2], container->currentFace, px[i], py[i], pz[i], ax, ay);
     }
     
     uint16_t boxColor = 0x4208; // 暗灰色线框

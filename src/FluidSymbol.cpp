@@ -35,6 +35,10 @@ void FluidSymbolManager::update() {
             i--;
         }
     }
+    // [同步自愈] 如果所有粒子在消散后都降为 0，类型自然归空，防止触发高频串口日志风暴！
+    if (pointCount == 0) {
+        currentType = "";
+    }
 }
 
 void FluidSymbolManager::trigger(const String& type) {
@@ -52,6 +56,7 @@ void FluidSymbolManager::trigger(const String& type) {
 
 void FluidSymbolManager::clear() {
     pointCount = 0;
+    currentType = ""; // [同步置空] 确保强制清空时同步重置类型，杜绝判断失效
 }
 
 void FluidSymbolManager::genX() {
@@ -137,5 +142,34 @@ void FluidSymbolManager::genSPLASH() {
             addPoint(cx + cosf(a)*d, cy + sinf(a)*d, 4.0f * (1.0f - d/len));
         }
     }
+}
+
+void FluidSymbolManager::wipePoints(float screenX, float screenY, float radius) {
+    for (int i = 0; i < pointCount; i++) {
+        float dx = points[i].x - screenX;
+        float dy = points[i].y - screenY;
+        float distSq = dx*dx + dy*dy;
+        if (distSq < radius * radius) {
+            // 墨点被物理擦除！
+            points[i] = points[pointCount - 1];
+            pointCount--;
+            i--;
+        }
+    }
+    // [同步自愈] 如果墨迹粒子被全部擦除干净，同步置空当前类型以防串口高频重置！
+    if (pointCount == 0) {
+        currentType = "";
+    }
+}
+
+bool FluidSymbolManager::isDissipating() const {
+    if (pointCount == 0) return false;
+    float sumLife = 0.0f;
+    for (int i = 0; i < pointCount; i++) {
+        sumLife += points[i].life;
+    }
+    float avgLife = sumLife / pointCount;
+    // 平均生命值在 0.15f 到 0.50f 之间，表示符号已经残缺消散了一半以上，但仍然有粒子残留（符合消散且有残存的定义）
+    return (avgLife > 0.15f && avgLife < 0.50f);
 }
 

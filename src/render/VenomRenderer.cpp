@@ -101,11 +101,15 @@ void Venom::calculateField(Container* container, float ax, float ay) {
         float nx0 = (px - v2dx * trailScale * 0.5f) / FIELD_SCALE;
         float ny0 = (py - v2dy * trailScale * 0.5f) / FIELD_SCALE;
 
-        // 计算包围盒：包含整个线段及其半径
-        int rx_min = (int)fminf(nx0, nx1) - (int)r - 4;
-        int rx_max = (int)fmaxf(nx0, nx1) + (int)r + 4;
-        int ry_min = (int)fminf(ny0, ny1) - (int)r - 4;
-        int ry_max = (int)fmaxf(ny0, ny1) + (int)r + 4;
+        // 计算包围盒：包含整个线段及其半径（贴墙挤压拉宽时自适应扩张包围盒边界）
+        float r_bound = r;
+        if (pressure > 0.0f) {
+            r_bound *= SQUEEZE_TANGENT_EXPAND;
+        }
+        int rx_min = (int)fminf(nx0, nx1) - (int)r_bound - 4;
+        int rx_max = (int)fmaxf(nx0, nx1) + (int)r_bound + 4;
+        int ry_min = (int)fminf(ny0, ny1) - (int)r_bound - 4;
+        int ry_max = (int)fmaxf(ny0, ny1) + (int)r_bound + 4;
 
         float line_dx = nx1 - nx0;
         float line_dy = ny1 - ny0;
@@ -128,6 +132,7 @@ void Venom::calculateField(Container* container, float ax, float ay) {
                 float dx = x - proj_x;
                 float dy = y - proj_y;
                 
+                float dist_motion = 0.0f;
                 if (l2 > 0.001f) {
                     float len = sqrtf(l2);
                     float tx = line_dx / len;
@@ -140,7 +145,7 @@ void Venom::calculateField(Container* container, float ax, float ay) {
                     
                     float scaledT = dotT / tStretch;
                     float scaledN = dotN * nSqueeze;
-                    dist_px = sqrtf(scaledT * scaledT + scaledN * scaledN);
+                    dist_motion = sqrtf(scaledT * scaledT + scaledN * scaledN);
                 } else {
                     // 如果 l2 太小，以重力方向作为虚拟主轴进行微弱拉伸以凸显静态重力张力
                     float gMag = sqrtf(ax*ax + ay*ay);
@@ -155,10 +160,48 @@ void Venom::calculateField(Container* container, float ax, float ay) {
                         
                         float scaledT = dotT / tStretch;
                         float scaledN = dotN * nSqueeze;
-                        dist_px = sqrtf(scaledT * scaledT + scaledN * scaledN);
+                        dist_motion = sqrtf(scaledT * scaledT + scaledN * scaledN);
                     } else {
-                        dist_px = sqrtf(dx*dx + dy*dy);
+                        dist_motion = sqrtf(dx*dx + dy*dy);
                     }
+                }
+
+                // 混合运动拉伸与贴墙挤压变形
+                if (pressure > 0.0f) {
+                    float distL = nx1;
+                    float distR = (float)FIELD_W - nx1;
+                    float distT = ny1;
+                    float distB = (float)FIELD_H - ny1;
+                    float minDist = fminf(fminf(distL, distR), fminf(distT, distB));
+                    float wnx = 0.0f, wny = 0.0f;
+                    if (minDist == distL) { wnx = 1.0f; wny = 0.0f; }
+                    else if (minDist == distR) { wnx = -1.0f; wny = 0.0f; }
+                    else if (minDist == distT) { wnx = 0.0f; wny = 1.0f; }
+                    else { wnx = 0.0f; wny = -1.0f; }
+                    
+                    float wtx = -wny;
+                    float wty = wnx;
+                    
+                    float dotW_N = dx * wnx + dy * wny;
+                    float dotW_T = dx * wtx + dy * wty;
+                    
+                    float squeezeN;
+                    if (dotW_N < 0.0f) {
+                        // 贴墙侧：应用各向异性挤压拍扁，使边界紧贴墙面
+                        squeezeN = 1.0f - pressure * (1.0f - SQUEEZE_NORMAL_DECAY);
+                    } else {
+                        // 远离墙壁侧：不予拍扁，并允许 18% 的物理下垂拉伸以抵消飞碟畸变，保持水滴饱满感
+                        squeezeN = 1.0f + pressure * 0.18f; 
+                    }
+                    float squeezeT = 1.0f + pressure * (SQUEEZE_TANGENT_EXPAND - 1.0f);
+                    
+                    float scaledW_N = dotW_N / squeezeN;
+                    float scaledW_T = dotW_T / squeezeT;
+                    float dist_wall = sqrtf(scaledW_N * scaledW_N + scaledW_T * scaledW_T);
+                    
+                    dist_px = (1.0f - pressure) * dist_motion + pressure * dist_wall;
+                } else {
+                    dist_px = dist_motion;
                 }
 
                 float dist_ratio = dist_px / r;
@@ -788,10 +831,53 @@ void Venom::drawGloss(M5Canvas* canvas, float px, float py, float ax, float ay) 
 void Venom::drawEye(M5Canvas* canvas, Container* container, float px, float py, float ax, float ay) {
     if (currentSkillName != "sleep" && isBlinking && millis() - lastBlinkTime < 120) return;
 
-    // 直接用骨骼头节点 (Node 0) 的屏幕投影坐标作为眼睛位置
+    // 对头节点应用与渲染身体时完全一致的 applyHeadArchBump 和贴墙偏移，确保眼睛与身体位置像素级重合
     const Node& head = skeleton.getNode(0);
+    float h_x = head.x;
+    float h_y = head.y;
+    float h_z = head.z;
+
+    // 1. 头部耸起偏移 (与 calculateField 一致)
+    float dX = CUBE_W - abs(h_x);
+    float dY = CUBE_H - abs(h_y);
+    float dZ = (h_z > 0) ? (CUBE_D - h_z) : (h_z + CUBE_D);
+    float minDistBump = fminf(dX, fminf(dY, dZ));
+    if (minDistBump < 12.0f) {
+        float flatFactor = (1.0f - minDistBump / 12.0f);
+        float strength = flatFactor * 4.6f;
+        if (dY == minDistBump) {
+            if (h_y > 0) h_y -= strength;
+            else h_y += strength;
+        } else if (dX == minDistBump) {
+            if (h_x > 0) h_x -= strength;
+            else h_x += strength;
+        } else if (dZ == minDistBump) {
+            if (h_z > 0) h_z -= strength * 0.8f;
+            else h_z += strength * 0.8f;
+        }
+    }
+
+    // 2. 贴墙膨胀偏移 (与 drawBlob 一致)
+    float pressure = head.contactPressure;
+    if (pressure > 0.0f) {
+        float dX_left = h_x - (-CUBE_W);
+        float dX_right = CUBE_W - h_x;
+        float dY_top = h_y - (-CUBE_H);
+        float dY_bottom = CUBE_H - h_y;
+        float threshold = 15.0f;
+        float rx_offset = 0.0f;
+        float ry_offset = 0.0f;
+        if (dX_left < threshold) rx_offset += (1.0f - dX_left / threshold) * head.radius * 0.45f;
+        if (dX_right < threshold) rx_offset -= (1.0f - dX_right / threshold) * head.radius * 0.45f;
+        if (dY_top < threshold) ry_offset += (1.0f - dY_top / threshold) * head.radius * 0.45f;
+        if (dY_bottom < threshold) ry_offset -= (1.0f - dY_bottom / threshold) * head.radius * 0.45f;
+        
+        h_x += rx_offset;
+        h_y += ry_offset;
+    }
+
     float hx, hy, hz;
-    container->projectToFace(head, container->currentFace, hx, hy, hz, ax, ay);
+    container->projectPoint(h_x, h_y, h_z, container->currentFace, hx, hy, hz, ax, ay);
 
     if (currentSkillName == "sleep") {
         // [修复] 锁定眼部位置在头部中心，完全忽略 pupilX/Y 的偏移
@@ -831,12 +917,30 @@ void Venom::drawEye(M5Canvas* canvas, Container* container, float px, float py, 
     float eyeY = normalEyeY;
 
     if (clingFactor > 0.0f) {
-        float peekEyeX = hx + pupilX * 4.0f;
-        // 低头时，眼睛从背面滑动到头部上边缘
-        float peekEyeY = hy - r_head * 0.72f + pupilY * 2.0f;
+        // 自适应最近墙面法线的低头窥视偏移
+        float peekOffsetX = 0.0f;
+        float peekOffsetY = 0.0f;
+        float dX_left = h_x - (-CUBE_W);
+        float dX_right = CUBE_W - h_x;
+        float dY_top = h_y - (-CUBE_H);
+        float dY_bottom = CUBE_H - h_y;
+        float minDistWall = fminf(fminf(dX_left, dX_right), fminf(dY_top, dY_bottom));
+        
+        if (minDistWall == dX_left) {
+            peekOffsetX = r_head * 0.65f; // 靠近左墙，往右滑动
+        } else if (minDistWall == dX_right) {
+            peekOffsetX = -r_head * 0.65f; // 靠近右墙，往左滑动
+        } else if (minDistWall == dY_top) {
+            peekOffsetY = r_head * 0.65f; // 靠近顶墙，往下滑动
+        } else {
+            peekOffsetY = -r_head * 0.65f; // 靠近底墙，往上滑动
+        }
+
+        float peekEyeX = hx + peekOffsetX * headLowerProgress + pupilX * (8.0f - 4.0f * headLowerProgress);
+        float peekEyeY = hy + peekOffsetY * headLowerProgress + pupilY * (6.0f - 4.0f * headLowerProgress);
         
         eyeX = (1.0f - clingFactor) * normalEyeX + clingFactor * peekEyeX;
-        eyeY = (1.0f - clingFactor) * normalEyeY + clingFactor * (hy - r_head * 0.72f * headLowerProgress + pupilY * (6.0f - 4.0f * headLowerProgress));
+        eyeY = (1.0f - clingFactor) * normalEyeY + clingFactor * peekEyeY;
     }
 
     // 眼睛形变尺寸

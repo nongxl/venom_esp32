@@ -411,7 +411,7 @@ void Venom::update(float gx, float gy, float gz, float soundLevel, float lux) {
             handProgressR = 1.0f;
         } else {
             if (handProgressR < 1.0f) handProgressR += 0.22f * speedMult;
-            handLX = head.x; handLY = handRY = head.y;
+            handLX = head.x; handLY = head.y; handLZ = head.z;
             handProgressL = 1.0f;
         }
     }

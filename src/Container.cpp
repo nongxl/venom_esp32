@@ -21,13 +21,13 @@ void Container::projectPoint(float x, float y, float z, Face face, float& outX, 
         case BOTTOM: u = x;  v = z;  depth = y + CUBE_H; break;
     }
     
-    // 【核心增强】显著提升透视位移系数与基础深度感
-    const float tiltFactor = 4.5f; 
+    // 【深度校正】降低倾斜透视位移系数，防止形成过深隧道感
+    const float tiltFactor = 1.4f; 
     u += depth * (ay * tiltFactor); 
     v -= depth * (ax * tiltFactor); 
 
-    // 增强近大远小效果：将透视基准从 250 降至 180
-    float perspective = 180.0f / (180.0f + depth); 
+    // 平缓近大远小效果：将透视基准从 180 提高到 220
+    float perspective = 220.0f / (220.0f + depth); 
     
     // 【终极纠偏：自适应正交投影融合 (Perspective Boundary Guard)】
     float orthoX = cx + u * baseScale;
@@ -66,17 +66,26 @@ void Container::drawContainer(M5Canvas* canvas, float ax, float ay, const Skelet
         projectPoint(inner_v[i][0], inner_v[i][1], inner_v[i][2], currentFace, px[i], py[i], pz[i], ax, ay);
     }
     
-    // --- 高亮所有与生物有接触的 3D 面 ---
+    // --- 高亮所有与生物有接触的 3D 面 (贴屏与贴后壁节点优先过滤以防边缘冲突) ---
     bool touched[6] = {false};
-    float threshold = 4.0f; // [修改] 接触判定阈值下调，使其与物理粘附距离(STICK_DISTANCE)更匹配，消除未触碰就发光的视觉误差
+    float threshold = 4.0f; // 接触判定阈值下调
     for (int i = 0; i < MAX_NODES; i++) {
         const Node& n = skeleton.getNode(i);
+        
+        // 优先响应屏幕和后壁的紧密平贴，避免其滑到边缘时连带点亮3D侧壁投影
+        if (abs(n.z - CUBE_D) < threshold) {
+            touched[FRONT] = true;
+            continue; 
+        }
+        if (abs(n.z - (-CUBE_D)) < threshold) {
+            touched[BACK] = true;
+            continue;
+        }
+        
         if (abs(n.x - (-CUBE_W)) < threshold) touched[LEFT] = true;
         if (abs(n.x - CUBE_W) < threshold) touched[RIGHT] = true;
         if (abs(n.y - (-CUBE_H)) < threshold) touched[TOP] = true;
         if (abs(n.y - CUBE_H) < threshold) touched[BOTTOM] = true;
-        if (abs(n.z - (-CUBE_D)) < threshold) touched[BACK] = true;
-        if (abs(n.z - CUBE_D) < threshold) touched[FRONT] = true;
     }
 
     uint16_t highlightColor = 0x0115;

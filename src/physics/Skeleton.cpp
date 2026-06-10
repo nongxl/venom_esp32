@@ -248,7 +248,7 @@ void Skeleton::applyAntigravityBehavior(float gx, float gy, float gz) {
         // -------------------------------------------------------------
         // 【物理重构：静态防滑锁定机制】
         // -------------------------------------------------------------
-        if (stiffnessMultiplier < 1.5f && !externalShock && !forceDetach) {
+        if (stiffnessMultiplier < 1.5f && !externalShock && !forceDetach && !hasActivePull) {
             underHeavyStress = false;
         }
 
@@ -279,7 +279,7 @@ void Skeleton::applyAntigravityBehavior(float gx, float gy, float gz) {
                 float strengthY = (1.0f - dY/15.0f) * 15.5f * vAttractionScale * softZoneScale;
                 // 天花板高粘性强化
                 if (n.y < 0) {
-                    strengthY *= 2.0f;
+                    strengthY *= CEILING_SUCTION_BOOST;
                 }
                 suctionY = (n.y > 0 ? 1 : -1) * strengthY;
             }
@@ -319,7 +319,7 @@ void Skeleton::applyAntigravityBehavior(float gx, float gy, float gz) {
                     float dz = nodes[i-1].z - n.z;
                     float d = sqrtf(dx*dx + dy*dy + dz*dz + 0.001f);
                     
-                    float kickForce = underHeavyStress ? 3.8f : 1.5f; 
+                    float kickForce = underHeavyStress ? (3.8f + RELEASE_KICK_WOBBLE) : 1.5f; 
                     n.vx += (dx / d) * kickForce;
                     n.vy += (dy / d) * kickForce;
                     n.vz += (dz / d) * kickForce;
@@ -464,6 +464,21 @@ void Skeleton::applyAntigravityBehavior(float gx, float gy, float gz) {
         }
     }
 
+    // [新增爬行拖尾变细] 主动爬行状态下，根据拉伸张力对受拉节点进行体积守恒性变细处理
+    bool hasActivePull = false;
+    for (int k = 0; k < MAX_NODES; k++) {
+        if (hasTarget[k]) { hasActivePull = true; break; }
+    }
+    if (hasActivePull && !forceDetach && shapeArchetype != 4) {
+        for (int i = 1; i < MAX_NODES; i++) {
+            if (nodes[i].tension > 1.0f) {
+                float stretchThinning = 1.0f / sqrtf(nodes[i].tension);
+                stretchThinning = fmaxf(0.65f, stretchThinning); // 限制最大变细程度，防止过度瘦削
+                nodes[i].radius *= stretchThinning;
+            }
+        }
+    }
+
     // 重置状态检测
     if (!flipped && isFalling && (millis() - fallingTimer > FALLING_STRUGGLE_MS * 3)) {
         isFalling = false;
@@ -491,6 +506,10 @@ void Skeleton::applyInternalForces() {
 
         // 仅在强制脱落（受惊暴走）时拉长骨骼间距，产生凌厉的细长流体感
         if (forceDetach) restDist *= 2.2f; 
+        else if (shapeArchetype == 4) {
+            // [角落填充] 刚性骨骼聚拢，静息间距大幅压缩
+            restDist *= 0.35f;
+        }
         else if (stiffnessMultiplier > 1.5f) {
             // 头到终点后，全身静息间距压缩至 15%，迫使尾巴“啪”地瞬间弹射回头部！
             if (headAnchored) {
@@ -514,9 +533,24 @@ void Skeleton::applyInternalForces() {
         }
         else if (stiffnessMultiplier < 0.5f) restDist *= 0.7f; // 闲置时更紧凑
         else if (isSwinging) restDist *= 0.45f; // 荡秋千状态：极致压缩身体节段间距，抵消强吊挂拉力以保型
+        else {
+            // 正常游动/探索状态下，如果存在主动爬行拉力，后半部分骨骼静息间距梯度延展以产生拖尾效果
+            bool activePull = false;
+            for (int k = 0; k < MAX_NODES; k++) {
+                if (hasTarget[k]) { activePull = true; break; }
+            }
+            if (activePull) {
+                float stretchFactor = 1.0f + ((float)i / MAX_NODES) * (CRAWL_REST_LENGTH_MULT - 1.0f);
+                restDist *= stretchFactor;
+            }
+        }
 
         if (dist > 0.01f) {
             float stiffness = SPRING_STIFFNESS * powf(SPRING_STIFFNESS_DECAY, i-1) * stiffnessMultiplier;
+            if (shapeArchetype == 4) {
+                // [角落填充] 衰减骨骼刚度以使身体软化贴合墙角
+                stiffness *= CORNER_STIFFNESS_SCALE;
+            }
             
             // 暴走和闲置时都不注入随机噪波，确保物理轨迹绝对平滑
                 // 仅在常规移动或探索时加入微量随机感
@@ -777,7 +811,14 @@ void Skeleton::applyConstraints() {
     // 强制限制相邻节点的最大物理空间距离：
     // - 荡秋千悬挂 (isSwinging) 状态下：严格压死在 3.8f 像素内，使得身体在渲染层绝对保型为超萌的圆形黑糯米滋。
     // - 其它状态 (Move/Idle 等) 状态下：强制锁在 6.8f 像素内，拉伸量 100% 被触手承担，身体绝对拒绝任何面条状拉长！
+    bool hasActivePullPBD = false;
+    for (int k = 0; k < MAX_NODES; k++) {
+        if (hasTarget[k]) { hasActivePullPBD = true; break; }
+    }
     float maxLimitDist = isSwinging ? 3.8f : 6.8f; 
+    if (hasActivePullPBD && !forceDetach && shapeArchetype != 4) {
+        maxLimitDist = 6.8f * CRAWL_REST_LENGTH_MULT;
+    }
     for (int iter = 0; iter < 2; iter++) {
         for (int i = 1; i < MAX_NODES; i++) {
             float dx = nodes[i].x - nodes[i-1].x;

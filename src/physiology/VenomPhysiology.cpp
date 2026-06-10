@@ -779,7 +779,12 @@ void Venom::updateAI() {
     applySkillEffects();
     symbolMgr.update(); 
 
-    skeleton.setRestLengthScale(1.0f); 
+    // 只有在非特殊静息长度控制状态下，才重置为常态 1.0f，防止覆盖其他状态的特异性伸缩
+    if (currentSkillName != "rest" && currentSkillName != "interact" && 
+        currentSkillName != "startled" && 
+        state != VenomState::GRAPPLING && state != VenomState::HIDING && state != VenomState::OBSERVE) {
+        skeleton.setRestLengthScale(1.0f); 
+    }
 
     if (currentSkillName == "recover") {
         state = VenomState::RECOVERY;

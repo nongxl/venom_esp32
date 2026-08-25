@@ -52,8 +52,104 @@ static float fps_calc_accumulator = 0.0f;
 static int   fps_calc_frames = 0;
 static unsigned long last_fps_update_ms = 0;
 
-// 震动电机脉冲
-static unsigned long vibrate_end_ms = 0;
+// ==========================================
+// 【多模式高质感仿生触觉震动引擎 (Soft Haptic Engine)】
+// ==========================================
+enum HapticPattern {
+    HAPTIC_NONE = 0,
+    HAPTIC_TICK,         // 1. 超轻按键微触点 (12ms, PWM 55) - 短按 HUD / 退出
+    HAPTIC_SLING,        // 2. 挥甩离手轻风 (18ms, PWM 70) - 甩掷起飞
+    HAPTIC_SPLAT,        // 3. 软泥啪嗒拍扁吸附 (28ms, PWM 100 渐弱) - 撞墙黏住
+    HAPTIC_JOLT_DOUBLE,  // 4. 生物受惊双连微颤 (15ms+20ms停+15ms, PWM 80) - 戳弄受惊
+    HAPTIC_SWALLOW,      // 5. 吞噬咽下满足微震 (32ms, PWM 75) - 捕食吞噬
+    HAPTIC_LONG_PULSE    // 6. 长按配网温和长震 (85ms, PWM 115) - 开启 AP 热点
+};
+
+struct HapticController {
+    HapticPattern pattern = HAPTIC_NONE;
+    unsigned long start_ms = 0;
+
+    void trigger(HapticPattern p) {
+        pattern = p;
+        start_ms = millis();
+        update();
+    }
+
+    void update() {
+        if (pattern == HAPTIC_NONE) return;
+        unsigned long elapsed = millis() - start_ms;
+
+        switch (pattern) {
+            case HAPTIC_TICK:
+                if (elapsed < 12) {
+                    ledcWrite(VIBR_PWM_CHANNEL, 55); // 细腻温和微触
+                } else {
+                    ledcWrite(VIBR_PWM_CHANNEL, 0);
+                    pattern = HAPTIC_NONE;
+                }
+                break;
+
+            case HAPTIC_SLING:
+                if (elapsed < 18) {
+                    ledcWrite(VIBR_PWM_CHANNEL, 70); // 挥甩起飞
+                } else {
+                    ledcWrite(VIBR_PWM_CHANNEL, 0);
+                    pattern = HAPTIC_NONE;
+                }
+                break;
+
+            case HAPTIC_SPLAT:
+                if (elapsed < 28) {
+                    // 软泥拍扁渐弱触感 (100 -> 40)
+                    uint8_t p = 100 - (elapsed * 60 / 28);
+                    ledcWrite(VIBR_PWM_CHANNEL, p);
+                } else {
+                    ledcWrite(VIBR_PWM_CHANNEL, 0);
+                    pattern = HAPTIC_NONE;
+                }
+                break;
+
+            case HAPTIC_JOLT_DOUBLE:
+                // 双脉冲生物心跳微颤 (0~14ms 震, 14~32ms 停, 32~48ms 震)
+                if (elapsed < 14) {
+                    ledcWrite(VIBR_PWM_CHANNEL, 80);
+                } else if (elapsed < 32) {
+                    ledcWrite(VIBR_PWM_CHANNEL, 0);
+                } else if (elapsed < 48) {
+                    ledcWrite(VIBR_PWM_CHANNEL, 65);
+                } else {
+                    ledcWrite(VIBR_PWM_CHANNEL, 0);
+                    pattern = HAPTIC_NONE;
+                }
+                break;
+
+            case HAPTIC_SWALLOW:
+                if (elapsed < 32) {
+                    ledcWrite(VIBR_PWM_CHANNEL, 75); // 吞咽柔和微震
+                } else {
+                    ledcWrite(VIBR_PWM_CHANNEL, 0);
+                    pattern = HAPTIC_NONE;
+                }
+                break;
+
+            case HAPTIC_LONG_PULSE:
+                if (elapsed < 85) {
+                    ledcWrite(VIBR_PWM_CHANNEL, 115); // 温和长震，绝不震手手麻
+                } else {
+                    ledcWrite(VIBR_PWM_CHANNEL, 0);
+                    pattern = HAPTIC_NONE;
+                }
+                break;
+
+            default:
+                ledcWrite(VIBR_PWM_CHANNEL, 0);
+                pattern = HAPTIC_NONE;
+                break;
+        }
+    }
+};
+
+static HapticController haptics;
 
 // 麦克风三频段音频分析缓存
 static int16_t mic_raw_buffer[128];
@@ -61,11 +157,6 @@ static unsigned long last_mic_sample_ms = 0;
 
 // LLM 意图请求调度计时
 static unsigned long last_llm_request_ms = 0;
-
-void triggerVibration(int duration_ms, uint8_t power = 180) {
-    ledcWrite(VIBR_PWM_CHANNEL, power);
-    vibrate_end_ms = millis() + duration_ms;
-}
 
 static float smoothed_mic_db = 32.0f;
 
@@ -196,12 +287,13 @@ void setup() {
 
 void loop() {
     M5.update();
+    haptics.update();
 
     // 0. 配网热点模式接管
     if (portal.isRunning()) {
         portal.update();
         if (M5.BtnA.wasPressed()) {
-            triggerVibration(40, 200);
+            haptics.trigger(HAPTIC_TICK);
             portal.stop();
             delay(100);
             ESP.restart();
@@ -222,11 +314,6 @@ void loop() {
         fps_calc_accumulator = 0.0f;
         fps_calc_frames = 0;
         last_fps_update_ms = millis();
-    }
-
-    if (vibrate_end_ms > 0 && millis() >= vibrate_end_ms) {
-        ledcWrite(VIBR_PWM_CHANNEL, 0);
-        vibrate_end_ms = 0;
     }
 
     // 1. 真实物理 IMU 坐标对齐 (M5StickS3 横屏 Rotation 1)
@@ -275,7 +362,7 @@ void loop() {
 
         skeleton.triggerSlingThrow(dir_x, dir_y, throw_speed);
         tentacles.reset(); // 打断爪盘与触手
-        triggerVibration(25, 200);
+        haptics.trigger(HAPTIC_SLING); // 甩飞轻盈离手感
     }
 
     // 2. 音频分析与节拍检测
@@ -288,21 +375,21 @@ void loop() {
 
     // 长按 BtnB (1200ms) 触发开启 HTTP Web 配网热点
     if (M5.BtnB.pressedFor(1200)) {
-        triggerVibration(120, 255);
+        haptics.trigger(HAPTIC_LONG_PULSE); // 温和长震提示
         portal.start(renderer.getCanvas());
         return;
     }
 
     if (btn_a_pressed) {
         ai.triggerJolt(skeleton, metaballs, 1.2f);
-        triggerVibration(50, 220);
+        haptics.trigger(HAPTIC_JOLT_DOUBLE); // 受惊双连微颤
         llm.requestConsciousnessUpdate(physiology.getEnergy(), 0.9f, 0.8f, 0.1f,
                                        physiology.getAttachment(), "JOLT", "poked_by_human", true);
     }
 
     if (M5.BtnB.wasClicked()) {
         renderer.toggleHUD();
-        triggerVibration(25, 150);
+        haptics.trigger(HAPTIC_TICK); // 清脆微触感
     }
 
     // 4. 串口交互指令
@@ -370,8 +457,8 @@ void loop() {
     // 10.1 撞击“啪嗒”事件检测与触觉/飞溅联动 (Sticky Splat Feedback)
     float imp_spd, hit_x, hit_y;
     if (skeleton.checkAndConsumeImpactEvent(imp_spd, hit_x, hit_y)) {
-        // “啪嗒”拍在玻璃上的有力短促震动反馈
-        triggerVibration(45, 255);
+        // “啪嗒”拍在玻璃上的渐弱软泥微震反馈 (绝不震手手麻)
+        haptics.trigger(HAPTIC_SPLAT);
         // 瞬间向外爆射 6 根应力尖刺
         metaballs.triggerSpikeBurst(6, 1.35f);
         // 飞溅 3 颗微小黏液滴

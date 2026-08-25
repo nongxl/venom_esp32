@@ -29,37 +29,44 @@ void CreatureAI::enterHesitation(CreatureState target_state, float delay_sec) {
     crawl_force_y *= 0.2f;
 }
 
-void CreatureAI::enterState(CreatureState new_state) {
+void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles, float hx, float hy) {
     current_state = new_state;
     state_timer = 0.0f;
 
     switch (new_state) {
         case STATE_IDLE:
-            state_duration = 3.5f + (rand() % 40) * 0.1f;
+            state_duration = 3.0f + (rand() % 35) * 0.1f;
             crawl_force_x = 0.0f;
             crawl_force_y = 0.0f;
             break;
 
         case STATE_CRAWL:
-            state_duration = 4.0f + (rand() % 50) * 0.1f;
+            state_duration = 4.5f + (rand() % 40) * 0.1f;
+            crawl_shoot_timer = 0.0f;
             crawl_perimeter_edge = rand() % 4;
+
             if (crawl_perimeter_edge == 0) {
-                crawl_target_x = 30.0f + (rand() % (SCREEN_W - 60));
-                crawl_target_y = SCREEN_H - 18.0f;
+                crawl_target_x = 35.0f + (rand() % (SCREEN_W - 70));
+                crawl_target_y = SCREEN_H - 16.0f;
             } else if (crawl_perimeter_edge == 1) {
-                crawl_target_x = SCREEN_W - 18.0f;
+                crawl_target_x = SCREEN_W - 16.0f;
                 crawl_target_y = 25.0f + (rand() % (SCREEN_H - 50));
             } else if (crawl_perimeter_edge == 2) {
-                crawl_target_x = 30.0f + (rand() % (SCREEN_W - 60));
-                crawl_target_y = 18.0f;
+                crawl_target_x = 35.0f + (rand() % (SCREEN_W - 70));
+                crawl_target_y = 16.0f;
             } else {
-                crawl_target_x = 18.0f;
+                crawl_target_x = 16.0f;
                 crawl_target_y = 25.0f + (rand() % (SCREEN_H - 50));
+            }
+
+            // 触发主动射出爬行触手
+            if (tentacles) {
+                tentacles->startGrappleCrawl(hx, hy, crawl_target_x, crawl_target_y);
             }
             break;
 
         case STATE_OBSERVE:
-            state_duration = 3.0f + (rand() % 30) * 0.1f;
+            state_duration = 2.8f + (rand() % 25) * 0.1f;
             crawl_force_x = 0.0f;
             crawl_force_y = 0.0f;
             target_look_x = (rand() % SCREEN_W);
@@ -136,7 +143,6 @@ void CreatureAI::updateOrganicBreathing(float dt, const PhysiologySystem &physio
     float base_speed = (physiology.getEmotion() == EMOTION_STRESS || physiology.getEmotion() == EMOTION_FEAR) ? 4.5f : 1.8f;
     float audio_low_boost = physiology.getAudioLow() * 3.5f;
 
-    // 观察或沉默观察时呼吸显著变慢
     if (expression.getCurrentExpression() == EXPR_OBSERVE || expression.getCurrentExpression() == EXPR_SILENT_OBSERVATION) {
         base_speed *= 0.45f;
     }
@@ -156,7 +162,7 @@ void CreatureAI::updateOrganicBreathing(float dt, const PhysiologySystem &physio
         }
     }
 
-    respiration_factor = raw_resp * (0.05f + physiology.getAudioLow() * 0.04f) + twitch_offset;
+    respiration_factor = raw_resp * (0.04f + physiology.getAudioLow() * 0.03f) + twitch_offset;
 }
 
 void CreatureAI::updateMicroBehaviors(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology) {
@@ -177,30 +183,25 @@ void CreatureAI::updateHesitating(float dt, float hx, float hy, const Expression
         return;
     }
 
-    // 犹豫动作动力学：前进探头 -> 停顿 -> 后撤 -> 再试探
     float phase = expression.getHesitationStep();
     float p_mod = fmod(phase, 4.0f);
 
     if (p_mod < 1.0f) {
-        // 前进探头
         crawl_force_x = 0.35f;
         crawl_force_y = 0.0f;
     } else if (p_mod < 2.0f) {
-        // 停顿
         crawl_force_x = 0.0f;
         crawl_force_y = 0.0f;
     } else if (p_mod < 3.0f) {
-        // 后退缩回
         crawl_force_x = -0.30f;
         crawl_force_y = 0.0f;
     } else {
-        // 再次小心试探
         crawl_force_x = 0.25f;
         crawl_force_y = 0.0f;
     }
 }
 
-void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem &physiology, const RelationshipSystem &relationship) {
+void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem &physiology, const RelationshipSystem &relationship, TentacleRenderer &tentacles) {
     target_look_x = hx + std::cos(respiration_phase * 0.5f) * 35.0f;
     target_look_y = hy + std::sin(respiration_phase * 0.7f) * 20.0f - 10.0f;
 
@@ -210,7 +211,7 @@ void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem
         int r = rand() % 100;
 
         if (r < (int)(curiosity * openness * 80.0f)) {
-            enterHesitation(STATE_CRAWL, 0.4f);
+            enterState(STATE_CRAWL, &tentacles, hx, hy);
         } else if (r < 75) {
             enterState(STATE_OBSERVE);
         } else if (physiology.getEnergy() < 0.3f || r < 90) {
@@ -221,30 +222,32 @@ void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem
     }
 }
 
-void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySystem &physiology) {
+void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles) {
+    target_look_x = crawl_target_x;
+    target_look_y = crawl_target_y;
+
     float dx = crawl_target_x - hx;
     float dy = crawl_target_y - hy;
     float dist = std::sqrt(dx * dx + dy * dy);
 
-    if (dist > 8.0f) {
-        crawl_force_x = (dx / dist) * 0.55f;
-        crawl_force_y = (dy / dist) * 0.55f;
-        target_look_x = crawl_target_x;
-        target_look_y = crawl_target_y;
-    } else {
-        enterState(STATE_OBSERVE);
-        return;
+    // 如果触手抓取已完成且还未到达，或者触手未激活，重新射击一次完成爬行跨越
+    if (!tentacles.isGrappling()) {
+        crawl_shoot_timer += dt;
+        if (crawl_shoot_timer > 0.3f && dist > 14.0f) {
+            crawl_shoot_timer = 0.0f;
+            tentacles.startGrappleCrawl(hx, hy, crawl_target_x, crawl_target_y);
+        }
     }
 
-    if (state_timer >= state_duration) {
-        enterState(STATE_IDLE);
+    if (dist <= 12.0f || state_timer >= state_duration) {
+        enterState(STATE_OBSERVE);
     }
 }
 
-void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySystem &physiology) {
+void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles) {
     if (state_timer >= state_duration) {
         if ((rand() % 100) < 55) {
-            enterHesitation(STATE_CRAWL, 0.3f);
+            enterState(STATE_CRAWL, &tentacles, hx, hy);
         } else {
             enterState(STATE_IDLE);
         }
@@ -278,8 +281,9 @@ void CreatureAI::updateExpressing(float dt, float hx, float hy, const Expression
 }
 
 void CreatureAI::update(float dt, SkeletonSystem &skeleton, MetaballSystem &metaballs,
-                        PhysiologySystem &physiology, RelationshipSystem &relationship,
-                        ExpressionLayer &expression, const ConsciousnessStateV3 &v3_state) {
+                        TentacleRenderer &tentacles, PhysiologySystem &physiology,
+                        RelationshipSystem &relationship, ExpressionLayer &expression,
+                        const ConsciousnessStateV3 &v3_state) {
     state_timer += dt;
 
     updateOrganicBreathing(dt, physiology, expression);
@@ -288,7 +292,6 @@ void CreatureAI::update(float dt, SkeletonSystem &skeleton, MetaballSystem &meta
     float hx, hy;
     skeleton.getHeadPos(hx, hy);
 
-    // 如果处于高级身体表达中且当前非惊恐，转入 EXPRESSING 状态
     if (expression.getCurrentExpression() != EXPR_NONE &&
         current_state != STATE_STARTLED && current_state != STATE_JOLTING &&
         current_state != STATE_HESITATING) {
@@ -297,9 +300,9 @@ void CreatureAI::update(float dt, SkeletonSystem &skeleton, MetaballSystem &meta
 
     switch (current_state) {
         case STATE_HESITATING: updateHesitating(dt, hx, hy, expression); break;
-        case STATE_IDLE:       updateIdle(dt, hx, hy, physiology, relationship); break;
-        case STATE_CRAWL:      updateCrawl(dt, hx, hy, physiology); break;
-        case STATE_OBSERVE:    updateObserve(dt, hx, hy, physiology); break;
+        case STATE_IDLE:       updateIdle(dt, hx, hy, physiology, relationship, tentacles); break;
+        case STATE_CRAWL:      updateCrawl(dt, hx, hy, physiology, tentacles); break;
+        case STATE_OBSERVE:    updateObserve(dt, hx, hy, physiology, tentacles); break;
         case STATE_SLEEP:      updateSleep(dt, hx, hy, physiology); break;
         case STATE_STARTLED:   updateStartled(dt, hx, hy, physiology); break;
         case STATE_JOLTING:    updateJolting(dt, hx, hy, physiology); break;

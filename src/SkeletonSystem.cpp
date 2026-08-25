@@ -1,276 +1,245 @@
 #include "SkeletonSystem.h"
 #include <cmath>
+#include <algorithm>
 
 SkeletonSystem::SkeletonSystem() {
-    for (int i = 0; i < SKELETON_NODE_COUNT - 1; ++i) {
-        rest_lengths[i] = 16.0f;
-    }
+    init();
 }
 
 void SkeletonSystem::init() {
-    reset(SCREEN_W * 0.5f, SCREEN_H - 30.0f);
-}
-
-void SkeletonSystem::reset(float cx, float cy) {
-    const float radii[SKELETON_NODE_COUNT] = { 22.0f, 24.0f, 22.0f, 18.0f, 13.0f };
+    float start_x = 120.0f;
+    float start_y = 100.0f;
 
     for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
-        nodes[i].x = cx - i * 14.0f;
-        nodes[i].y = cy;
+        nodes[i].x = start_x;
+        nodes[i].y = start_y + i * 4.5f;
         nodes[i].vx = 0.0f;
         nodes[i].vy = 0.0f;
-        nodes[i].base_radius = radii[i];
-        nodes[i].radius_x = radii[i];
-        nodes[i].radius_y = radii[i];
-        nodes[i].bleb_offset_x = 0.0f;
-        nodes[i].bleb_offset_y = 0.0f;
-        nodes[i].spike_amount = 0.0f;
+
+        // 头部大、身体圆润、尾部渐细
+        if (i == 0)      nodes[i].base_radius = 24.0f;
+        else if (i == 1) nodes[i].base_radius = 21.0f;
+        else if (i == 2) nodes[i].base_radius = 18.0f;
+        else if (i == 3) nodes[i].base_radius = 14.0f;
+        else             nodes[i].base_radius = 9.0f;
+
+        nodes[i].radius_x = nodes[i].base_radius;
+        nodes[i].radius_y = nodes[i].base_radius;
+        nodes[i].mass = 0.8f + (float)i * 0.35f; // 头部轻、尾部重，拖尾感更强
+
+        nodes[i].contact_bottom = 0.0f;
+        nodes[i].contact_top = 0.0f;
         nodes[i].contact_left = 0.0f;
         nodes[i].contact_right = 0.0f;
-        nodes[i].contact_top = 0.0f;
-        nodes[i].contact_bottom = 0.0f;
-        nodes[i].is_head = (i == 0);
-        nodes[i].is_tail = (i == SKELETON_NODE_COUNT - 1);
+        nodes[i].bleb_offset_x = 0.0f;
+        nodes[i].bleb_offset_y = 0.0f;
     }
-}
-
-void SkeletonSystem::getCenterPos(float &cx, float &cy) const {
-    float sum_x = 0.0f, sum_y = 0.0f;
-    for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
-        sum_x += (nodes[i].x + nodes[i].bleb_offset_x);
-        sum_y += (nodes[i].y + nodes[i].bleb_offset_y);
-    }
-    cx = sum_x / SKELETON_NODE_COUNT;
-    cy = sum_y / SKELETON_NODE_COUNT;
-}
-
-void SkeletonSystem::applyImpulse(float fx, float fy) {
-    for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
-        float factor = 1.0f - (i * 0.12f);
-        nodes[i].vx += fx * factor;
-        nodes[i].vy += fy * factor;
-    }
-}
-
-void SkeletonSystem::triggerLocalBleb(int node_idx, float intensity) {
-    if (node_idx >= 0 && node_idx < SKELETON_NODE_COUNT) {
-        float angle = (rand() % 360) * 0.017453f;
-        nodes[node_idx].bleb_offset_x += std::cos(angle) * intensity * 5.0f;
-        nodes[node_idx].bleb_offset_y += std::sin(angle) * intensity * 5.0f;
-    }
-}
-
-void SkeletonSystem::applySpringForces(float tension) {
-    // 刚度受情绪张力调节：Tension 高时紧绷，低时柔顺
-    float current_k = SPRING_STIFFNESS * (0.7f + tension * 0.9f);
 
     for (int i = 0; i < SKELETON_NODE_COUNT - 1; ++i) {
-        SkeletonNode &n1 = nodes[i];
-        SkeletonNode &n2 = nodes[i + 1];
-
-        float dx = n2.x - n1.x;
-        float dy = n2.y - n1.y;
-        float dist = std::sqrt(dx * dx + dy * dy);
-        if (dist < 0.001f) {
-            dx = 1.0f;
-            dist = 1.0f;
-        }
-
-        float target_d = rest_lengths[i] * (1.0f - tension * 0.15f); // 紧张时身体整体收紧缩小
-        float delta = dist - target_d;
-        float force = delta * current_k;
-
-        float nx = dx / dist;
-        float ny = dy / dist;
-
-        n1.vx += nx * force * 0.5f;
-        n1.vy += ny * force * 0.5f;
-        n2.vx -= nx * force * 0.5f;
-        n2.vy -= ny * force * 0.5f;
+        rest_lengths[i] = 4.0f;
     }
 
-    for (int i = 0; i < SKELETON_NODE_COUNT - 2; ++i) {
-        SkeletonNode &n1 = nodes[i];
-        SkeletonNode &n3 = nodes[i + 2];
+    has_pull_target = false;
+    pull_strength = 0.0f;
+}
 
-        float dx = n3.x - n1.x;
-        float dy = n3.y - n1.y;
+void SkeletonSystem::setPullTarget(float tx, float ty, float force) {
+    has_pull_target = true;
+    pull_target_x = tx;
+    pull_target_y = ty;
+    pull_strength = force;
+}
+
+void SkeletonSystem::clearPullTarget() {
+    has_pull_target = false;
+    pull_strength = 0.0f;
+}
+
+void SkeletonSystem::applyImpulse(float ix, float iy) {
+    for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
+        nodes[i].vx += ix / nodes[i].mass;
+        nodes[i].vy += iy / nodes[i].mass;
+    }
+}
+
+void SkeletonSystem::triggerLocalBleb(int node_index, float intensity) {
+    if (node_index < 0 || node_index >= SKELETON_NODE_COUNT) return;
+    float angle = (rand() % 360) * 0.017453f;
+    float dist = (5.0f + (rand() % 25) * 0.1f) * intensity;
+    nodes[node_index].bleb_offset_x = std::cos(angle) * dist;
+    nodes[node_index].bleb_offset_y = std::sin(angle) * dist;
+}
+
+bool SkeletonSystem::isAttachedToWall() const {
+    for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
+        if (nodes[i].contact_bottom > 0.3f || nodes[i].contact_top > 0.3f ||
+            nodes[i].contact_left > 0.3f || nodes[i].contact_right > 0.3f) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void SkeletonSystem::applyWallAdhesion(int i) {
+    SkeletonNode &n = nodes[i];
+    float r = n.base_radius;
+
+    n.contact_bottom = 0.0f;
+    n.contact_top = 0.0f;
+    n.contact_left = 0.0f;
+    n.contact_right = 0.0f;
+
+    // 1. 底部地面接触
+    float dist_b = (SCREEN_H - 2) - n.y;
+    if (dist_b < r) {
+        float penetration = r - dist_b;
+        n.y -= penetration * 0.85f;
+        n.vy *= 0.15f;
+        n.vx *= 0.70f;
+        n.contact_bottom = std::min(1.0f, penetration / (r * 0.45f));
+    }
+
+    // 2. 顶部天花板接触
+    float dist_t = n.y - 2;
+    if (dist_t < r) {
+        float penetration = r - dist_t;
+        n.y += penetration * 0.85f;
+        n.vy *= 0.15f;
+        n.vx *= 0.70f;
+        n.contact_top = std::min(1.0f, penetration / (r * 0.45f));
+    }
+
+    // 3. 左壁接触
+    float dist_l = n.x - 2;
+    if (dist_l < r) {
+        float penetration = r - dist_l;
+        n.x += penetration * 0.85f;
+        n.vx *= 0.15f;
+        n.vy *= 0.70f;
+        n.contact_left = std::min(1.0f, penetration / (r * 0.45f));
+    }
+
+    // 4. 右壁接触
+    float dist_r = (SCREEN_W - 2) - n.x;
+    if (dist_r < r) {
+        float penetration = r - dist_r;
+        n.x -= penetration * 0.85f;
+        n.vx *= 0.15f;
+        n.vy *= 0.70f;
+        n.contact_right = std::min(1.0f, penetration / (r * 0.45f));
+    }
+}
+
+void SkeletonSystem::updateNodePhysics(int i, float dt, float gx, float gy, float cfx, float cfy, float tension, bool is_upside_down) {
+    SkeletonNode &n = nodes[i];
+
+    // 1. 重力与外界加速度
+    float g_scale = is_upside_down ? (0.25f - tension * 0.15f) : 1.0f;
+    n.vx += gx * g_scale * 0.45f;
+    n.vy += gy * g_scale * 0.45f;
+
+    // 2. 爬行爬进驱动力
+    n.vx += cfx * (0.8f / n.mass);
+    n.vy += cfy * (0.8f / n.mass);
+
+    // 3. 主动抓取触手牵引力 (强力将头部拉向掌心，产生质心前移效果)
+    if (has_pull_target && i == 0) {
+        float dx = pull_target_x - n.x;
+        float dy = pull_target_y - n.y;
         float dist = std::sqrt(dx * dx + dy * dy);
-        float target_d = (rest_lengths[i] + rest_lengths[i + 1]) * 0.85f;
+        if (dist > 1.5f) {
+            float pull_mag = pull_strength * 4.5f;
+            n.vx += (dx / dist) * pull_mag;
+            n.vy += (dy / dist) * pull_mag;
+        }
+    }
 
-        if (dist < target_d && dist > 0.001f) {
-            float force = (dist - target_d) * (current_k * 0.35f);
+    // 阻尼
+    float damp = SPRING_DAMPING - tension * 0.12f;
+    n.vx *= damp;
+    n.vy *= damp;
+
+    n.x += n.vx * dt * 30.0f;
+    n.y += n.vy * dt * 30.0f;
+
+    // 神经鼓包衰减
+    n.bleb_offset_x *= 0.88f;
+    n.bleb_offset_y *= 0.88f;
+
+    // 贴壁接触与防穿透
+    applyWallAdhesion(i);
+}
+
+void SkeletonSystem::solveSpringConstraints(float tension) {
+    // 弹簧链约束（弹簧-阻尼系统 + 悬链线下坠）
+    for (int i = 1; i < SKELETON_NODE_COUNT; ++i) {
+        SkeletonNode &prev = nodes[i - 1];
+        SkeletonNode &curr = nodes[i];
+
+        float dx = curr.x - prev.x;
+        float dy = curr.y - prev.y;
+        float dist = std::sqrt(dx * dx + dy * dy);
+
+        float rest = rest_lengths[i - 1];
+        if (has_pull_target) {
+            // 受拉伸时静息距离适当延展，产生拖尾变细与拉伸感
+            rest *= 1.35f;
+        }
+
+        if (dist > 0.01f) {
+            float delta = dist - rest;
+            float force = delta * (SPRING_STIFFNESS + tension * 0.25f);
+
             float nx = dx / dist;
             float ny = dy / dist;
-            n1.vx += nx * force * 0.5f;
-            n1.vy += ny * force * 0.5f;
-            n3.vx -= nx * force * 0.5f;
-            n3.vy -= ny * force * 0.5f;
+
+            // 头部质量轻、容易拉动身体
+            curr.vx -= (nx * force) / curr.mass;
+            curr.vy -= (ny * force) / curr.mass;
+
+            prev.vx += (nx * force * 0.4f) / prev.mass;
+            prev.vy += (ny * force * 0.4f) / prev.mass;
+
+            // 刚性位置限制 (PBD 刚性截断，拒绝面条状无界拉长)
+            float max_allowed_dist = rest * 2.2f;
+            if (dist > max_allowed_dist) {
+                curr.x = prev.x + nx * max_allowed_dist;
+                curr.y = prev.y + ny * max_allowed_dist;
+            }
         }
     }
 }
 
-void SkeletonSystem::applyBoundaryAndAdhesion(float gravity_x, float gravity_y, bool is_upside_down) {
-    total_wall_contact = 0.0f;
+void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
+                            float crawl_force_x, float crawl_force_y,
+                            float neuro_tension, float spike_intensity,
+                            float respiration, bool is_upside_down) {
+    for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
+        updateNodePhysics(i, dt, gravity_x, gravity_y, crawl_force_x, crawl_force_y, neuro_tension, is_upside_down);
+    }
 
+    // 迭代求解两次弹簧约束，保证质心传递稳固
+    solveSpringConstraints(neuro_tension);
+    solveSpringConstraints(neuro_tension);
+
+    // 动态计算每个节点的压扁形变与呼吸微缩放
     for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
         SkeletonNode &n = nodes[i];
-        float r = n.base_radius;
+        float r = n.base_radius * (1.0f + respiration);
 
-        n.contact_left = 0.0f;
-        n.contact_right = 0.0f;
-        n.contact_top = 0.0f;
-        n.contact_bottom = 0.0f;
-
-        // 1. 底部吸附与碰撞 (Bottom)
-        float dist_bottom = SCREEN_H - n.y;
-        if (dist_bottom < r + WALL_STICK_DIST) {
-            float contact = 1.0f - (dist_bottom / (r + WALL_STICK_DIST));
-            if (contact < 0.0f) contact = 0.0f;
-            n.contact_bottom = contact;
-            n.vy += WALL_STICK_FORCE * (1.0f + gravity_y);
-            n.vx *= (1.0f - contact * 0.3f);
-        }
-        if (n.y > SCREEN_H - r * 0.65f) {
-            n.y = SCREEN_H - r * 0.65f;
-            if (n.vy > 0.0f) n.vy = -n.vy * 0.1f;
+        // 受到抓取拉伸时，身体产生体积守恒性拉长变细
+        if (has_pull_target) {
+            r *= 0.90f;
         }
 
-        // 2. 顶部吸附与抗坠落 (Top / Upside-down Adhesion)
-        float dist_top = n.y;
-        float top_stick_margin = is_upside_down ? (WALL_STICK_DIST * 1.5f) : WALL_STICK_DIST;
-        if (dist_top < r + top_stick_margin) {
-            float contact = 1.0f - (dist_top / (r + top_stick_margin));
-            if (contact < 0.0f) contact = 0.0f;
-            n.contact_top = contact;
-            // 倒置时强力吸附在天花板上，抗坠落
-            float stick_multiplier = is_upside_down ? 2.2f : 1.0f;
-            n.vy -= WALL_STICK_FORCE * stick_multiplier * (1.0f - gravity_y);
-            n.vx *= (1.0f - contact * 0.4f);
-        }
-        if (n.y < r * 0.65f) {
-            n.y = r * 0.65f;
-            if (n.vy < 0.0f) n.vy = -n.vy * 0.1f;
-        }
+        float flat_y = 1.0f - (n.contact_bottom + n.contact_top) * 0.45f;
+        float flat_x = 1.0f - (n.contact_left + n.contact_right) * 0.45f;
 
-        // 3. 左壁吸附与碰撞 (Left)
-        float dist_left = n.x;
-        if (dist_left < r + WALL_STICK_DIST) {
-            float contact = 1.0f - (dist_left / (r + WALL_STICK_DIST));
-            if (contact < 0.0f) contact = 0.0f;
-            n.contact_left = contact;
-            n.vx -= WALL_STICK_FORCE * (1.0f - gravity_x);
-            n.vy *= (1.0f - contact * 0.3f);
-        }
-        if (n.x < r * 0.65f) {
-            n.x = r * 0.65f;
-            if (n.vx < 0.0f) n.vx = -n.vx * 0.1f;
-        }
+        // 体积守恒横向膨胀
+        if (flat_y < 1.0f) flat_x += (1.0f - flat_y) * 0.55f;
+        if (flat_x < 1.0f) flat_y += (1.0f - flat_x) * 0.55f;
 
-        // 4. 右壁吸附与碰撞 (Right)
-        float dist_right = SCREEN_W - n.x;
-        if (dist_right < r + WALL_STICK_DIST) {
-            float contact = 1.0f - (dist_right / (r + WALL_STICK_DIST));
-            if (contact < 0.0f) contact = 0.0f;
-            n.contact_right = contact;
-            n.vx += WALL_STICK_FORCE * (1.0f + gravity_x);
-            n.vy *= (1.0f - contact * 0.3f);
-        }
-        if (n.x > SCREEN_W - r * 0.65f) {
-            n.x = SCREEN_W - r * 0.65f;
-            if (n.vx > 0.0f) n.vx = -n.vx * 0.1f;
-        }
-
-        float c_sum = n.contact_left + n.contact_right + n.contact_top + n.contact_bottom;
-        total_wall_contact += (c_sum > 1.0f ? 1.0f : c_sum);
+        n.radius_x = r * flat_x;
+        n.radius_y = r * flat_y;
     }
-
-    total_wall_contact /= SKELETON_NODE_COUNT;
-}
-
-void SkeletonSystem::updateDeformations(float respiration, float tension, float spike_intensity, float dt) {
-    for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
-        SkeletonNode &n = nodes[i];
-
-        // 衰减局部鼓包
-        n.bleb_offset_x *= 0.85f;
-        n.bleb_offset_y *= 0.85f;
-
-        // 尖刺强度平滑
-        n.spike_amount = n.spike_amount * 0.80f + spike_intensity * 0.20f;
-
-        float r_base = n.base_radius * (1.0f + respiration - tension * 0.10f + n.spike_amount * 0.25f);
-
-        float vertical_contact = n.contact_bottom + n.contact_top;
-        if (vertical_contact > 1.0f) vertical_contact = 1.0f;
-
-        float horizontal_contact = n.contact_left + n.contact_right;
-        if (horizontal_contact > 1.0f) horizontal_contact = 1.0f;
-
-        float corner_factor = (vertical_contact * horizontal_contact);
-
-        float rx = r_base;
-        float ry = r_base;
-
-        if (vertical_contact > 0.01f) {
-            float squash_y = 1.0f - vertical_contact * WALL_FLATTEN_RATE;
-            float expand_x = 1.0f + vertical_contact * (WALL_FLATTEN_RATE * 0.85f);
-            ry *= squash_y;
-            rx *= expand_x;
-        }
-
-        if (horizontal_contact > 0.01f) {
-            float squash_x = 1.0f - horizontal_contact * WALL_FLATTEN_RATE;
-            float expand_y = 1.0f + horizontal_contact * (WALL_FLATTEN_RATE * 0.85f);
-            rx *= squash_x;
-            ry *= expand_y;
-        }
-
-        if (corner_factor > 0.05f) {
-            rx *= (1.0f + corner_factor * 0.35f);
-            ry *= (1.0f + corner_factor * 0.35f);
-        }
-
-        n.radius_x = n.radius_x * 0.7f + rx * 0.3f;
-        n.radius_y = n.radius_y * 0.7f + ry * 0.3f;
-    }
-}
-
-void SkeletonSystem::update(float dt, float gravity_x, float gravity_y, float crawl_bias_x, float crawl_bias_y,
-                            float tension, float spike_intensity, float respiration, bool is_upside_down) {
-    for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
-        SkeletonNode &n = nodes[i];
-
-        n.vx += gravity_x;
-        n.vy += gravity_y;
-
-        if (i == 0) {
-            n.vx += crawl_bias_x * (1.6f - tension * 0.4f);
-            n.vy += crawl_bias_y * (1.6f - tension * 0.4f);
-        } else {
-            float falloff = 1.0f - (i * 0.2f);
-            n.vx += crawl_bias_x * 0.4f * falloff;
-            n.vy += crawl_bias_y * 0.4f * falloff;
-        }
-
-        // 紧张张力下的高频微颤
-        if (tension > 0.3f) {
-            float j_amp = tension * 0.12f;
-            n.vx += ((rand() % 100) - 50) * j_amp;
-            n.vy += ((rand() % 100) - 50) * j_amp;
-        }
-
-        n.vx *= SPRING_DAMPING;
-        n.vy *= SPRING_DAMPING;
-    }
-
-    applySpringForces(tension);
-    applyBoundaryAndAdhesion(gravity_x, gravity_y, is_upside_down);
-
-    for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
-        nodes[i].x += nodes[i].vx * dt;
-        nodes[i].y += nodes[i].vy * dt;
-    }
-
-    updateDeformations(respiration, tension, spike_intensity, dt);
 }

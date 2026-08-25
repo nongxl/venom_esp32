@@ -5,6 +5,7 @@
 #include "RelationshipSystem.h"
 #include "SkeletonSystem.h"
 #include "MetaballSystem.h"
+#include "TentacleRenderer.h"
 #include "ExpressionLayer.h"
 #include "LLMClient.h"
 
@@ -16,7 +17,7 @@ enum CreatureState {
     STATE_STARTLED,
     STATE_HESITATING,
     STATE_JOLTING,
-    STATE_EXPRESSING // 处于高级身体非语言表达中
+    STATE_EXPRESSING
 };
 
 class CreatureAI {
@@ -25,8 +26,9 @@ public:
 
     void init();
     void update(float dt, SkeletonSystem &skeleton, MetaballSystem &metaballs,
-                PhysiologySystem &physiology, RelationshipSystem &relationship,
-                ExpressionLayer &expression, const ConsciousnessStateV3 &v3_state);
+                TentacleRenderer &tentacles, PhysiologySystem &physiology,
+                RelationshipSystem &relationship, ExpressionLayer &expression,
+                const ConsciousnessStateV3 &v3_state);
 
     CreatureState getState() const { return current_state; }
     const char* getStateName() const;
@@ -62,20 +64,21 @@ private:
     float crawl_target_x = 120.0f;
     float crawl_target_y = 100.0f;
     int crawl_perimeter_edge = 0;
+    float crawl_shoot_timer = 0.0f;
 
     float target_look_x = 120.0f;
     float target_look_y = 67.0f;
 
     float startle_energy = 0.0f;
 
-    void enterState(CreatureState new_state);
+    void enterState(CreatureState new_state, TentacleRenderer *tentacles = nullptr, float hx = 120.0f, float hy = 100.0f);
     void enterHesitation(CreatureState target_state, float delay_sec);
     void updateOrganicBreathing(float dt, const PhysiologySystem &physiology, const ExpressionLayer &expression);
     void updateMicroBehaviors(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology);
 
-    void updateIdle(float dt, float hx, float hy, const PhysiologySystem &physiology, const RelationshipSystem &relationship);
-    void updateCrawl(float dt, float hx, float hy, const PhysiologySystem &physiology);
-    void updateObserve(float dt, float hx, float hy, const PhysiologySystem &physiology);
+    void updateIdle(float dt, float hx, float hy, const PhysiologySystem &physiology, const RelationshipSystem &relationship, TentacleRenderer &tentacles);
+    void updateCrawl(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles);
+    void updateObserve(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles);
     void updateSleep(float dt, float hx, float hy, const PhysiologySystem &physiology);
     void updateStartled(float dt, float hx, float hy, const PhysiologySystem &physiology);
     void updateHesitating(float dt, float hx, float hy, const ExpressionLayer &expression);

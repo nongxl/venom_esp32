@@ -245,7 +245,7 @@ void loop() {
 
     // 9. AI 行为状态机更新
     ai.updateSensors(raw_ax, raw_ay, raw_az, physiology, btn_a_pressed);
-    ai.update(dt, skeleton, metaballs, physiology, relationship, expression, v3_state);
+    ai.update(dt, skeleton, metaballs, tentacles, physiology, relationship, expression, v3_state);
 
     // 10. 骨架动力学更新
     float crawl_bx, crawl_by;

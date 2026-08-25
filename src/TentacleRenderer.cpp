@@ -118,8 +118,23 @@ void TentacleRenderer::updateGrappleCrawl(float dt, SkeletonSystem &skeleton, co
             float dy = grapple.target_y - hy;
             float dist = std::sqrt(dx * dx + dy * dy);
 
-            // 当头部接近掌心或超时，进入融回阶段
+            // 当头部接近抓取点，进入 GRAPPLE_HOLD 阶段（继续吸住 0.9~1.8s 保持吸力抵抗重力！）
             if (dist < 10.0f || grapple.timer >= DURATION) {
+                grapple.stage = GRAPPLE_HOLD;
+                grapple.timer = 0.0f;
+                grapple.hold_duration = 0.9f + (rand() % 10) * 0.1f;
+            }
+            break;
+        }
+
+        case GRAPPLE_HOLD: {
+            // 【手部吸附保持阶段】：掌心死死贴在玻璃上，死锁头部位置抗重力挂住！
+            grapple.hand_x = grapple.target_x;
+            grapple.hand_y = grapple.target_y;
+            grapple.palm_spread = 1.0f;
+            skeleton.setPullTarget(grapple.target_x, grapple.target_y, 2.2f);
+
+            if (grapple.timer >= grapple.hold_duration) {
                 grapple.stage = GRAPPLE_FUSE;
                 grapple.timer = 0.0f;
                 skeleton.clearPullTarget();
@@ -278,12 +293,17 @@ void TentacleRenderer::drawGrappleTendril(M5Canvas &canvas) const {
             canvas.drawLine((int)prev_x, (int)prev_y + off, (int)cur_x, (int)cur_y + off, COLOR_VENOM_CORE);
         }
 
+        // 荡秋千状态下在触手核心绘制一条紧绷的高光拉丝微光
+        if (grapple.stage == GRAPPLE_SWING && step % 2 == 0) {
+            canvas.drawPixel((int)cur_x, (int)cur_y, COLOR_DITHER_GRAY);
+        }
+
         prev_x = cur_x;
         prev_y = cur_y;
     }
 
     // 2. 绘制目的地掌心（Palm Hand）肉垫
-    int palm_r = (int)std::round(4.0f + grapple.palm_spread * 1.5f);
+    int palm_r = (int)std::round(4.0f + grapple.palm_spread * 1.8f);
     canvas.fillCircle((int)hx, (int)hy, palm_r, COLOR_VENOM_CORE);
 
     // 3. 绘制掌心抓附微指（3 根张开吸附在目的地的爪指）
@@ -291,7 +311,7 @@ void TentacleRenderer::drawGrappleTendril(M5Canvas &canvas) const {
         float dx = hx - sx;
         float dy = hy - sy;
         float main_angle = std::atan2(dy, dx);
-        float finger_len = 5.0f + grapple.palm_spread * 4.0f;
+        float finger_len = 5.0f + grapple.palm_spread * 4.5f;
 
         for (int f = -1; f <= 1; ++f) {
             float f_angle = main_angle + (float)f * 0.45f;
@@ -300,7 +320,6 @@ void TentacleRenderer::drawGrappleTendril(M5Canvas &canvas) const {
 
             canvas.drawLine((int)hx, (int)hy, (int)fx, (int)fy, COLOR_VENOM_CORE);
             canvas.drawLine((int)hx + 1, (int)hy, (int)fx + 1, (int)fy, COLOR_VENOM_CORE);
-            canvas.drawPixel((int)fx, (int)fy, COLOR_GLOW_CYAN); // 微弱吸附接触光
         }
     }
 }

@@ -11,7 +11,8 @@ enum GrappleStage {
     GRAPPLE_SHOOT,      // 触手高速射出 (0.2s)
     GRAPPLE_ANCHOR,     // 掌心爪盘拍击目的地并抓牢展开 (0.15s)
     GRAPPLE_PULL,       // 强力收缩触手拉动身体质心 (0.5s)
-    GRAPPLE_FUSE,       // 头部抵达掌心，融回重吸收 (0.2s)
+    GRAPPLE_HOLD,       // 头部抵达后手部继续死死吸附 1.0~2.5s 克服重力挂住！
+    GRAPPLE_FUSE,       // 融回重吸收 (0.2s)
     GRAPPLE_SWING       // 高空悬挂荡秋千阶段 (持续单摆摇荡)
 };
 
@@ -19,6 +20,7 @@ struct GrappleTendril {
     bool active = false;
     GrappleStage stage = GRAPPLE_INACTIVE;
     float timer = 0.0f;
+    float hold_duration = 1.2f;
 
     float start_x = 120.0f;
     float start_y = 100.0f;

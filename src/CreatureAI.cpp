@@ -257,10 +257,10 @@ void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem
 
     if (state_timer >= state_duration) {
         int r = rand() % 100;
-        // 若毒液处于上半区 (hy < 65)，有 28% 概率直接挂上天花板荡秋千！
-        if (hy < 65.0f && r < 28) {
+        // 28% 概率自发向上射出蛛丝挂在天花板荡秋千！
+        if (r < 28) {
             enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
-        } else if (r < 88) { // 88% 超高运动意愿！
+        } else if (r < 88) { // 60% 爬行探索
             enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
         } else {
             enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
@@ -285,9 +285,9 @@ void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySyste
         }
     }
 
-    // 若目的地在天花板 (crawl_target_y < 25) 且已接近 (dist <= 14px)，50% 概率转入高空荡秋千玩耍！
+    // 若目的地在天花板 (crawl_target_y < 35) 且已接近 (dist <= 14px)，70% 概率转入高空荡秋千玩耍！
     if (dist <= 12.0f || (state_timer >= state_duration && !tentacles.isGrappling())) {
-        if (crawl_target_y < 25.0f && (rand() % 100) < 50) {
+        if (crawl_target_y < 35.0f && (rand() % 100) < 70) {
             enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
         } else {
             enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
@@ -298,9 +298,10 @@ void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySyste
 void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles, SkeletonSystem &skeleton) {
     if (state_timer >= state_duration) {
         int roll = rand() % 100;
-        if (hy < 65.0f && roll < 26) {
+        // 26% 概率从观察状态自发切换至高空荡秋千
+        if (roll < 26) {
             enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
-        } else if (roll < 88) { // 88% 爬行概率！
+        } else if (roll < 88) { // 爬行探索
             enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
         } else {
             enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);

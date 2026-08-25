@@ -307,21 +307,21 @@ void SkeletonSystem::solveHangingConstraint(float dt) {
         // 1. 蛛丝单摆绳索距离弹性拉扯
         if (dist > rope_len) {
             float delta = dist - rope_len;
-            float spring_pull = delta * 1.8f;
+            float spring_pull = delta * 2.6f;
             head.vx -= nx * spring_pull;
             head.vy -= ny * spring_pull;
 
             // 抑制向外拉断绳索的离心径向速度
             float radial_v = head.vx * nx + head.vy * ny;
             if (radial_v > 0.0f) {
-                head.vx -= nx * radial_v * 0.85f;
-                head.vy -= ny * radial_v * 0.85f;
+                head.vx -= nx * radial_v * 0.90f;
+                head.vy -= ny * radial_v * 0.90f;
             }
 
             // 硬位置钳位保护
-            if (dist > rope_len * 1.35f) {
-                head.x = anchor_x + nx * (rope_len * 1.35f);
-                head.y = anchor_y + ny * (rope_len * 1.35f);
+            if (dist > rope_len * 1.25f) {
+                head.x = anchor_x + nx * (rope_len * 1.25f);
+                head.y = anchor_y + ny * (rope_len * 1.25f);
             }
         }
 
@@ -329,9 +329,15 @@ void SkeletonSystem::solveHangingConstraint(float dt) {
         swing_phase += dt * SWING_PUMP_FREQ;
         float tx = -ny; // 切线方向 X
         float ty = nx;  // 切线方向 Y
-        float pump_acc = std::sin(swing_phase) * 2.2f;
+        float pump_acc = std::sin(swing_phase) * 3.4f;
         head.vx += tx * pump_acc;
         head.vy += ty * pump_acc;
+
+        // 3. 将切向摆动惯性自然传导至身体后续 4 节骨架，形成大摆幅活体链条
+        for (int k = 1; k < SKELETON_NODE_COUNT; ++k) {
+            nodes[k].vx += tx * (pump_acc * 0.65f);
+            nodes[k].vy += ty * (pump_acc * 0.65f);
+        }
     }
 }
 

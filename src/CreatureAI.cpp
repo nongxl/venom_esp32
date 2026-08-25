@@ -42,14 +42,14 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
 
     switch (new_state) {
         case STATE_IDLE:
-            state_duration = 0.8f + (rand() % 12) * 0.1f; // 0.8 ~ 2.0s 舒缓呼吸
+            state_duration = 3.5f + (rand() % 30) * 0.1f; // 3.5 ~ 6.5s 舒缓发呆呼吸
             crawl_force_x = 0.0f;
             crawl_force_y = 0.0f;
             break;
 
         case STATE_CRAWL: {
-            state_duration = 4.5f + (rand() % 25) * 0.1f;
-            crawl_shoot_timer = 0.35f; // 刚进入爬行时先观察准备 0.35s 再迈出第一步
+            state_duration = 3.2f + (rand() % 15) * 0.1f; // 3.2 ~ 4.7s 爬1~2步即休整
+            crawl_shoot_timer = 0.60f; // 刚进入爬行时先观察准备 0.60s 再迈出第一步
 
             // 基于原生好奇心与全景空间探索模型选择目标 (优先开阔腹地)
             int roll = rand() % 100;
@@ -87,7 +87,7 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
 
         case STATE_SWING: {
             // 【高空蛛丝悬挂荡秋千模式】
-            state_duration = 6.0f + (rand() % 35) * 0.1f; // 持续 6.0 ~ 9.5 秒
+            state_duration = 5.5f + (rand() % 25) * 0.1f; // 持续 5.5 ~ 8.0 秒
             crawl_force_x = 0.0f;
             crawl_force_y = 0.0f;
 
@@ -106,7 +106,7 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
         }
 
         case STATE_OBSERVE:
-            state_duration = 0.9f + (rand() % 12) * 0.1f; // 0.9 ~ 2.1s 停顿观察
+            state_duration = 4.0f + (rand() % 40) * 0.1f; // 4.0 ~ 8.0s 停顿观察与发呆
             crawl_force_x = 0.0f;
             crawl_force_y = 0.0f;
             target_look_x = 40.0f + (rand() % (SCREEN_W - 80));
@@ -114,7 +114,7 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
             break;
 
         case STATE_SLEEP:
-            state_duration = 10.0f + (rand() % 80) * 0.1f; // 安详睡眠 10 ~ 18 秒，恢复体力
+            state_duration = 18.0f + (rand() % 140) * 0.1f; // 安详深度睡眠 18 ~ 32 秒，恢复体力
             crawl_force_x = 0.0f;
             crawl_force_y = 0.0f;
             break;
@@ -183,6 +183,9 @@ void CreatureAI::triggerInteraction() {
 }
 
 void CreatureAI::updateSensors(float imu_gx, float imu_gy, float imu_gz, const PhysiologySystem &physiology, bool btn_a_pressed) {
+    last_imu_gx = imu_gx;
+    last_imu_gy = imu_gy;
+
     if (btn_a_pressed) {
         triggerInteraction();
         return;
@@ -270,35 +273,34 @@ void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem
         float energy = physiology.getEnergy();
         int r = rand() % 100;
 
-        // 体力低下时 (< 0.28) 优先进入睡眠恢复状态
-        if (energy < 0.28f) {
+        // 体力低下时 (< 0.35) 优先进入深度睡眠恢复状态
+        if (energy < 0.35f) {
             enterState(STATE_SLEEP, &tentacles, &skeleton, hx, hy);
-        } else if (energy < 0.60f) {
-            // 轻度疲惫：60% 观察周围, 25% 呼吸发呆, 仅 15% 偶尔爬行
-            if (r < 15) {
+        } else if (energy < 0.65f) {
+            // 中度疲惫：70% 停顿观察, 22% 呼吸发呆, 仅 8% 偶尔爬行
+            if (r < 8) {
+                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
+            } else if (r < 78) {
+                enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
+            } else {
+                enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
+            }
+        } else {
+            // 精力充沛：55% 观察周围, 25% 安静发呆, 仅 12% 偶尔爬行, 8% 荡秋千
+            if (r < 8) {
+                enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
+            } else if (r < 20) {
                 enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
             } else if (r < 75) {
                 enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
             } else {
                 enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
             }
-        } else {
-            // 精力充沛：20% 荡秋千, 35% 爬行探索, 45% 观察发呆
-            if (r < 20) {
-                enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
-            } else if (r < 55) {
-                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
-            } else {
-                enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
-            }
         }
     }
 }
 
 void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles, SkeletonSystem &skeleton) {
-    // 爬行消耗体力
-    const_cast<PhysiologySystem&>(physiology).consumeEnergy(dt * 0.030f);
-
     target_look_x = crawl_target_x;
     target_look_y = crawl_target_y;
 
@@ -306,18 +308,35 @@ void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySyste
     float dy = crawl_target_y - hy;
     float dist = std::sqrt(dx * dx + dy * dy);
 
-    // 自然触手迈步：触手收回后停顿 0.65s 观察呼吸，再从容迈出下一步！
+    // 【克服重力能耗倍率计算】：顺着重力下滑省力，逆着重力向上攀爬消耗成倍体力！
+    float g_len = std::sqrt(last_imu_gx * last_imu_gx + last_imu_gy * last_imu_gy);
+    float norm_gx = (g_len > 0.01f) ? (last_imu_gx / g_len) : 0.0f;
+    float norm_gy = (g_len > 0.01f) ? (last_imu_gy / g_len) : 1.0f;
+
+    float norm_dx = (dist > 0.01f) ? (dx / dist) : 0.0f;
+    float norm_dy = (dist > 0.01f) ? (dy / dist) : -1.0f;
+
+    // 点积为负代表逆着重力向上攀爬
+    float gravity_dot = norm_dx * norm_gx + norm_dy * norm_gy;
+    float anti_gravity_mult = 1.0f;
+    if (gravity_dot < 0.0f) {
+        anti_gravity_mult += (-gravity_dot) * 2.8f; // 逆重力攀爬最高达 3.8 倍能耗！
+    }
+
+    const_cast<PhysiologySystem&>(physiology).consumeEnergy(dt * 0.022f * anti_gravity_mult);
+
+    // 从容触手迈步：触手收回后必须深呼吸等待 1.35s，绝不连续连迈！
     if (!tentacles.isGrappling()) {
         crawl_shoot_timer += dt;
-        if (crawl_shoot_timer > 0.65f && dist > 12.0f) {
+        if (crawl_shoot_timer > 1.35f && dist > 14.0f) {
             crawl_shoot_timer = 0.0f;
             tentacles.startGrappleCrawl(hx, hy, crawl_target_x, crawl_target_y);
         }
     }
 
-    // 若目的地在天花板 (crawl_target_y < 35) 且已接近 (dist <= 14px)，精力充沛时 50% 概率转入高空荡秋千！
-    if (dist <= 14.0f || (state_timer >= state_duration && !tentacles.isGrappling())) {
-        if (crawl_target_y < 35.0f && physiology.getEnergy() > 0.50f && (rand() % 100) < 50) {
+    // 爬行 1 步或接近目标 (dist <= 16px)，立刻主动停下来休整发呆！
+    if (dist <= 16.0f || (state_timer >= state_duration && !tentacles.isGrappling())) {
+        if (crawl_target_y < 35.0f && physiology.getEnergy() > 0.55f && (rand() % 100) < 40) {
             enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
         } else {
             enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
@@ -330,23 +349,25 @@ void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySys
         float energy = physiology.getEnergy();
         int roll = rand() % 100;
 
-        if (energy < 0.28f) {
+        if (energy < 0.35f) {
             enterState(STATE_SLEEP, &tentacles, &skeleton, hx, hy);
-        } else if (energy < 0.60f) {
-            if (roll < 15) {
+        } else if (energy < 0.65f) {
+            if (roll < 8) {
                 enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
-            } else if (roll < 65) {
+            } else if (roll < 75) {
                 enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
             } else {
                 enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
             }
         } else {
-            if (roll < 18) {
+            if (roll < 8) {
                 enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
-            } else if (roll < 52) {
+            } else if (roll < 20) {
                 enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
-            } else {
+            } else if (roll < 70) {
                 enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
+            } else {
+                enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
             }
         }
     }
@@ -357,7 +378,7 @@ void CreatureAI::updateSwing(float dt, float hx, float hy, SkeletonSystem &skele
     target_look_x = hx + std::sin(state_timer * 2.0f) * 30.0f;
     target_look_y = hy + 45.0f;
 
-    // 荡秋千消耗体力
+    // 【高空悬吊全力抗重力消耗能量】
     // 荡秋千时间结束，或身体受到剧烈激惹时，平稳落地
     if (state_timer >= state_duration || !skeleton.isHanging()) {
         skeleton.clearHangingAnchor();
@@ -367,14 +388,14 @@ void CreatureAI::updateSwing(float dt, float hx, float hy, SkeletonSystem &skele
 }
 
 void CreatureAI::updateSleep(float dt, float hx, float hy, const PhysiologySystem &physiology) {
-    // 睡眠中深度恢复体力 (+0.075/s)
-    const_cast<PhysiologySystem&>(physiology).recoverEnergy(dt * 0.075f);
+    // 睡眠中深度恢复体力 (+0.065/s)
+    const_cast<PhysiologySystem&>(physiology).recoverEnergy(dt * 0.065f);
 
     target_look_x = hx;
     target_look_y = hy + 10.0f;
 
-    // 睡眠结束条件：体力回满 (>0.75) 且睡眠时间达到，或者受到外界剧烈惊吓/大声
-    if ((state_timer >= state_duration && physiology.getEnergy() >= 0.75f) || physiology.getStress() > 0.35f) {
+    // 睡眠结束条件：体力回满 (>=0.80) 且睡眠时间达到，或者受到外界剧烈惊吓/大声
+    if ((state_timer >= state_duration && physiology.getEnergy() >= 0.80f) || physiology.getStress() > 0.35f) {
         enterState(STATE_OBSERVE);
     }
 }

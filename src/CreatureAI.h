@@ -73,6 +73,9 @@ private:
     float target_look_x = 120.0f;
     float target_look_y = 67.0f;
 
+    float last_imu_gx = 0.0f;
+    float last_imu_gy = 1.0f;
+
     float startle_energy = 0.0f;
 
     void enterState(CreatureState new_state, TentacleRenderer *tentacles = nullptr, SkeletonSystem *skeleton = nullptr, float hx = 120.0f, float hy = 100.0f);

@@ -40,11 +40,13 @@ public:
 
     void requestConsciousnessUpdate(float energy, float stress, float curiosity,
                                    float comfort, float attachment,
-                                   const char *current_behavior, const char *recent_events);
+                                   const char *current_behavior, const char *recent_events,
+                                   bool force_event = false);
 
     ConsciousnessStateV3 getLatestState();
     const char* getLatestNotes() const { return latest_state.notes; }
     bool isWiFiConnected() const { return wifi_connected; }
+    bool isInBackoff() const { return millis() < backoff_until_ms; }
 
 private:
     ConsciousnessStateV3 latest_state;
@@ -53,8 +55,8 @@ private:
 
     TaskHandle_t llm_task_handle = nullptr;
     bool wifi_connected = false;
-    bool request_in_progress = false;
     unsigned long last_request_time = 0;
+    unsigned long backoff_until_ms = 0;
 
     static void taskEntry(void *param);
     void runLLMTask();

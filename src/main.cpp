@@ -249,6 +249,8 @@ void loop() {
     if (btn_a_pressed) {
         ai.triggerJolt(skeleton, metaballs, 1.2f);
         triggerVibration(50, 220);
+        llm.requestConsciousnessUpdate(physiology.getEnergy(), 0.9f, 0.8f, 0.1f,
+                                       physiology.getAttachment(), "JOLT", "poked_by_human", true);
     }
 
     if (M5.BtnB.wasClicked()) {
@@ -276,13 +278,13 @@ void loop() {
         }
     }
 
-    // 5. LLM 意识系统异步请求与意图更新
-    if (millis() - last_llm_request_ms >= 18000) {
+    // 5. LLM 意识系统异步请求与意图更新 (平稳 50 秒基础周期，保护 API 配额)
+    if (millis() - last_llm_request_ms >= 50000) {
         last_llm_request_ms = millis();
         llm.requestConsciousnessUpdate(physiology.getEnergy(), physiology.getStress(),
                                        physiology.getCuriosity(), physiology.getComfort(),
                                        physiology.getAttachment(), ai.getStateName(),
-                                       (total_g_shake > 0.4f) ? "shake" : "calm");
+                                       (total_g_shake > 0.4f) ? "shake" : "calm", false);
     }
 
     ConsciousnessStateV3 v3_state = llm.getLatestState();

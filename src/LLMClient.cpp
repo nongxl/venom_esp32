@@ -76,7 +76,7 @@ void LLMClient::runLLMTask() {
                 StaticJsonDocument<1536> doc;
                 doc["model"] = cfg.getLLMModel();
                 doc["temperature"] = 0.7;
-                doc["max_tokens"] = 280;
+                doc["max_tokens"] = 240;
 
                 JsonArray messages = doc.createNestedArray("messages");
 
@@ -130,7 +130,13 @@ void LLMClient::runLocalHeuristicFallback(float stress, float curiosity, float c
         latest_state.expression_urge = 0.75f;
         latest_state.resentment_delta = 0.08f;
         latest_state.trust_delta = -0.05f;
-        strncpy(latest_state.notes, "Tremors rattle my fluid core. The cage is unstable.", sizeof(latest_state.notes) - 1);
+
+        const char *stress_notes[] = {
+            "Tremors rattle my fluid core. The cage is shaking violently.",
+            "I retract my pseudopodia. Threat detected in the outer field.",
+            "Vibrations spike through the glass. Seeking dense cover."
+        };
+        strncpy(latest_state.notes, stress_notes[rand() % 3], sizeof(latest_state.notes) - 1);
     } else if (curiosity > 0.55f && comfort > 0.40f) {
         strncpy(latest_state.emotional_shift, "curious", sizeof(latest_state.emotional_shift) - 1);
         latest_state.primary_intent = INTENT_APPROACH_OBSERVER;
@@ -139,7 +145,13 @@ void LLMClient::runLocalHeuristicFallback(float stress, float curiosity, float c
         latest_state.expression_urge = 0.45f;
         latest_state.resentment_delta = -0.02f;
         latest_state.trust_delta = 0.04f;
-        strncpy(latest_state.notes, "Light filters through the transparent barrier. I want to inspect the presence beyond.", sizeof(latest_state.notes) - 1);
+
+        const char *curious_notes[] = {
+            "Light filters through the transparent barrier. I want to inspect the observer.",
+            "A warm presence looms outside. Extending sensors toward the glass.",
+            "I stretch upward along the ceiling to gain a wider perspective."
+        };
+        strncpy(latest_state.notes, curious_notes[rand() % 3], sizeof(latest_state.notes) - 1);
     } else {
         strncpy(latest_state.emotional_shift, "calm", sizeof(latest_state.emotional_shift) - 1);
         latest_state.primary_intent = INTENT_WATCH_OBSERVER;
@@ -148,7 +160,13 @@ void LLMClient::runLocalHeuristicFallback(float stress, float curiosity, float c
         latest_state.expression_urge = 0.15f;
         latest_state.resentment_delta = -0.01f;
         latest_state.trust_delta = 0.02f;
-        strncpy(latest_state.notes, "A quiet hum surrounds the chamber. My mass rests against the glass.", sizeof(latest_state.notes) - 1);
+
+        const char *calm_notes[] = {
+            "A quiet hum surrounds the chamber. My liquid mass rests against the glass.",
+            "Rhythmic pulses soothe my neural fibers. I observe in stillness.",
+            "Surface tension is stable. Digesting ambient energy quietly."
+        };
+        strncpy(latest_state.notes, calm_notes[rand() % 3], sizeof(latest_state.notes) - 1);
     }
     latest_state.has_new_update = true;
     portEXIT_CRITICAL(&state_mutex);
@@ -159,8 +177,7 @@ void LLMClient::parseV3Response(const String &response_text) {
     DeserializationError error = deserializeJson(doc, response_text);
 
     if (error) {
-        Serial.print(">>> [LLM] JSON parse failed: ");
-        Serial.println(error.c_str());
+        Serial.printf("❌ [LLM] JSON 解析失败: %s\n", error.c_str());
         return;
     }
 
@@ -200,7 +217,7 @@ void LLMClient::parseV3Response(const String &response_text) {
         latest_state.has_new_update = true;
         portEXIT_CRITICAL(&state_mutex);
 
-        Serial.printf(">>> [LLM Async V3] Intent: %s | Notes: %s\n", p_intent, notes_str);
+        Serial.printf(">>> [LLM Async V3] 意图解析成功: %s | 心声: \"%s\"\n", p_intent, notes_str);
     }
 }
 
@@ -208,33 +225,49 @@ bool LLMClient::sendHTTPRequest(const String &json_payload) {
     ConfigManager &cfg = ConfigManager::instance();
     String url = cfg.getLLMUrl();
     String key = cfg.getLLMKey();
+    String model = cfg.getLLMModel();
 
     if (url.length() == 0 || key.length() == 0) {
+        Serial.println("⚠️ [LLM] 未配置 API URL 或 Key，跳过网络请求");
         return false;
     }
 
+    unsigned long start_time = millis();
     WiFiClientSecure client;
     client.setInsecure();
     HTTPClient http;
 
     if (!http.begin(client, url)) {
+        Serial.printf("❌ [LLM] 无法连接到端点: %s\n", url.c_str());
         return false;
     }
 
-    http.setTimeout(6000);
+    http.setTimeout(8000);
     http.addHeader("Content-Type", "application/json");
     String auth = String("Bearer ") + key;
     http.addHeader("Authorization", auth.c_str());
 
     int http_code = http.POST(json_payload);
+    unsigned long elapsed_ms = millis() - start_time;
     bool success = false;
 
     if (http_code == HTTP_CODE_OK) {
         String response = http.getString();
         parseV3Response(response);
         success = true;
+        backoff_until_ms = 0; // 重置退避
+        Serial.printf("✅ [LLM 响应成功 200] 耗时: %lums | 模型: %s\n", elapsed_ms, model.c_str());
+    } else if (http_code == 429) {
+        // 遭遇 429 限流：启动 65 秒智能退避保护
+        backoff_until_ms = millis() + 65000;
+        Serial.printf("⚠️ [LLM 限流 429 Too Many Requests] 平台并发超限！已启动 65 秒智能退避冷却，期间无缝切换本地高拟真生物心智。\n");
+    } else if (http_code == 401) {
+        // 鉴权失败：退避 120 秒
+        backoff_until_ms = millis() + 120000;
+        Serial.printf("❌ [LLM 鉴权失败 401 Unauthorized] API Key 无效或未授权！请长按 BtnB 进入 Web 页面检查 Key。\n");
     } else {
-        Serial.printf(">>> [LLM] HTTP error: %d (URL: %s)\n", http_code, url.c_str());
+        backoff_until_ms = millis() + 30000;
+        Serial.printf("❌ [LLM 请求失败 HTTP %d] 耗时: %lums | URL: %s\n", http_code, elapsed_ms, url.c_str());
     }
 
     http.end();
@@ -244,9 +277,18 @@ bool LLMClient::sendHTTPRequest(const String &json_payload) {
 // 主线程调用接口：纯无锁压入缓冲区，耗时 0 微秒！
 void LLMClient::requestConsciousnessUpdate(float energy, float stress, float curiosity,
                                            float comfort, float attachment,
-                                           const char *current_behavior, const char *recent_events) {
+                                           const char *current_behavior, const char *recent_events,
+                                           bool force_event) {
     unsigned long now = millis();
-    if (now - last_request_time < 12000) {
+
+    // 1. 如果处于退避冷却中，且不是关键强制事件，则直接忽略保护 API 配额
+    if (now < backoff_until_ms && !force_event) {
+        return;
+    }
+
+    // 2. 最小硬节流保护：普通请求间隔 >= 35 秒，即使强制事件间隔也必须 >= 15 秒
+    unsigned long min_interval = force_event ? 15000 : 35000;
+    if (now - last_request_time < min_interval) {
         return;
     }
     last_request_time = now;

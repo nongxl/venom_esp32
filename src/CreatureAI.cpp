@@ -34,6 +34,12 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
     current_state = new_state;
     state_timer = 0.0f;
 
+    // 安全保障：离开 SWING 或进入其他状态时强制清理悬挂与拉动死锁
+    if (skeleton && new_state != STATE_SWING) {
+        skeleton->clearHangingAnchor();
+        skeleton->clearPullTarget();
+    }
+
     switch (new_state) {
         case STATE_IDLE:
             state_duration = 0.4f + (rand() % 5) * 0.1f;
@@ -45,24 +51,33 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
             state_duration = 5.0f + (rand() % 20) * 0.1f;
             crawl_shoot_timer = 0.0f;
 
-            // 基于原生好奇心与全景空间探索模型选择目标
+            // 基于原生好奇心与全景空间探索模型选择目标 (优先开阔腹地)
             int roll = rand() % 100;
-            if (roll < 50) {
-                // 50% 目标直指屏幕中央观察窗口腹地 (Center Stage)
-                crawl_target_x = 60.0f + (rand() % (SCREEN_W - 120));
-                crawl_target_y = 35.0f + (rand() % (SCREEN_H - 70));
-            } else if (roll < 78) {
-                // 28% 目标指向天花板高处悬吊与俯瞰 (Top Ceiling)
-                crawl_target_x = 35.0f + (rand() % (SCREEN_W - 70));
-                crawl_target_y = 16.0f;
-            } else if (roll < 89) {
-                // 11% 探索左壁中高段
-                crawl_target_x = 16.0f;
-                crawl_target_y = 25.0f + (rand() % (SCREEN_H - 50));
+            if (hx < 30.0f || hx > SCREEN_W - 30.0f || hy < 30.0f || hy > SCREEN_H - 30.0f) {
+                // 处于边缘区域时：80% 概率向屏幕中心腹地大步爬行脱离！
+                if (roll < 80) {
+                    crawl_target_x = 70.0f + (rand() % (SCREEN_W - 140));
+                    crawl_target_y = 40.0f + (rand() % (SCREEN_H - 80));
+                } else {
+                    crawl_target_x = 35.0f + (rand() % (SCREEN_W - 70));
+                    crawl_target_y = 22.0f;
+                }
             } else {
-                // 11% 探索右壁中高段
-                crawl_target_x = SCREEN_W - 16.0f;
-                crawl_target_y = 25.0f + (rand() % (SCREEN_H - 50));
+                if (roll < 55) {
+                    // 55% 目标直指屏幕中央观察窗口腹地
+                    crawl_target_x = 60.0f + (rand() % (SCREEN_W - 120));
+                    crawl_target_y = 35.0f + (rand() % (SCREEN_H - 70));
+                } else if (roll < 80) {
+                    // 25% 目标指向天花板安全高度
+                    crawl_target_x = 35.0f + (rand() % (SCREEN_W - 70));
+                    crawl_target_y = 22.0f;
+                } else if (roll < 90) {
+                    crawl_target_x = 25.0f;
+                    crawl_target_y = 35.0f + (rand() % (SCREEN_H - 70));
+                } else {
+                    crawl_target_x = SCREEN_W - 25.0f;
+                    crawl_target_y = 35.0f + (rand() % (SCREEN_H - 70));
+                }
             }
 
             target_look_x = crawl_target_x;
@@ -80,9 +95,9 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
             crawl_force_x = 0.0f;
             crawl_force_y = 0.0f;
 
-            // 选取正上方天花板锚点
-            float anchor_x = std::max(24.0f, std::min(SCREEN_W - 24.0f, hx + (rand() % 50 - 25)));
-            float anchor_y = 6.0f;
+            // 选取正上方安全天花板锚点 (y=16 绝不挤压到顶部死角)
+            float anchor_x = std::max(30.0f, std::min(SCREEN_W - 30.0f, hx + (rand() % 40 - 20)));
+            float anchor_y = 16.0f;
             float rope_len = SWING_ROPE_LENGTH;
 
             if (skeleton) {

@@ -80,6 +80,7 @@ private:
     float pull_target_x = 120.0f;
     float pull_target_y = 100.0f;
     float pull_strength = 0.0f;
+    float pull_timeout_timer = 0.0f;
 
     // 蛛丝高空悬挂荡秋千参数
     bool is_hanging = false;

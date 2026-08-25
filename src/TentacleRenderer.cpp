@@ -118,11 +118,11 @@ void TentacleRenderer::updateGrappleCrawl(float dt, SkeletonSystem &skeleton, co
             float dy = grapple.target_y - hy;
             float dist = std::sqrt(dx * dx + dy * dy);
 
-            // 当头部接近抓取点，进入 GRAPPLE_HOLD 阶段（继续吸住 0.9~1.8s 保持吸力抵抗重力！）
+            // 当头部接近抓取点，进入 GRAPPLE_HOLD 阶段（继续吸住 0.6~1.0s 保持吸力抵抗重力！）
             if (dist < 10.0f || grapple.timer >= DURATION) {
                 grapple.stage = GRAPPLE_HOLD;
                 grapple.timer = 0.0f;
-                grapple.hold_duration = 0.9f + (rand() % 10) * 0.1f;
+                grapple.hold_duration = 0.6f + (rand() % 5) * 0.1f;
             }
             break;
         }

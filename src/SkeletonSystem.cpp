@@ -51,11 +51,13 @@ void SkeletonSystem::setPullTarget(float tx, float ty, float force) {
     pull_target_x = tx;
     pull_target_y = ty;
     pull_strength = force;
+    pull_timeout_timer = 0.0f;
 }
 
 void SkeletonSystem::clearPullTarget() {
     has_pull_target = false;
     pull_strength = 0.0f;
+    pull_timeout_timer = 0.0f;
 }
 
 void SkeletonSystem::setHangingAnchor(float ax, float ay, float rope_length) {
@@ -365,15 +367,20 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
     // 单摆悬挂绳索约束与自主蹬秋千
     solveHangingConstraint(dt);
 
-    // 【黏性玩具极端贴边拍扁形变算法】
-    float stick_boost = (sticky_clog_timer > 0.0f) ? (1.0f + (sticky_clog_timer / 1.0f) * 1.8f) : 1.0f;
+    // 增加 pull_target 超时保护 (1.6秒看门狗自动释放，防止死锁)
+    if (has_pull_target) {
+        pull_timeout_timer += dt;
+        if (pull_timeout_timer > 1.6f) {
+            clearPullTarget();
+        }
+    }
 
     for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
         SkeletonNode &n = nodes[i];
-        float r = n.base_radius * (1.0f + respiration);
+        float r = n.base_radius * (1.0f + respiration * 0.15f);
 
         if (has_pull_target || flying_timer > 0.0f) {
-            r *= 0.85f;
+            r *= 0.90f;
         }
 
         float contact_y = std::max(n.contact_bottom, n.contact_top);
@@ -382,24 +389,34 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         float flat_x = 1.0f;
         float flat_y = 1.0f;
 
-        if (contact_y > 0.02f) {
-            float eff_cy = std::min(1.0f, contact_y * stick_boost);
-            flat_y -= eff_cy * 0.72f;
-            flat_x += eff_cy * 1.65f;
+        // 贴边拍扁温和形变 (严格限制在安全区间，杜绝突变成方块横臂)
+        if (contact_y > 0.05f) {
+            float eff = std::min(1.0f, contact_y * 0.6f);
+            flat_y -= eff * 0.22f;
+            flat_x += eff * 0.25f;
+        }
+        if (contact_x > 0.05f) {
+            float eff = std::min(1.0f, contact_x * 0.6f);
+            flat_x -= eff * 0.22f;
+            flat_y += eff * 0.25f;
         }
 
-        if (contact_x > 0.02f) {
-            float eff_cx = std::min(1.0f, contact_x * stick_boost);
-            flat_x -= eff_cx * 0.72f;
-            flat_y += eff_cx * 1.65f;
-        }
-
+        // 速度形变：基于速度主方向自然拉长
         float v_speed = std::sqrt(n.vx * n.vx + n.vy * n.vy);
-        if (v_speed > 0.4f) {
-            float stretch = std::min(1.6f, 1.0f + v_speed * 0.09f);
-            flat_x *= stretch;
-            flat_y /= std::sqrt(stretch);
+        if (v_speed > 0.8f) {
+            float stretch = std::min(1.22f, 1.0f + (v_speed - 0.8f) * 0.04f);
+            if (std::abs(n.vx) > std::abs(n.vy)) {
+                flat_x *= stretch;
+                flat_y /= std::sqrt(stretch);
+            } else {
+                flat_y *= stretch;
+                flat_x /= std::sqrt(stretch);
+            }
         }
+
+        // 严格安全钳位
+        flat_x = std::max(0.72f, std::min(1.32f, flat_x));
+        flat_y = std::max(0.72f, std::min(1.32f, flat_y));
 
         n.radius_x = r * flat_x;
         n.radius_y = r * flat_y;

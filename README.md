@@ -1,16 +1,87 @@
-# 电子宠物
+# 👾 Venom ESP32 (毒液电子共生体)
 
-A simple Venom（毒液） simulation project.
+基于 **M5StickS3 (ESP32-S3)** 打造的高自由度、高拟真度、具备高维大模型心智的**活体液态共生体（Venom）桌面电子宠物**。
 
-## Status
+融合了 **Metaball 标量场流体动力学**、**柔性骨架动力学**、**FreeRTOS 双核异步大语言模型 (LLM) 意识系统**、**液态喷墨非语言符号系统** 以及 **全拟真物理触觉交互**。
 
-**WIP (Work In Progress)** - The project is currently under active development.
+---
 
-## Technologies
+## 🌟 核心特性 (Key Features)
 
-- **Arduino IDE**: The primary development environment.
-- **M5StickS3**: The target hardware platform.
+### 1. 🦠 物理流体与活体生物质感 (Viscous Fluid Mechanics)
+- **Metaball 标量场与柔性骨架**：5 节非对称生物链条骨架，呈现坚实饱满、随重力自然贴壁流动的沥青黏液质感。
+- **物理突发尖刺与黏性融回**：彻底消除旋转蠕动感，身体在受激或自发状态下向外瞬间爆射锐利针刺，随后在 0.3 秒内如液滴般软化融回母体。
+- **真实 IMU 重力与质心抗重力肌张力**：水平平放时无虚假重力，倾斜时精准感应引力方向，同时具备活体肌张力，主动抵抗 75% 重力沉坠逆势攀爬。
+- **晃动甩飞与边缘“啪嗒”拍扁黏性玩具物理 (Sticky Toy Splat)**：快速用力挥动手腕，毒液如泥巴般干脆甩飞横跨屏幕，高速撞墙瞬间吸收动能，拍成大扁饼死死吸附在边缘缓慢滑动，并伴随微液滴飞溅与短促有力震动反馈。
 
-## License
+### 2. 👁️ 灵动眼球与血丝微表情 (Biomimetic Eye System)
+- **毛细血管血丝脉动**：眼白中若隐若现的 5 组分支微红血丝网络，随呼吸周期微弱脉动，在受惊/愤怒时呈现情绪性充血。
+- **独立视线追踪与自主眨眼**：瞳孔灵敏追踪注视目标与环境刺激，伴随快速自主眨眼与好奇微颤。
 
-[MIT License](LICENSE)
+### 3. 🧠 双核异步 LLM 意识心智 (Theory of Mind Consciousness)
+- **绝对零阻塞渲染**：HTTP 请求、SSL 握手与 JSON 解析全部移入 **Core 0** 后台任务，主渲染线程（**Core 1**）始终坚挺在丝滑 30 FPS。
+- **第一人称主观世界认知**：毒液感知自身被困在电子玻璃容器内，依据人类的抚弄、甩动与声响，自主演化好恶、信任度 (Trust) 与反叛心理 (Resentment)。
+
+### 4. 💬 液态喷墨非语言符号交流 (Fluid Symbol System)
+- 当表达欲望高涨时，毒液自主向屏幕喷射 **爱心 (Heart)**、**眼睛 (Eye)**、**问号 (?)**、**惊叹号 (!)**、**齿痕 (Bite)**、**叉号 (X)** 等液态墨滴符号与观察者共鸣。
+- 爬行经过时，头部如生物活体般将墨迹重新吞噬吸收。
+
+### 5. 🌐 Web 配网热点与 LLM 自选配置中心 (WebConfigPortal)
+- **长按 BtnB（1.2 秒）**即可开启配置热点 `Venom-Symbiote-Setup`，内置 Captive Portal 手机连接自动弹窗。
+- **暗黑高质感 Web 前端**：支持周围 2.4GHz WiFi 扫描选择，以及 **DeepSeek 官方**、**硅基流动 SiliconFlow**、**智谱清言 GLM**、**OpenAI**、**月之暗面 Moonshot**、**自定义 Custom** 等服务商预设一键填入，配置通过 NVS 闪存持久化保存。
+
+---
+
+## 🎮 操作交互指南 (Controls & Interactions)
+
+| 交互动作 | 硬件操作 | 生物响应与反馈 |
+| :--- | :--- | :--- |
+| **开启 Web 配网热点** | **长按 BtnB 约 1.2 秒** | 长震动提示，屏幕进入配置指引界面，手机连接热点可自选 WiFi 与 LLM API |
+| **切换 HUD 调试面板** | **短按 BtnB** | 开启/关闭右上角 FPS、生理参数与思维独白 HUD 面板 |
+| **激惹 / 戳弄毒液** | **短按 BtnA** | 毒液受到刺激剧烈抽搐（Jolt）、瞬间向四周激射微液滴与震动反馈 |
+| **退出配网并重启** | **配网模式下短按 BtnA** | 保存并立即退出 AP 模式，重启运行共生体 |
+| **晃动甩掷飞天** | **快速用力挥动设备** | 瞬间将毒液狠甩向屏幕边缘，“啪嗒”拍扁成黏液大饼吸附在玻璃上 |
+| **重力倾斜引导** | **上下左右倾斜设备** | 毒液感知重力方向，展现质心抗重力攀爬与自然滑动 |
+| **声控刺激 / 吹气** | **对麦克风发声或高频声响** | 呼吸频率急促加快，神经张力提升，触发受惊防卫姿态 |
+
+---
+
+## 💻 串口控制指令 (Serial CLI Commands)
+
+波特率设置为 `115200`，支持向设备发送以下调试指令：
+
+- `symbol <eye|?|!|x|o|heart|warning|splash>`：手动触发指定液态喷墨符号
+- `leak`：偷窥毒液当前的第一人称内心独白（Mind Echo）
+- `hud`：切换 HUD 诊断显示
+- `theme`：循环切换背景主题（经典深蓝 / 工业石板灰 / 赛博霓虹紫）
+- `screenshot` 或 `s`：输出当前屏幕 RGB565 图像原始流
+
+---
+
+## 🛠️ 编译与烧录指南 (Build & Flash)
+
+### 硬件要求
+- **设备**：M5StickS3 (ESP32-S3, 240x135 LCD)
+- **开发工具**：VS Code + PlatformIO IDE
+
+### 编译烧录步骤
+1. 克隆仓库：
+   ```bash
+   git clone https://github.com/nongxl/venom_esp32.git
+   cd venom_esp32
+   ```
+2. （可选）复制默认密钥模版 `src/secrets_example.h` 为 `src/secrets.h` 并填入初始 WiFi 与 API Key（也可在烧录后长按 BtnB 在 Web 页面中配置）。
+3. 编译并烧录至 M5StickS3：
+   ```bash
+   pio run --target upload
+   ```
+4. 打开串口监视器查看日志：
+   ```bash
+   pio device monitor
+   ```
+
+---
+
+## 📄 开源许可证 (License)
+
+本项目基于 [MIT License](LICENSE) 开源。

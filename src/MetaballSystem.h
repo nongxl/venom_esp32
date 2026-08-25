@@ -4,17 +4,6 @@
 #include "SkeletonSystem.h"
 #include "PhysiologySystem.h"
 
-// 动态外突尖刺微芽
-struct SpikeBud {
-    int attach_node = 0;
-    float angle = 0.0f;
-    float current_dist = 0.0f;
-    float target_dist = 0.0f;
-    float radius = 3.2f;
-    float phase = 0.0f;
-};
-
-// 飞溅微球
 struct Droplet {
     float x = 0.0f;
     float y = 0.0f;
@@ -44,7 +33,6 @@ public:
     }
 
     static constexpr uint8_t THRESHOLD = 100;
-    static constexpr int MAX_SPIKE_BUDS = 6;
 
     const Droplet* getDroplets() const { return droplets; }
     int getMaxDroplets() const { return MAX_DROPLETS; }
@@ -52,14 +40,11 @@ public:
 private:
     uint8_t field_buffer[GRID_W * GRID_H];
     Droplet droplets[MAX_DROPLETS];
-    SpikeBud spike_buds[MAX_SPIKE_BUDS];
-
     float auto_droplet_timer = 0.0f;
     float spike_time_phase = 0.0f;
 
     void updateDroplets(float dt, const SkeletonSystem &skeleton, float gx, float gy, const PhysiologySystem &physiology);
-    void updateSpikeBuds(float dt, const SkeletonSystem &skeleton, const PhysiologySystem &physiology);
     void addMetaballToField(float cx, float cy, float rx, float ry, uint8_t intensity,
                             float contact_b, float contact_t, float contact_l, float contact_r,
-                            float spike_amp, float spike_phase);
+                            float micro_spike_amp, float spike_phase);
 };

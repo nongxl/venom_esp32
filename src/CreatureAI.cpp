@@ -35,57 +35,33 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
 
     switch (new_state) {
         case STATE_IDLE:
-            state_duration = 1.2f + (rand() % 10) * 0.1f;
+            state_duration = 1.0f + (rand() % 10) * 0.1f;
             crawl_force_x = 0.0f;
             crawl_force_y = 0.0f;
             break;
 
         case STATE_CRAWL: {
-            state_duration = 4.5f + (rand() % 20) * 0.1f;
+            state_duration = 5.0f + (rand() % 20) * 0.1f;
             crawl_shoot_timer = 0.0f;
 
-            // 1. 角落检测与强力逃逸机制 (Corner Escape Drive)
-            bool in_bottom_left  = (hx < 60.0f && hy > SCREEN_H - 35.0f);
-            bool in_bottom_right = (hx > SCREEN_W - 60.0f && hy > SCREEN_H - 35.0f);
-            bool in_top_left     = (hx < 60.0f && hy < 35.0f);
-            bool in_top_right    = (hx > SCREEN_W - 60.0f && hy < 35.0f);
-
-            if (in_bottom_left) {
-                // 左下角 -> 强力射向右上中央
-                crawl_target_x = 135.0f + (rand() % 65);
-                crawl_target_y = 30.0f + (rand() % 45);
-            } else if (in_bottom_right) {
-                // 右下角 -> 强力射向左上中央
-                crawl_target_x = 40.0f + (rand() % 65);
-                crawl_target_y = 30.0f + (rand() % 45);
-            } else if (in_top_left) {
-                // 左上角 -> 强力射向右下中央
-                crawl_target_x = 130.0f + (rand() % 70);
-                crawl_target_y = 60.0f + (rand() % 45);
-            } else if (in_top_right) {
-                // 右上角 -> 强力射向左下中央
-                crawl_target_x = 40.0f + (rand() % 70);
-                crawl_target_y = 60.0f + (rand() % 45);
+            // 基于原生好奇心与全景空间探索模型选择目标
+            int roll = rand() % 100;
+            if (roll < 55) {
+                // 55% 目标直指屏幕中央观察窗口腹地 (Center Stage)
+                crawl_target_x = 60.0f + (rand() % (SCREEN_W - 120));
+                crawl_target_y = 35.0f + (rand() % (SCREEN_H - 70));
+            } else if (roll < 82) {
+                // 27% 目标指向天花板高处悬吊与俯瞰 (Top Ceiling)
+                crawl_target_x = 35.0f + (rand() % (SCREEN_W - 70));
+                crawl_target_y = 16.0f;
+            } else if (roll < 91) {
+                // 9% 探索左壁中高段
+                crawl_target_x = 16.0f;
+                crawl_target_y = 25.0f + (rand() % (SCREEN_H - 50));
             } else {
-                // 2. 正常区域：多区域大跨度全屏探索
-                int zone = rand() % 100;
-                if (zone < 48) {
-                    // 48% 屏幕中央开阔腹地漫游 (Center Basin)
-                    crawl_target_x = 50.0f + (rand() % (SCREEN_W - 100));
-                    crawl_target_y = 32.0f + (rand() % (SCREEN_H - 64));
-                } else if (zone < 78) {
-                    // 30% 顶部天花板中段居中攀爬与悬吊 (Top Cling)
-                    crawl_target_x = 35.0f + (rand() % (SCREEN_W - 70));
-                    crawl_target_y = 16.0f;
-                } else if (zone < 89) {
-                    // 11% 左壁中高处攀升
-                    crawl_target_x = 16.0f;
-                    crawl_target_y = 20.0f + (rand() % (SCREEN_H - 45));
-                } else {
-                    // 11% 右壁中高处攀升
-                    crawl_target_x = SCREEN_W - 16.0f;
-                    crawl_target_y = 20.0f + (rand() % (SCREEN_H - 45));
-                }
+                // 9% 探索右壁中高段
+                crawl_target_x = SCREEN_W - 16.0f;
+                crawl_target_y = 25.0f + (rand() % (SCREEN_H - 50));
             }
 
             target_look_x = crawl_target_x;
@@ -98,17 +74,15 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
         }
 
         case STATE_OBSERVE:
-            // 警惕环视四周 (1.5 ~ 2.5s)
             state_duration = 1.5f + (rand() % 10) * 0.1f;
             crawl_force_x = 0.0f;
             crawl_force_y = 0.0f;
-            // 注视点多朝向中央和屏幕开阔区域
-            target_look_x = 30.0f + (rand() % (SCREEN_W - 60));
+            target_look_x = 40.0f + (rand() % (SCREEN_W - 80));
             target_look_y = 25.0f + (rand() % (SCREEN_H - 50));
             break;
 
         case STATE_SLEEP:
-            state_duration = 2.0f;
+            state_duration = 1.8f;
             crawl_force_x = 0.0f;
             crawl_force_y = 0.0f;
             break;
@@ -149,7 +123,7 @@ void CreatureAI::triggerInteraction() {
     if (current_state == STATE_SLEEP) {
         enterState(STATE_OBSERVE);
     } else if (current_state == STATE_IDLE) {
-        enterHesitation(STATE_CRAWL, 0.15f);
+        enterHesitation(STATE_CRAWL, 0.12f);
     } else {
         triggerStartle(0.7f);
     }
@@ -241,9 +215,8 @@ void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem
 
     if (state_timer >= state_duration) {
         int r = rand() % 100;
-
-        // 超高主动探索偏向 (58% 爬行，38% 观察，4% 短时IDLE)
-        if (r < 58) {
+        // 高好奇心驱动：62% 爬行探索，34% 观察，4% 短时原地
+        if (r < 62) {
             enterState(STATE_CRAWL, &tentacles, hx, hy);
         } else if (r < 96) {
             enterState(STATE_OBSERVE);
@@ -261,24 +234,24 @@ void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySyste
     float dy = crawl_target_y - hy;
     float dist = std::sqrt(dx * dx + dy * dy);
 
-    // 连续大跨度连环触手迈步：如果触手已收回且距离目的地 > 15px，立即发射下一发触手！
+    // 连续大跨度连环触手迈步：如果触手已收回且距离目的地 > 12px，立即接续发射下一发触手！
     if (!tentacles.isGrappling()) {
         crawl_shoot_timer += dt;
-        if (crawl_shoot_timer > 0.18f && dist > 14.0f) {
+        if (crawl_shoot_timer > 0.12f && dist > 12.0f) {
             crawl_shoot_timer = 0.0f;
             tentacles.startGrappleCrawl(hx, hy, crawl_target_x, crawl_target_y);
         }
     }
 
-    if (dist <= 12.0f || state_timer >= state_duration) {
+    if (dist <= 10.0f || (state_timer >= state_duration && !tentacles.isGrappling())) {
         enterState(STATE_OBSERVE);
     }
 }
 
 void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles) {
     if (state_timer >= state_duration) {
-        // 观察完毕后 72% 概率直接向注视点射出触手爬行
-        if ((rand() % 100) < 72) {
+        // 观察完毕后 75% 概率向注视点射出触手爬行
+        if ((rand() % 100) < 75) {
             enterState(STATE_CRAWL, &tentacles, hx, hy);
         } else {
             enterState(STATE_IDLE);

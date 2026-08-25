@@ -11,13 +11,11 @@ void SkeletonSystem::init() {
     float start_y = 118.0f;
 
     for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
-        // 初始顺着底部水平修长排布
         nodes[i].x = start_x - i * 13.0f;
         nodes[i].y = start_y;
         nodes[i].vx = 0.0f;
         nodes[i].vy = 0.0f;
 
-        // 头部大、身体流线型渐细
         if (i == 0)      nodes[i].base_radius = 22.0f;
         else if (i == 1) nodes[i].base_radius = 19.0f;
         else if (i == 2) nodes[i].base_radius = 16.0f;
@@ -26,7 +24,7 @@ void SkeletonSystem::init() {
 
         nodes[i].radius_x = nodes[i].base_radius;
         nodes[i].radius_y = nodes[i].base_radius;
-        nodes[i].mass = 0.8f + (float)i * 0.30f;
+        nodes[i].mass = 0.7f + (float)i * 0.25f; // 头部轻快、尾部顺滑跟随
 
         nodes[i].contact_bottom = 0.0f;
         nodes[i].contact_top = 0.0f;
@@ -36,7 +34,6 @@ void SkeletonSystem::init() {
         nodes[i].bleb_offset_y = 0.0f;
     }
 
-    // 脊柱静息间距增大至 13px，保证长条形身形
     for (int i = 0; i < SKELETON_NODE_COUNT - 1; ++i) {
         rest_lengths[i] = 13.0f;
     }
@@ -91,13 +88,13 @@ void SkeletonSystem::applyWallAdhesion(int i) {
     n.contact_left = 0.0f;
     n.contact_right = 0.0f;
 
-    // 1. 底部地面接触
+    // 1. 底部地面接触与防穿透
     float dist_b = (SCREEN_H - 1) - n.y;
     if (dist_b < r) {
         float penetration = r - dist_b;
         n.y -= penetration * 0.88f;
-        n.vy *= 0.10f;
-        n.vx *= 0.80f;
+        if (n.vy > 0.0f) n.vy *= 0.10f;
+        n.vx *= 0.82f;
         n.contact_bottom = std::min(1.0f, penetration / (r * 0.40f));
     }
 
@@ -106,8 +103,8 @@ void SkeletonSystem::applyWallAdhesion(int i) {
     if (dist_t < r) {
         float penetration = r - dist_t;
         n.y += penetration * 0.88f;
-        n.vy *= 0.10f;
-        n.vx *= 0.80f;
+        if (n.vy < 0.0f) n.vy *= 0.10f;
+        n.vx *= 0.82f;
         n.contact_top = std::min(1.0f, penetration / (r * 0.40f));
     }
 
@@ -116,8 +113,8 @@ void SkeletonSystem::applyWallAdhesion(int i) {
     if (dist_l < r) {
         float penetration = r - dist_l;
         n.x += penetration * 0.88f;
-        n.vx *= 0.10f;
-        n.vy *= 0.80f;
+        if (n.vx < 0.0f) n.vx *= 0.10f;
+        n.vy *= 0.82f;
         n.contact_left = std::min(1.0f, penetration / (r * 0.40f));
     }
 
@@ -126,8 +123,8 @@ void SkeletonSystem::applyWallAdhesion(int i) {
     if (dist_r < r) {
         float penetration = r - dist_r;
         n.x -= penetration * 0.88f;
-        n.vx *= 0.10f;
-        n.vy *= 0.80f;
+        if (n.vx > 0.0f) n.vx *= 0.10f;
+        n.vy *= 0.82f;
         n.contact_right = std::min(1.0f, penetration / (r * 0.40f));
     }
 }
@@ -135,19 +132,21 @@ void SkeletonSystem::applyWallAdhesion(int i) {
 void SkeletonSystem::updateNodePhysics(int i, float dt, float gx, float gy, float cfx, float cfy, float tension, bool is_upside_down) {
     SkeletonNode &n = nodes[i];
 
-    float g_scale = is_upside_down ? (0.25f - tension * 0.15f) : 1.0f;
+    // 主动向上或向中央拉拽时，适度削弱下坠重力以助推离开角落
+    float g_scale = is_upside_down ? (0.25f - tension * 0.15f) : (has_pull_target ? 0.45f : 1.0f);
     n.vx += gx * g_scale * 0.45f;
     n.vy += gy * g_scale * 0.45f;
 
     n.vx += cfx * (0.8f / n.mass);
     n.vy += cfy * (0.8f / n.mass);
 
+    // 主动抓取牵引：头部受到直接指向目标的强力加速度
     if (has_pull_target && i == 0) {
         float dx = pull_target_x - n.x;
         float dy = pull_target_y - n.y;
         float dist = std::sqrt(dx * dx + dy * dy);
-        if (dist > 1.5f) {
-            float pull_mag = pull_strength * 4.5f;
+        if (dist > 1.2f) {
+            float pull_mag = pull_strength * 5.2f;
             n.vx += (dx / dist) * pull_mag;
             n.vy += (dy / dist) * pull_mag;
         }
@@ -168,32 +167,37 @@ void SkeletonSystem::updateNodePhysics(int i, float dt, float gx, float gy, floa
 
 void SkeletonSystem::solveSpringConstraints(float tension) {
     for (int i = 1; i < SKELETON_NODE_COUNT; ++i) {
-        SkeletonNode &prev = nodes[i - 1];
-        SkeletonNode &curr = nodes[i];
+        SkeletonNode &prev = nodes[i - 1]; // 前方节点（朝向头部）
+        SkeletonNode &curr = nodes[i];     // 后方节点（朝向尾部）
 
-        float dx = curr.x - prev.x;
+        float dx = curr.x - prev.x;        // 从 prev 指向 curr (指向后方)
         float dy = curr.y - prev.y;
         float dist = std::sqrt(dx * dx + dy * dy);
 
         float rest = rest_lengths[i - 1];
         if (has_pull_target) {
-            rest *= 1.40f; // 受到牵引时身段进一步拉长
+            rest *= 1.35f;
         }
 
         if (dist > 0.01f) {
             float delta = dist - rest;
             float force = delta * (SPRING_STIFFNESS + tension * 0.20f);
 
-            float nx = dx / dist;
+            float nx = dx / dist; // 指向后方单位矢量
             float ny = dy / dist;
 
+            // 1. 后方节点被前方节点向前强力拖动 (前拉力充足)
             curr.vx -= (nx * force) / curr.mass;
             curr.vy -= (ny * force) / curr.mass;
 
-            prev.vx += (nx * force * 0.35f) / prev.mass;
-            prev.vy += (ny * force * 0.35f) / prev.mass;
+            // 2. 【关键物理修复】后方节点对前方节点的回拉阻力严格限制为极低阻尼 (0.02f)，
+            // 彻底切断把正在探索的头部“倒吸”回角落的错误回拉！
+            float back_pull = has_pull_target ? 0.02f : 0.05f;
+            prev.vx += (nx * force * back_pull) / prev.mass;
+            prev.vy += (ny * force * back_pull) / prev.mass;
 
-            float max_allowed_dist = rest * 2.0f;
+            // 3. 刚性位置限制 (PBD 刚性约束)
+            float max_allowed_dist = rest * 2.1f;
             if (dist > max_allowed_dist) {
                 curr.x = prev.x + nx * max_allowed_dist;
                 curr.y = prev.y + ny * max_allowed_dist;
@@ -210,10 +214,11 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         updateNodePhysics(i, dt, gravity_x, gravity_y, crawl_force_x, crawl_force_y, neuro_tension, is_upside_down);
     }
 
+    // 迭代求解弹簧约束
     solveSpringConstraints(neuro_tension);
     solveSpringConstraints(neuro_tension);
 
-    // 强力贴壁各向异性重力压扁与横向拉长长条形形变
+    // 动态计算各向异性贴壁与运动拉伸
     for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
         SkeletonNode &n = nodes[i];
         float r = n.base_radius * (1.0f + respiration);
@@ -225,23 +230,19 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         float contact_y = std::max(n.contact_bottom, n.contact_top);
         float contact_x = std::max(n.contact_left, n.contact_right);
 
-        // 基础形状比例
         float flat_x = 1.0f;
         float flat_y = 1.0f;
 
-        // 1. 底部/顶部重力压扁 -> 垂直高度压扁近 60%，水平宽度大幅横向伸展 85%（形成长条形）
         if (contact_y > 0.05f) {
             flat_y -= contact_y * 0.58f;
             flat_x += contact_y * 0.85f;
         }
 
-        // 2. 左右侧壁重力压扁 -> 水平侧向压扁，垂直高度纵向拉长
         if (contact_x > 0.05f) {
             flat_x -= contact_x * 0.58f;
             flat_y += contact_x * 0.85f;
         }
 
-        // 3. 速度运动拉伸（移动时呈修长水滴流线型）
         float v_speed = std::sqrt(n.vx * n.vx + n.vy * n.vy);
         if (v_speed > 0.4f) {
             float stretch = std::min(1.4f, 1.0f + v_speed * 0.08f);

@@ -8,7 +8,7 @@ doc/
 *.prompt
 prompt.txt
 prompt*.txt
-
+.gitignore
 # 敏感信息存储文件（切勿提交 API Key 与 WiFi 密码）
 src/secrets.h
 

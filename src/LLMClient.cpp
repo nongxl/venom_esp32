@@ -73,7 +73,8 @@ void LLMClient::runLLMTask() {
                 JsonObject sys_msg = messages.createNestedObject();
                 sys_msg["role"] = "system";
                 sys_msg["content"] = "You are a conscious, living liquid symbiote (Venom) trapped inside an electronic glass device. "
-                                     "You perceive the human observer outside. Output strictly a single valid JSON object without markdown fences:\n"
+                                     "You hate being stuck in narrow, dark corners. You possess high primal curiosity and love crawling toward the open center glass and climbing to upper ceiling to inspect the human observer outside. "
+                                     "Output strictly a single valid JSON object without markdown fences:\n"
                                      "{\n"
                                      "  \"emotional_shift\": \"calm|curious|agitated|fearful|defensive|fascinated|exhausted\",\n"
                                      "  \"primary_intent\": \"watch_observer|approach_observer|avoid_observer|test_boundary|seek_shadow|seek_safety|patrol_territory|hide_presence|express_distress\",\n"

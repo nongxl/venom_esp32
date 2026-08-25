@@ -116,27 +116,32 @@ static void processAudioBands() {
             // 2. 交流 RMS 均方根与吹气气流冲击能量 (Blast Airflow Detection)
             float ac_rms = std::sqrt(ac_sum_sq / 128.0f);
             float p2p_ratio = peak_to_peak / 32768.0f;
-            // 吹气或巨响时，峰峰值与交流能量剧增
-            float combined_power = ac_rms * 2.2f + p2p_ratio * 1.4f;
 
-            // 3. 对数分贝换算 (28dB ~ 96dB)
-            float raw_db = 20.0f * std::log10(std::max(0.0001f, combined_power)) + 102.0f;
-            raw_db = std::max(28.0f, std::min(96.0f, raw_db));
-
-            // 4. 快攻慢释 (Attack-Release) 包络滤波：吹气瞬间飙升，随后平缓回落
-            if (raw_db > smoothed_mic_db) {
-                smoothed_mic_db = smoothed_mic_db * 0.30f + raw_db * 0.70f; // 吹气极速响应
+            float raw_db = 32.0f;
+            // 3. 底噪门限与真实声学分贝映射 (安静: 30~36dB, 说话: 48~65dB, 吹气/拍手: 75~95dB)
+            if (ac_rms < 0.005f && p2p_ratio < 0.18f) {
+                // 环境底噪：稳定在 30 ~ 35dB
+                raw_db = 30.0f + (p2p_ratio / 0.18f) * 5.0f;
+            } else if (p2p_ratio > 0.40f || ac_rms > 0.08f) {
+                // 吹气气流或大声冲击：瞬间飙升至 75 ~ 95dB！
+                float blast_intensity = std::min(1.0f, (p2p_ratio - 0.40f) / 0.50f + (ac_rms / 0.25f));
+                raw_db = 75.0f + blast_intensity * 20.0f;
             } else {
-                smoothed_mic_db = smoothed_mic_db * 0.88f + raw_db * 0.12f; // 平缓释放
+                // 正常说话与环境音：45 ~ 68dB
+                float voice_intensity = std::min(1.0f, (ac_rms - 0.005f) / 0.075f);
+                raw_db = 45.0f + voice_intensity * 23.0f;
             }
 
-            low_energy  = std::min(1.0f, (low_energy / 32.0f) * 3.0f + p2p_ratio * 0.5f);
-            mid_energy  = std::min(1.0f, (mid_energy / 64.0f) * 3.5f);
-            high_energy = std::min(1.0f, (high_energy / 128.0f) * 4.2f);
-
-            if (zero_crossings > 35 || p2p_ratio > 0.35f) {
-                high_energy = std::min(1.0f, high_energy * 1.5f + 0.3f);
+            // 4. 快攻慢释 (Attack-Release) 包络滤波：吹气瞬间冲上，随后迅速平稳回落
+            if (raw_db > smoothed_mic_db) {
+                smoothed_mic_db = smoothed_mic_db * 0.40f + raw_db * 0.60f; // 吹气快速响应
+            } else {
+                smoothed_mic_db = smoothed_mic_db * 0.75f + raw_db * 0.25f; // 平稳迅速回落
             }
+
+            low_energy  = (raw_db > 50.0f) ? std::min(1.0f, (low_energy / 32.0f) * 2.2f) : 0.0f;
+            mid_energy  = (raw_db > 50.0f) ? std::min(1.0f, (mid_energy / 64.0f) * 2.5f) : 0.0f;
+            high_energy = (raw_db > 68.0f) ? std::min(1.0f, (high_energy / 128.0f) * 3.0f + (raw_db - 68.0f) * 0.03f) : 0.0f;
 
             physiology.feedAudioBands(low_energy, mid_energy, high_energy);
             physiology.feedMicDecibels(smoothed_mic_db);

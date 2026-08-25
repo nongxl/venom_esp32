@@ -299,7 +299,8 @@ void SkeletonSystem::solveSpringConstraints(float tension) {
             prev.vx += (nx * force * back_pull) / prev.mass;
             prev.vy += (ny * force * back_pull) / prev.mass;
 
-            float max_allowed_dist = rest * 2.2f;
+            // 严格骨架间距刚性钳制：最大允许距离仅 1.35 倍，严禁身体脱节撕裂！
+            float max_allowed_dist = rest * 1.35f;
             if (dist > max_allowed_dist) {
                 curr.x = prev.x + nx * max_allowed_dist;
                 curr.y = prev.y + ny * max_allowed_dist;
@@ -429,10 +430,10 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         }
 
         // 严格安全钳位
-        flat_x = std::max(0.72f, std::min(1.32f, flat_x));
-        flat_y = std::max(0.72f, std::min(1.32f, flat_y));
+        flat_x = std::max(0.78f, std::min(1.22f, flat_x));
+        flat_y = std::max(0.78f, std::min(1.22f, flat_y));
 
-        n.radius_x = r * flat_x;
-        n.radius_y = r * flat_y;
+        n.radius_x = std::max(6.5f, r * flat_x);
+        n.radius_y = std::max(6.5f, r * flat_y);
     }
 }

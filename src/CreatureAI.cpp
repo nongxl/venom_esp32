@@ -277,21 +277,21 @@ void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem
         if (energy < 0.35f) {
             enterState(STATE_SLEEP, &tentacles, &skeleton, hx, hy);
         } else if (energy < 0.65f) {
-            // 中度疲惫：70% 停顿观察, 22% 呼吸发呆, 仅 8% 偶尔爬行
-            if (r < 8) {
+            // 中度疲惫：72% 停顿观察, 23% 呼吸发呆, 仅 5% 偶尔移动
+            if (r < 5) {
                 enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
-            } else if (r < 78) {
+            } else if (r < 77) {
                 enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
             } else {
                 enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
             }
         } else {
-            // 精力充沛：55% 观察周围, 25% 安静发呆, 仅 12% 偶尔爬行, 8% 荡秋千
-            if (r < 8) {
+            // 精力充沛：60% 观察周围, 28% 安静发呆, 仅 7% 偶尔爬行, 5% 荡秋千
+            if (r < 5) {
                 enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
-            } else if (r < 20) {
+            } else if (r < 12) {
                 enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
-            } else if (r < 75) {
+            } else if (r < 72) {
                 enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
             } else {
                 enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
@@ -352,19 +352,21 @@ void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySys
         if (energy < 0.35f) {
             enterState(STATE_SLEEP, &tentacles, &skeleton, hx, hy);
         } else if (energy < 0.65f) {
-            if (roll < 8) {
+            // 中度疲惫：75% 安静发呆, 20% 观察周围, 仅 5% 偶尔移动
+            if (roll < 5) {
                 enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
-            } else if (roll < 75) {
+            } else if (roll < 80) {
                 enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
             } else {
                 enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
             }
         } else {
-            if (roll < 8) {
+            // 精力充沛：65% 安静发呆, 23% 观察周围, 仅 7% 偶尔爬行, 5% 荡秋千
+            if (roll < 5) {
                 enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
-            } else if (roll < 20) {
+            } else if (roll < 12) {
                 enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
-            } else if (roll < 70) {
+            } else if (roll < 77) {
                 enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
             } else {
                 enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);

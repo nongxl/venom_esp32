@@ -157,12 +157,14 @@ void Renderer::renderMindEchoPanel() {
     int panel_w = SCREEN_W - 4;
     int panel_h = 38;
 
-    // 像素级半透明毛玻璃压暗 (50% 透光)
-    for (int py = panel_y; py < panel_y + panel_h; ++py) {
-        for (int px = panel_x; px < panel_x + panel_w; ++px) {
-            uint16_t orig = canvas->readPixel(px, py);
-            uint16_t dim = ((orig >> 1) & 0x7BEF);
-            canvas->drawPixel(px, py, dim | 0x0821);
+    // 直接显存指针超高速半透明压暗 (零开销, 50% 透光)
+    uint16_t *fb = (uint16_t*)canvas->getBuffer();
+    if (fb) {
+        for (int py = panel_y; py < panel_y + panel_h; ++py) {
+            uint16_t *row = fb + py * SCREEN_W + panel_x;
+            for (int px = 0; px < panel_w; ++px) {
+                row[px] = ((row[px] >> 1) & 0x7BEF) | 0x0821;
+            }
         }
     }
 
@@ -218,12 +220,14 @@ void Renderer::renderHUD(const CreatureAI &ai, const PhysiologySystem &physiolog
     int panel_w = SCREEN_W - 4;
     int panel_h = 44;
 
-    // 1. 像素级深色半透明毛玻璃压暗 (50% 透光率，毒液与背景若隐若现)
-    for (int py = panel_y; py < panel_y + panel_h; ++py) {
-        for (int px = panel_x; px < panel_x + panel_w; ++px) {
-            uint16_t orig = canvas->readPixel(px, py);
-            uint16_t dim = ((orig >> 1) & 0x7BEF); // 压暗 50%
-            canvas->drawPixel(px, py, dim | 0x0821); // 叠加微弱科技暗青
+    // 1. 直接显存指针超高速半透明压暗 (零开销, 50% 透光, 毒液与背景若隐若现)
+    uint16_t *fb = (uint16_t*)canvas->getBuffer();
+    if (fb) {
+        for (int py = panel_y; py < panel_y + panel_h; ++py) {
+            uint16_t *row = fb + py * SCREEN_W + panel_x;
+            for (int px = 0; px < panel_w; ++px) {
+                row[px] = ((row[px] >> 1) & 0x7BEF) | 0x0821;
+            }
         }
     }
     canvas->drawRect(panel_x, panel_y, panel_w, panel_h, COLOR_GLOW_CYAN);

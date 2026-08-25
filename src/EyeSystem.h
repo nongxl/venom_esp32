@@ -22,7 +22,7 @@ public:
 private:
     float current_eye_x = 120.0f;
     float current_eye_y = 90.0f;
-    
+
     // 瞳孔位置与阻尼物理
     float pupil_offset_x = 0.0f;
     float pupil_offset_y = 0.0f;
@@ -47,6 +47,10 @@ private:
     float saccade_offset_x = 0.0f;
     float saccade_offset_y = 0.0f;
 
+    // 红色血丝脉动与充血相位
+    float blood_pulse_phase = 0.0f;
+
     void updateBlinking(float dt, bool is_sleep, EmotionState emotion);
     void updatePupilPhysics(float dt, float target_dx, float target_dy, const PhysiologySystem &physiology);
+    void drawBloodVeins(M5Canvas &canvas, int ex, int ey, int rx, int ry, const PhysiologySystem &physiology) const;
 };

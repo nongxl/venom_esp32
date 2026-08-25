@@ -86,7 +86,7 @@ void TentacleRenderer::updateGrappleCrawl(float dt, SkeletonSystem &skeleton, co
             grapple.pull_progress = pull_ratio;
 
             float tension = physiology.getNeuroTension();
-            skeleton.setPullTarget(grapple.target_x, grapple.target_y, 1.2f + tension * 0.5f);
+            skeleton.setPullTarget(grapple.target_x, grapple.target_y, 1.85f + tension * 0.6f);
 
             float dx = grapple.target_x - hx;
             float dy = grapple.target_y - hy;

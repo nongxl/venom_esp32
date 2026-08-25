@@ -13,17 +13,17 @@ void ExpressionLayer::init() {
 
 const char* ExpressionLayer::getExpressionName() const {
     switch (current_expression) {
-        case EXPR_OBSERVE:            return "EXPR_OBSERVE";
-        case EXPR_HESITATION:         return "EXPR_HESITATION";
-        case EXPR_FEAR:               return "EXPR_FEAR";
-        case EXPR_TRUST:              return "EXPR_TRUST";
-        case EXPR_DISCOMFORT:         return "EXPR_DISCOMFORT";
-        case EXPR_CURIOSITY:          return "EXPR_CURIOSITY";
-        case EXPR_MIMICRY:            return "EXPR_MIMICRY";
-        case EXPR_WARNING:            return "EXPR_WARNING";
-        case EXPR_GLASS_CONTACT:      return "EXPR_GLASS_CONTACT";
-        case EXPR_SILENT_OBSERVATION: return "EXPR_SILENT_OBSERVE";
-        default:                      return "EXPR_NONE";
+        case EXPR_OBSERVE:            return "OBSRV";
+        case EXPR_HESITATION:         return "HESIT";
+        case EXPR_FEAR:               return "FEAR";
+        case EXPR_TRUST:              return "LOVE";
+        case EXPR_DISCOMFORT:         return "DISCOM";
+        case EXPR_CURIOSITY:          return "CURIO";
+        case EXPR_MIMICRY:            return "MIMIC";
+        case EXPR_WARNING:            return "WARN";
+        case EXPR_GLASS_CONTACT:      return "TOUCH";
+        case EXPR_SILENT_OBSERVATION: return "STARE";
+        default:                      return "NONE";
     }
 }
 

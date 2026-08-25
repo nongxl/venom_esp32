@@ -67,49 +67,75 @@ void triggerVibration(int duration_ms, uint8_t power = 180) {
     vibrate_end_ms = millis() + duration_ms;
 }
 
-static float smoothed_mic_db = 38.0f;
+static float smoothed_mic_db = 32.0f;
 
 static void processAudioBands() {
     if (!M5.Mic.isEnabled()) return;
 
-    if (millis() - last_mic_sample_ms >= 20) {
+    if (millis() - last_mic_sample_ms >= 15) {
         last_mic_sample_ms = millis();
         if (M5.Mic.record(mic_raw_buffer, 128, 8000)) {
+            int16_t min_v = 32767;
+            int16_t max_v = -32768;
+            int32_t sum_raw = 0;
+
+            for (int i = 0; i < 128; ++i) {
+                int16_t val = mic_raw_buffer[i];
+                if (val < min_v) min_v = val;
+                if (val > max_v) max_v = val;
+                sum_raw += val;
+            }
+
+            // 1. 直流偏置消除 (DC Bias Removal)
+            float dc_mean = (float)sum_raw / 128.0f;
+            float peak_to_peak = (float)(max_v - min_v);
+
+            float ac_sum_sq = 0.0f;
             float low_energy = 0.0f;
             float mid_energy = 0.0f;
             float high_energy = 0.0f;
             int zero_crossings = 0;
             float prev_sample = 0.0f;
-            float sum_sq = 0.0f;
 
             for (int i = 0; i < 128; ++i) {
-                float sample = (float)mic_raw_buffer[i] / 32768.0f;
-                float abs_val = std::abs(sample);
-                sum_sq += sample * sample;
+                float ac_sample = ((float)mic_raw_buffer[i] - dc_mean) / 32768.0f;
+                float abs_ac = std::abs(ac_sample);
+                ac_sum_sq += ac_sample * ac_sample;
 
-                if ((sample > 0 && prev_sample < 0) || (sample < 0 && prev_sample > 0)) {
+                if ((ac_sample > 0.001f && prev_sample < -0.001f) || (ac_sample < -0.001f && prev_sample > 0.001f)) {
                     zero_crossings++;
                 }
 
-                if (i % 4 == 0) low_energy += abs_val;
-                if (i % 2 == 0) mid_energy += abs_val;
-                high_energy += abs_val;
+                if (i % 4 == 0) low_energy += abs_ac;
+                if (i % 2 == 0) mid_energy += abs_ac;
+                high_energy += abs_ac;
 
-                prev_sample = sample;
+                prev_sample = ac_sample;
             }
 
-            // 计算均方根并换算为环境音量分贝 (28dB ~ 96dB)
-            float rms = std::sqrt(sum_sq / 128.0f);
-            float raw_db = 20.0f * std::log10(std::max(0.00005f, rms)) + 92.0f;
+            // 2. 交流 RMS 均方根与吹气气流冲击能量 (Blast Airflow Detection)
+            float ac_rms = std::sqrt(ac_sum_sq / 128.0f);
+            float p2p_ratio = peak_to_peak / 32768.0f;
+            // 吹气或巨响时，峰峰值与交流能量剧增
+            float combined_power = ac_rms * 2.2f + p2p_ratio * 1.4f;
+
+            // 3. 对数分贝换算 (28dB ~ 96dB)
+            float raw_db = 20.0f * std::log10(std::max(0.0001f, combined_power)) + 102.0f;
             raw_db = std::max(28.0f, std::min(96.0f, raw_db));
-            smoothed_mic_db = smoothed_mic_db * 0.75f + raw_db * 0.25f;
 
-            low_energy  = std::min(1.0f, (low_energy / 32.0f) * 2.5f);
-            mid_energy  = std::min(1.0f, (mid_energy / 64.0f) * 3.0f);
-            high_energy = std::min(1.0f, (high_energy / 128.0f) * 3.8f);
+            // 4. 快攻慢释 (Attack-Release) 包络滤波：吹气瞬间飙升，随后平缓回落
+            if (raw_db > smoothed_mic_db) {
+                smoothed_mic_db = smoothed_mic_db * 0.30f + raw_db * 0.70f; // 吹气极速响应
+            } else {
+                smoothed_mic_db = smoothed_mic_db * 0.88f + raw_db * 0.12f; // 平缓释放
+            }
 
-            if (zero_crossings > 35) {
-                high_energy = std::min(1.0f, high_energy * 1.5f + 0.2f);
+            low_energy  = std::min(1.0f, (low_energy / 32.0f) * 3.0f + p2p_ratio * 0.5f);
+            mid_energy  = std::min(1.0f, (mid_energy / 64.0f) * 3.5f);
+            high_energy = std::min(1.0f, (high_energy / 128.0f) * 4.2f);
+
+            if (zero_crossings > 35 || p2p_ratio > 0.35f) {
+                high_energy = std::min(1.0f, high_energy * 1.5f + 0.3f);
             }
 
             physiology.feedAudioBands(low_energy, mid_energy, high_energy);

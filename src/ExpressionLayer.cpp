@@ -57,30 +57,30 @@ void ExpressionLayer::evaluateAutonomousExpressions(float dt, const Consciousnes
 
     // 1. 极简七肢桶活体符号喷射（低频、神秘、有机）
     if (!fluid_symbols.hasActiveSymbol()) {
-        // 倒置且严重不安 -> 叹号 "!"
+        // 倒置且严重不安 -> 叹号 "help" / "!"
         if (is_upside_down && stress > 0.45f) {
-            fluid_symbols.spawnSymbol(SYMBOL_EXCLAMATION, SCREEN_W * 0.5f, SCREEN_H * 0.45f);
+            fluid_symbols.trigger("help");
             triggerExpression(EXPR_FEAR, 4.0f);
             return;
         }
 
-        // 高怨恨或持续强刺激 -> 拒止叉号 "X"
+        // 高怨恨或持续强刺激 -> 拒止叉号 "no" / "x"
         if (stress > 0.70f || resentment > 0.60f) {
             if ((rand() % 100) < 55) {
-                fluid_symbols.spawnSymbol(SYMBOL_CROSS, SCREEN_W * 0.5f, SCREEN_H * 0.5f);
+                fluid_symbols.trigger("no");
                 triggerExpression(EXPR_DISCOMFORT, 3.8f);
                 return;
             }
         }
 
-        // 高好奇或 LLM 意图驱动 -> 问号 "?" 或 七肢桶环形圆圈 "RING"
+        // 高好奇或 LLM 意图驱动 -> 问号 "question" 或 七肢桶环形圆圈 "eye"
         if (urge > 0.65f) {
             if (curiosity > 0.60f) {
-                fluid_symbols.spawnSymbol(SYMBOL_QUESTION, hx, hy - 18.0f);
+                fluid_symbols.trigger("question");
                 triggerExpression(EXPR_CURIOSITY, 3.5f);
                 return;
             } else if (trust > 0.45f) {
-                fluid_symbols.spawnSymbol(SYMBOL_RING, SCREEN_W * 0.5f, SCREEN_H * 0.5f);
+                fluid_symbols.trigger("eye");
                 triggerExpression(EXPR_OBSERVE, 4.5f);
                 return;
             }

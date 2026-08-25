@@ -179,9 +179,6 @@ void Renderer::render(const SkeletonSystem &skeleton, const MetaballSystem &meta
     // 绘制贴墙荧光
     renderMeniscusGlow(metaballs);
 
-    // 绘制七肢桶活体液态墨水符号
-    fluid_symbols.draw(*canvas);
-
     // 绘制触手与眼睛
     tentacles.draw(*canvas);
     eye.draw(*canvas, physiology);

@@ -111,7 +111,6 @@ void MetaballSystem::addMetaballToField(float cx, float cy, float rx, float ry, 
     if (grx < 1.0f) grx = 1.0f;
     if (gry < 1.0f) gry = 1.0f;
 
-    // 严密紧凑的包围盒（主体形状保持紧致稳定）
     int min_gx = std::max(0, (int)std::floor(gcx - grx * 1.85f));
     int max_gx = std::min(GRID_W - 1, (int)std::ceil(gcx + grx * 1.85f));
     int min_gy = std::max(0, (int)std::floor(gcy - gry * 1.85f));
@@ -127,7 +126,6 @@ void MetaballSystem::addMetaballToField(float cx, float cy, float rx, float ry, 
             float cur_grx = grx;
             float cur_gry = gry;
 
-            // 紧绷高密度微尖刺调制（16 阶与 24 阶高频紧密刺牙，突出仅 1~2.5px，绝无大范围畸变）
             if (micro_spike_amp > 0.01f) {
                 float theta = std::atan2(dy, dx);
                 float spike_mod = 1.0f + micro_spike_amp * (0.60f * std::sin(16.0f * theta + spike_phase) +
@@ -144,7 +142,6 @@ void MetaballSystem::addMetaballToField(float cx, float cy, float rx, float ry, 
                 float val = 1.0f - d_norm2;
                 float contrib = val * val * (float)intensity;
 
-                // 贴边接触面整形增强
                 if (contact_b > 0.2f && gy >= GRID_H - 2) {
                     float edge_boost = (gy == GRID_H - 1) ? 1.35f : 1.15f;
                     contrib *= edge_boost * (1.0f + contact_b * 0.35f);
@@ -169,10 +166,11 @@ void MetaballSystem::addMetaballToField(float cx, float cy, float rx, float ry, 
     }
 }
 
-void MetaballSystem::computeField(const SkeletonSystem &skeleton, const PhysiologySystem &physiology) {
+void MetaballSystem::computeField(const SkeletonSystem &skeleton, const PhysiologySystem &physiology,
+                                  const FluidSymbolSystem &fluid_symbols, float gx, float gy) {
     memset(field_buffer, 0, sizeof(field_buffer));
 
-    // 紧绷微尖刺幅度：平静时 0.04 (微小紧绷)，紧张/高频声音时 0.08~0.12 (清晰锐刺)
+    // 1. 骨架主球累加
     float tension = physiology.getNeuroTension();
     float spike_int = physiology.getSpikeIntensity();
     EmotionState emotion = physiology.getEmotion();
@@ -194,9 +192,57 @@ void MetaballSystem::computeField(const SkeletonSystem &skeleton, const Physiolo
                            micro_spike_amp, node_phase);
     }
 
+    // 2. 飞溅微球累加
     for (int i = 0; i < MAX_DROPLETS; ++i) {
         if (droplets[i].active) {
             addMetaballToField(droplets[i].x, droplets[i].y, droplets[i].radius, droplets[i].radius, 120, 0, 0, 0, 0, 0, 0);
+        }
+    }
+
+    // 3. 符号粒子流体势能注入（余弦紧支撑核 + 重力拉伸 + 核心防空心偏置）
+    int symCount = fluid_symbols.getPointCount();
+    if (symCount > 0) {
+        float gMag = std::sqrt(gx * gx + gy * gy);
+        float norm_gx = 0.0f, norm_gy = 0.0f;
+        if (gMag > 0.05f) { norm_gx = gx / gMag; norm_gy = gy / gMag; }
+        float stretch = std::min(2.0f, 1.0f + 0.35f * gMag);
+
+        for (int i = 0; i < symCount; ++i) {
+            const SymbolPoint &sp = fluid_symbols.getPoint(i);
+            float nx = sp.x / (float)GRID_SCALE;
+            float ny = sp.y / (float)GRID_SCALE;
+            float r = (sp.radius * 1.1f) / (float)GRID_SCALE;
+
+            int r_int = (int)(r * stretch) + 3;
+            int min_y = std::max(0, (int)std::floor(ny - r_int));
+            int max_y = std::min(GRID_H - 1, (int)std::ceil(ny + r_int));
+            int min_x = std::max(0, (int)std::floor(nx - r_int));
+            int max_x = std::min(GRID_W - 1, (int)std::ceil(nx + r_int));
+
+            for (int y = min_y; y <= max_y; ++y) {
+                float dy = (float)y - ny;
+                int row_offset = y * GRID_W;
+
+                for (int x = min_x; x <= max_x; ++x) {
+                    float dx = (float)x - nx;
+                    float dist_px = std::sqrt(dx * dx + dy * dy);
+                    float dotG = (dist_px > 0.001f) ? (dx * norm_gx + dy * norm_gy) / dist_px : 0.0f;
+
+                    float scaledDist = dist_px;
+                    if (dotG > 0) scaledDist /= (1.0f + dotG * (stretch - 1.0f));
+                    else scaledDist *= (1.0f - dotG * 0.15f);
+
+                    float dist_ratio = scaledDist / r;
+                    if (dist_ratio < 1.0f) {
+                        float val = (0.5f + 0.5f * std::cos(dist_ratio * 3.14159f)) * 260.0f * sp.life * (1.0f + dotG * 0.35f);
+                        if (dist_ratio < 0.85f) {
+                            val = std::max(val, 60.0f * sp.life);
+                        }
+                        int cur = field_buffer[row_offset + x] + (int)val;
+                        field_buffer[row_offset + x] = (cur > 255) ? 255 : (uint8_t)cur;
+                    }
+                }
+            }
         }
     }
 }

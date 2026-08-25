@@ -137,8 +137,8 @@ void setup() {
     renderer.init(&canvas);
 
     prev_micros = micros();
-    Serial.println("\n>>> [Venom Symbiote] Solid Flesh & Organic Glyphs Ready! <<<");
-    Serial.println(">>> Commands: 'screenshot', 'leak', 'symbol <ring|?|!|x|ripple>', 'hud' <<<");
+    Serial.println("\n>>> [Venom Symbiote] Fluid Symbol Field Fusion Ready! <<<");
+    Serial.println(">>> Commands: 'symbol <eye|?|!|x|o|heart|warning|splash>', 'screenshot', 'leak', 'hud' <<<");
 }
 
 void loop() {
@@ -208,11 +208,9 @@ void loop() {
             renderer.toggleHUD();
             Serial.printf(">>> [LEAK] Mind Echo: \"%s\"\n", llm.getLatestNotes());
         } else if (cmd.startsWith("symbol")) {
-            if (cmd.indexOf("ring") >= 0)   fluid_symbols.spawnSymbol(SYMBOL_RING, SCREEN_W * 0.5f, SCREEN_H * 0.5f);
-            if (cmd.indexOf("?") >= 0)      fluid_symbols.spawnSymbol(SYMBOL_QUESTION, SCREEN_W * 0.5f, SCREEN_H * 0.5f);
-            if (cmd.indexOf("!") >= 0)      fluid_symbols.spawnSymbol(SYMBOL_EXCLAMATION, SCREEN_W * 0.5f, SCREEN_H * 0.5f);
-            if (cmd.indexOf("x") >= 0)      fluid_symbols.spawnSymbol(SYMBOL_CROSS, SCREEN_W * 0.5f, SCREEN_H * 0.5f);
-            if (cmd.indexOf("ripple") >= 0) fluid_symbols.spawnSymbol(SYMBOL_RIPPLE, SCREEN_W * 0.5f, SCREEN_H * 0.5f);
+            String sym = cmd.substring(6);
+            sym.trim();
+            fluid_symbols.trigger(sym);
         } else if (cmd.equalsIgnoreCase("theme")) {
             renderer.nextTheme();
         }
@@ -238,31 +236,36 @@ void loop() {
 
     // 7. 非语言表达层与液态符号系统更新
     expression.update(dt, v3_state, physiology, relationship, rhythm, fluid_symbols, skeleton, is_upside_down);
-    fluid_symbols.update(dt, skeleton, gx, gy);
+    fluid_symbols.update(dt);
 
-    // 8. AI 行为状态机更新
+    // 8. 毒液爬行头部物理擦除/重吸收墨迹
+    float hx, hy;
+    skeleton.getHeadPos(hx, hy);
+    fluid_symbols.wipePoints(hx, hy, 22.0f);
+
+    // 9. AI 行为状态机更新
     ai.updateSensors(raw_ax, raw_ay, raw_az, physiology, btn_a_pressed);
     ai.update(dt, skeleton, metaballs, physiology, relationship, expression, v3_state);
 
-    // 9. 骨架动力学更新
+    // 10. 骨架动力学更新
     float crawl_bx, crawl_by;
     ai.getCrawlBias(crawl_bx, crawl_by);
     skeleton.update(dt, gx, gy, crawl_bx, crawl_by,
                     physiology.getNeuroTension(), physiology.getSpikeIntensity(),
                     ai.getRespiration(), is_upside_down);
 
-    // 10. Voronoi 细胞与标量场更新
+    // 11. Voronoi 细胞与标量场（含符号粒子融合）更新
     float look_x, look_y;
     ai.getLookTarget(look_x, look_y);
     voronoi.update(dt, skeleton, physiology, look_x, look_y);
     metaballs.update(dt, skeleton, gx, gy, physiology);
-    metaballs.computeField(skeleton, physiology);
+    metaballs.computeField(skeleton, physiology, fluid_symbols, gx, gy);
 
-    // 11. 触手与眼睛系统更新
+    // 12. 触手与眼睛系统更新
     tentacles.update(dt, skeleton, physiology, is_upside_down);
     eye.update(dt, skeleton, physiology, look_x, look_y, ai.isSleeping());
 
-    // 12. 渲染输出
+    // 13. 渲染输出
     renderer.render(skeleton, metaballs, eye, tentacles, ai, physiology,
                     voronoi, fluid_symbols, relationship, expression, v3_state, current_fps);
     canvas.pushSprite(0, 0);

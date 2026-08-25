@@ -3,6 +3,7 @@
 #include "config.h"
 #include "SkeletonSystem.h"
 #include "PhysiologySystem.h"
+#include "FluidSymbolSystem.h"
 
 struct Droplet {
     float x = 0.0f;
@@ -21,7 +22,8 @@ public:
 
     void init();
     void update(float dt, const SkeletonSystem &skeleton, float gravity_x, float gravity_y, const PhysiologySystem &physiology);
-    void computeField(const SkeletonSystem &skeleton, const PhysiologySystem &physiology);
+    void computeField(const SkeletonSystem &skeleton, const PhysiologySystem &physiology,
+                      const FluidSymbolSystem &fluid_symbols, float gx, float gy);
 
     void spawnDroplet(float x, float y, float vx, float vy, float r, bool is_jolt = false);
     void triggerJoltSpurt(const SkeletonSystem &skeleton, float intensity);

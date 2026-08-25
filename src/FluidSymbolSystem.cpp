@@ -1,247 +1,159 @@
 #include "FluidSymbolSystem.h"
 #include <cmath>
 
-FluidSymbolSystem::FluidSymbolSystem() {
-    for (int i = 0; i < MAX_INK_PARTICLES; ++i) {
-        particles[i].active = false;
-    }
-}
+FluidSymbolSystem::FluidSymbolSystem() : pointCount(0), currentType("") {}
 
 void FluidSymbolSystem::init() {
-    for (int i = 0; i < MAX_INK_PARTICLES; ++i) {
-        particles[i].active = false;
-    }
-    active_particle_count = 0;
-    current_type = SYMBOL_NONE;
+    clear();
 }
 
-void FluidSymbolSystem::addParticle(float x, float y, float vx, float vy, float r, float duration, bool splatter, bool drip) {
-    for (int i = 0; i < MAX_INK_PARTICLES; ++i) {
-        if (!particles[i].active) {
-            particles[i].active = true;
-            particles[i].x = x;
-            particles[i].y = y;
-            particles[i].vx = vx;
-            particles[i].vy = vy;
-            particles[i].radius = r;
-            particles[i].life = duration;
-            particles[i].max_life = duration;
-            particles[i].is_splatter = splatter;
-            particles[i].is_drip = drip;
-            active_particle_count++;
-            break;
+void FluidSymbolSystem::addPoint(float x, float y, float r) {
+    if (pointCount < MAX_SYMBOL_POINTS) {
+        // Arrival 风格的随机微偏移，使路径有机不规则
+        float ox = (float)(rand() % 61 - 30) * 0.1f;
+        float oy = (float)(rand() % 61 - 30) * 0.1f;
+        points[pointCount].x = x + ox;
+        points[pointCount].y = y + oy;
+        points[pointCount].radius = r * (0.8f + (float)(rand() % 40) * 0.01f);
+        points[pointCount].life = 1.0f;
+        points[pointCount].vy = 0.02f + (float)(rand() % 10) * 0.01f; // 极慢的滴落感
+        points[pointCount].vx = (float)(rand() % 21 - 10) * 0.003f;
+        pointCount++;
+    }
+}
+
+void FluidSymbolSystem::update(float dt) {
+    unsigned long now = millis();
+    for (int i = 0; i < pointCount; i++) {
+        // 微小的正弦漂移，模拟流体在玻璃上的波动
+        float drift = std::sin(now * 0.001f + i) * 0.015f;
+        points[i].y += points[i].vy * (dt * 60.0f);
+        points[i].x += (points[i].vx + drift) * (dt * 60.0f);
+        points[i].life -= 0.0012f * (dt * 60.0f);
+
+        if (points[i].life < 0.3f) {
+            points[i].radius *= 0.985f; // 末期变细消散
+        }
+
+        if (points[i].life <= 0.0f) {
+            points[i] = points[pointCount - 1];
+            pointCount--;
+            i--;
+        }
+    }
+
+    if (pointCount == 0) {
+        currentType = "";
+    }
+}
+
+void FluidSymbolSystem::trigger(const String &type) {
+    clear();
+    currentType = type;
+    if (type == "no" || type == "stop" || type == "x") genX();
+    else if (type == "yes" || type == "agree" || type == "o") genO();
+    else if (type == "help" || type == "!" || type == "exclamation") genEXCLAMATION();
+    else if (type == "question" || type == "?") genQUESTION();
+    else if (type == "eye" || type == "watch") genEYE();
+    else if (type == "warning") genWARNING();
+    else if (type == "splash" || type == "doodle") genSPLASH();
+    else if (type == "heart") genHEART();
+    else genQUESTION();
+}
+
+void FluidSymbolSystem::clear() {
+    pointCount = 0;
+    currentType = "";
+}
+
+void FluidSymbolSystem::genX() {
+    for (float i = 0; i < 25; i += 3.5f) {
+        addPoint(105 + i, 52 + i, 4.2f); // \
+        addPoint(130 - i, 52 + i, 4.2f); // /
+    }
+}
+
+void FluidSymbolSystem::genO() {
+    for (float a = 0; a < 6.28f; a += 0.35f) {
+        addPoint(120 + std::cos(a) * 18.0f, 65 + std::sin(a) * 18.0f, 4.0f);
+    }
+}
+
+void FluidSymbolSystem::genQUESTION() {
+    for (float a = -1.5f; a < 2.5f; a += 0.38f) {
+        addPoint(120 + std::cos(a) * 15.0f, 55 + std::sin(a) * 12.0f, 4.2f);
+    }
+    addPoint(120, 75, 4.0f);
+    addPoint(120, 88, 5.5f); // 墨点
+}
+
+void FluidSymbolSystem::genEXCLAMATION() {
+    for (float y = 45; y < 75; y += 3.8f) {
+        addPoint(120, y, 4.2f);
+    }
+    addPoint(120, 88, 5.5f); // 墨点
+}
+
+void FluidSymbolSystem::genEYE() {
+    // 类似 Arrival 的圆环，带有一点瞳孔特征
+    for (float a = 0; a < 6.28f; a += 0.22f) {
+        float r = 24.0f + std::sin(a * 4.0f) * 3.5f;
+        addPoint(120 + std::cos(a) * r, 67 + std::sin(a) * r, 3.8f);
+    }
+    addPoint(120, 67, 6.5f); // 瞳孔
+}
+
+void FluidSymbolSystem::genHEART() {
+    for (float t = 0; t < 6.28f; t += 0.25f) {
+        float s_t = std::sin(t);
+        float x = 15.0f * s_t * s_t * s_t;
+        float y = -(12.0f * std::cos(t) - 4.5f * std::cos(2.0f * t) - 1.8f * std::cos(3.0f * t) - std::cos(4.0f * t));
+        addPoint(120 + x * 1.8f, 65 + y * 1.8f, 3.8f);
+    }
+}
+
+void FluidSymbolSystem::genWARNING() {
+    float cx = 120, cy = 65;
+    for (float a = 0; a < 6.28f; a += 0.4f) {
+        addPoint(cx + std::cos(a) * 8.0f, cy + std::sin(a) * 8.0f, 5.0f);
+    }
+    for (int i = 0; i < 12; i++) {
+        float angle = (float)i / 12.0f * 6.28f;
+        float len = 20.0f + (rand() % 25);
+        for (float d = 10; d < len; d += 4.5f) {
+            addPoint(cx + std::cos(angle) * d, cy + std::sin(angle) * d, 3.5f * (1.0f - d / len) + 1.2f);
         }
     }
 }
 
-void FluidSymbolSystem::addStrokeLine(float x1, float y1, float x2, float y2, float r1, float r2, int steps) {
-    for (int i = 0; i <= steps; ++i) {
-        float t = (float)i / (float)steps;
-        float px = x1 + (x2 - x1) * t + ((rand() % 20) - 10) * 0.08f;
-        float py = y1 + (y2 - y1) * t + ((rand() % 20) - 10) * 0.08f;
-        float r = r1 + (r2 - r1) * t + ((rand() % 10) - 5) * 0.06f;
-        if (r < 1.6f) r = 1.6f;
-        addParticle(px, py, 0.0f, 0.0f, r, 4.5f, false, (t > 0.8f));
+void FluidSymbolSystem::genSPLASH() {
+    float cx = 70 + (rand() % 100), cy = 45 + (rand() % 40);
+    for (int i = 0; i < 35; i++) {
+        float r = (float)(12 + (rand() % 18));
+        float a = (float)(rand() % 360) * 0.017453f;
+        addPoint(cx + std::cos(a) * r * 0.6f, cy + std::sin(a) * r * 0.6f, 5.5f);
     }
-}
-
-void FluidSymbolSystem::addSplatterBurst(float cx, float cy, int count, float max_spread) {
-    for (int i = 0; i < count; ++i) {
-        float angle = (rand() % 360) * 0.017453f;
-        float dist = 4.0f + (rand() % 100) * 0.01f * max_spread;
-        float px = cx + std::cos(angle) * dist;
-        float py = cy + std::sin(angle) * dist;
-        float r = 1.0f + (rand() % 15) * 0.1f;
-        addParticle(px, py, std::cos(angle) * 0.1f, std::sin(angle) * 0.1f, r, 3.8f, true, false);
-    }
-}
-
-void FluidSymbolSystem::buildRingGlyph(float cx, float cy) {
-    // 电影《Arrival》七肢桶风格泼墨圆环
-    constexpr int RING_STEPS = 18;
-    float prev_x = 0.0f, prev_y = 0.0f;
-
-    for (int i = 0; i <= RING_STEPS; ++i) {
-        float angle = (i % RING_STEPS) * (360.0f / RING_STEPS) * 0.017453f;
-        // 有机粗细与突刺调制
-        float spike = (i % 3 == 0) ? 5.5f : ((i % 2 == 0) ? -2.5f : 2.0f);
-        float r_ring = 14.0f + spike;
-        float px = cx + std::cos(angle) * r_ring;
-        float py = cy + std::sin(angle) * r_ring;
-        float stroke_w = (i % 4 == 0) ? 3.8f : 2.6f;
-
-        addParticle(px, py, 0.0f, 0.0f, stroke_w, 4.5f, false, (i % 5 == 0));
-
-        // 沿途向外炸出的微小飞溅毛刺
-        if (i % 3 == 0) {
-            float sp_ang = angle + ((rand() % 40) - 20) * 0.017453f;
-            addParticle(cx + std::cos(sp_ang) * (r_ring + 6.0f), cy + std::sin(sp_ang) * (r_ring + 6.0f),
-                        std::cos(sp_ang) * 0.15f, std::sin(sp_ang) * 0.15f, 1.4f, 4.0f, true, false);
+    for (int i = 0; i < 14; i++) {
+        float a = (float)(rand() % 360) * 0.017453f;
+        float len = 25 + (rand() % 35);
+        for (float d = 15; d < len; d += 5.0f) {
+            addPoint(cx + std::cos(a) * d, cy + std::sin(a) * d, 4.0f * (1.0f - d / len) + 1.5f);
         }
     }
-
-    // 周围随机泼墨微粒
-    addSplatterBurst(cx, cy, 6, 18.0f);
-    // 中央微小墨核
-    addParticle(cx, cy, 0.0f, 0.0f, 3.6f, 4.5f, false, false);
 }
 
-void FluidSymbolSystem::buildQuestionGlyph(float cx, float cy) {
-    // 苍劲泼墨问号
-    // 弧线段
-    constexpr int ARC_STEPS = 9;
-    for (int i = 0; i <= ARC_STEPS; ++i) {
-        float t = (float)i / (float)ARC_STEPS;
-        float angle = (-170.0f + t * 240.0f) * 0.017453f;
-        float px = cx + std::cos(angle) * 11.0f;
-        float py = cy - 7.0f + std::sin(angle) * 11.0f;
-        float r = 3.4f - t * 1.2f;
-        addParticle(px, py, 0.0f, 0.0f, r, 4.2f, false, false);
-    }
-
-    // 中间竖弯
-    addStrokeLine(cx + 2.0f, cy + 2.0f, cx - 1.0f, cy + 8.0f, 2.6f, 2.0f, 3);
-    // 底部炸裂悬浮墨花与滴落
-    addParticle(cx - 1.0f, cy + 15.0f, 0.0f, 0.0f, 3.4f, 4.2f, false, true);
-    addSplatterBurst(cx - 1.0f, cy + 15.0f, 4, 6.0f);
-}
-
-void FluidSymbolSystem::buildExclamationGlyph(float cx, float cy) {
-    // 撕裂泼墨叹号
-    addStrokeLine(cx, cy - 15.0f, cx, cy + 4.0f, 3.8f, 2.0f, 6);
-    addSplatterBurst(cx, cy - 6.0f, 4, 8.0f);
-
-    // 底部墨点
-    addParticle(cx, cy + 13.0f, 0.0f, 0.0f, 3.5f, 4.0f, false, true);
-    addSplatterBurst(cx, cy + 13.0f, 3, 5.0f);
-}
-
-void FluidSymbolSystem::buildCrossGlyph(float cx, float cy) {
-    // 撕裂泼墨叉号
-    addStrokeLine(cx - 11.0f, cy - 11.0f, cx + 11.0f, cy + 11.0f, 3.2f, 2.2f, 6);
-    addStrokeLine(cx - 11.0f, cy + 11.0f, cx + 11.0f, cy - 11.0f, 3.2f, 2.2f, 6);
-    addSplatterBurst(cx, cy, 5, 12.0f);
-}
-
-void FluidSymbolSystem::buildRippleGlyph(float cx, float cy) {
-    for (int i = 0; i < 8; ++i) {
-        float a = i * 45.0f * 0.017453f;
-        addParticle(cx + std::cos(a) * 8.0f, cy + std::sin(a) * 8.0f, 0.0f, 0.0f, 2.4f, 3.8f, false, false);
-    }
-    for (int i = 0; i < 12; ++i) {
-        float a = i * 30.0f * 0.017453f;
-        addParticle(cx + std::cos(a) * 16.0f, cy + std::sin(a) * 16.0f, 0.0f, 0.0f, 2.0f, 3.8f, false, false);
-    }
-    addSplatterBurst(cx, cy, 4, 14.0f);
-}
-
-void FluidSymbolSystem::spawnSymbol(FluidSymbolType type, float origin_x, float origin_y) {
-    for (int i = 0; i < MAX_INK_PARTICLES; ++i) particles[i].active = false;
-    active_particle_count = 0;
-    current_type = type;
-
-    float cx = std::max(35.0f, std::min(SCREEN_W - 35.0f, origin_x));
-    float cy = std::max(30.0f, std::min(SCREEN_H - 30.0f, origin_y));
-
-    switch (type) {
-        case SYMBOL_RING:        buildRingGlyph(cx, cy); break;
-        case SYMBOL_QUESTION:    buildQuestionGlyph(cx, cy); break;
-        case SYMBOL_EXCLAMATION: buildExclamationGlyph(cx, cy); break;
-        case SYMBOL_CROSS:       buildCrossGlyph(cx, cy); break;
-        case SYMBOL_RIPPLE:      buildRippleGlyph(cx, cy); break;
-        default: break;
-    }
-}
-
-void FluidSymbolSystem::update(float dt, const SkeletonSystem &skeleton, float gravity_x, float gravity_y) {
-    float hx, hy;
-    skeleton.getHeadPos(hx, hy);
-    active_particle_count = 0;
-
-    for (int i = 0; i < MAX_INK_PARTICLES; ++i) {
-        if (!particles[i].active) continue;
-
-        FluidInkParticle &p = particles[i];
-        p.life -= dt;
-
-        if (p.life <= 0.0f) {
-            p.active = false;
-            continue;
-        }
-
-        // 速度阻尼
-        p.vx *= 0.90f;
-        p.vy *= 0.90f;
-
-        // 滴落流淌
-        if (p.is_drip) {
-            p.vy += (gravity_y * 0.12f + 0.06f) * dt * 30.0f;
-            p.vx += gravity_x * 0.12f * dt * 30.0f;
-        }
-
-        p.x += p.vx;
-        p.y += p.vy;
-
-        p.x = std::max(2.0f, std::min((float)(SCREEN_W - 2), p.x));
-        p.y = std::max(2.0f, std::min((float)(SCREEN_H - 2), p.y));
-
-        float dx = hx - p.x;
-        float dy = hy - p.y;
-        if (dx * dx + dy * dy < 280.0f && p.life < p.max_life * 0.65f) {
-            p.active = false;
-            continue;
-        }
-
-        active_particle_count++;
-    }
-
-    if (active_particle_count == 0) {
-        current_type = SYMBOL_NONE;
-    }
-}
-
-void FluidSymbolSystem::draw(M5Canvas &canvas) const {
-    if (active_particle_count == 0) return;
-
-    // 1. 在主干粒子间绘制连接带（消除圆点感，形成流动泼墨笔触）
-    for (int i = 0; i < MAX_INK_PARTICLES; ++i) {
-        if (!particles[i].active || particles[i].is_splatter) continue;
-
-        const FluidInkParticle &p1 = particles[i];
-        for (int j = i + 1; j < MAX_INK_PARTICLES; ++j) {
-            if (!particles[j].active || particles[j].is_splatter) continue;
-
-            const FluidInkParticle &p2 = particles[j];
-            float dx = p2.x - p1.x;
-            float dy = p2.y - p1.y;
-            float dist2 = dx * dx + dy * dy;
-
-            // 相邻主干粒子连成平滑带
-            if (dist2 < 48.0f) {
-                int thickness = (int)((p1.radius + p2.radius) * 0.5f);
-                for (int off = -thickness / 2; off <= thickness / 2; ++off) {
-                    canvas.drawLine((int)p1.x + off, (int)p1.y, (int)p2.x + off, (int)p2.y, COLOR_INK_BLACK);
-                    canvas.drawLine((int)p1.x, (int)p1.y + off, (int)p2.x, (int)p2.y + off, COLOR_INK_BLACK);
-                }
-            }
+void FluidSymbolSystem::wipePoints(float screenX, float screenY, float radius) {
+    float r2 = radius * radius;
+    for (int i = 0; i < pointCount; i++) {
+        float dx = points[i].x - screenX;
+        float dy = points[i].y - screenY;
+        if (dx * dx + dy * dy < r2) {
+            points[i] = points[pointCount - 1];
+            pointCount--;
+            i--;
         }
     }
-
-    // 2. 绘制粒子核心与飞溅反光
-    for (int i = 0; i < MAX_INK_PARTICLES; ++i) {
-        if (!particles[i].active) continue;
-
-        const FluidInkParticle &p = particles[i];
-        int ix = (int)std::round(p.x);
-        int iy = (int)std::round(p.y);
-        int ir = (int)std::round(p.radius);
-
-        if (ix < 0 || ix >= SCREEN_W || iy < 0 || iy >= SCREEN_H) continue;
-
-        canvas.fillCircle(ix, iy, ir, COLOR_INK_BLACK);
-
-        if (ir >= 2 && !p.is_splatter) {
-            canvas.drawPixel(ix - 1, iy - 1, COLOR_INK_GLOW);
-        }
+    if (pointCount == 0) {
+        currentType = "";
     }
 }

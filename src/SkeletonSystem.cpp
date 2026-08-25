@@ -205,22 +205,29 @@ void SkeletonSystem::applyWallAdhesion(int i) {
 void SkeletonSystem::updateNodePhysics(int i, float dt, float gx, float gy, float cfx, float cfy, float tension, bool is_upside_down) {
     SkeletonNode &n = nodes[i];
 
-    float muscle_resistance = 0.35f + tension * 0.45f;
-    if (has_pull_target) {
+    // 头部（i=0）具有主动支撑抗力，中尾部（i>=2）自然感受真实重力拖拽下坠
+    float muscle_resistance = 0.20f + tension * 0.35f;
+    if (i == 0 && has_pull_target) {
         muscle_resistance = 0.85f;
     }
     if (sticky_clog_timer > 0.0f) {
-        muscle_resistance = 1.0f;
+        muscle_resistance = 0.90f;
     }
-    if (is_upside_down) {
-        muscle_resistance = std::max(muscle_resistance, 0.75f);
+    if (is_upside_down && i == 0) {
+        muscle_resistance = std::max(muscle_resistance, 0.65f);
+    }
+    if (i >= 2) {
+        // 尾部肌肉抗力大幅降低，让尾巴沉实下垂拖拽！
+        muscle_resistance = std::min(muscle_resistance, 0.18f);
     }
 
     float eff_gx = (flying_timer > 0.0f) ? 0.0f : (gx * (1.0f - muscle_resistance));
     float eff_gy = (flying_timer > 0.0f) ? 0.0f : (gy * (1.0f - muscle_resistance));
 
-    n.vx += eff_gx * (0.35f / n.mass);
-    n.vy += eff_gy * (0.35f / n.mass);
+    // 恢复沉实的重力加速度传导 (尾部重力充足，下摆自然流畅)
+    float g_scale = (i >= 2) ? 0.95f : 0.65f;
+    n.vx += eff_gx * (g_scale / n.mass);
+    n.vy += eff_gy * (g_scale / n.mass);
 
     if (flying_timer <= 0.0f) {
         n.vx += cfx * (0.8f / n.mass);

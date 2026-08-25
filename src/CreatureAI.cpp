@@ -42,14 +42,14 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
 
     switch (new_state) {
         case STATE_IDLE:
-            state_duration = 0.4f + (rand() % 5) * 0.1f;
+            state_duration = 0.8f + (rand() % 12) * 0.1f; // 0.8 ~ 2.0s 舒缓呼吸
             crawl_force_x = 0.0f;
             crawl_force_y = 0.0f;
             break;
 
         case STATE_CRAWL: {
-            state_duration = 5.0f + (rand() % 20) * 0.1f;
-            crawl_shoot_timer = 0.0f;
+            state_duration = 4.5f + (rand() % 25) * 0.1f;
+            crawl_shoot_timer = 0.35f; // 刚进入爬行时先观察准备 0.35s 再迈出第一步
 
             // 基于原生好奇心与全景空间探索模型选择目标 (优先开阔腹地)
             int roll = rand() % 100;
@@ -82,10 +82,6 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
 
             target_look_x = crawl_target_x;
             target_look_y = crawl_target_y;
-
-            if (tentacles) {
-                tentacles->startGrappleCrawl(hx, hy, crawl_target_x, crawl_target_y);
-            }
             break;
         }
 
@@ -110,7 +106,7 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
         }
 
         case STATE_OBSERVE:
-            state_duration = 0.6f + (rand() % 6) * 0.1f;
+            state_duration = 0.9f + (rand() % 12) * 0.1f; // 0.9 ~ 2.1s 停顿观察
             crawl_force_x = 0.0f;
             crawl_force_y = 0.0f;
             target_look_x = 40.0f + (rand() % (SCREEN_W - 80));
@@ -272,10 +268,10 @@ void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem
 
     if (state_timer >= state_duration) {
         int r = rand() % 100;
-        // 28% 概率自发向上射出蛛丝挂在天花板荡秋千！
-        if (r < 28) {
+        // 20% 荡秋千, 45% 爬行探索, 35% 停顿观察
+        if (r < 20) {
             enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
-        } else if (r < 88) { // 60% 爬行探索
+        } else if (r < 65) {
             enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
         } else {
             enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
@@ -291,18 +287,18 @@ void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySyste
     float dy = crawl_target_y - hy;
     float dist = std::sqrt(dx * dx + dy * dy);
 
-    // 极速连环触手迈步：前一根触手刚吸收完，下一发在 0.04s 内瞬间爆射！
+    // 自然触手迈步：触手收回后停顿 0.65s 观察呼吸，再从容迈出下一步！
     if (!tentacles.isGrappling()) {
         crawl_shoot_timer += dt;
-        if (crawl_shoot_timer > 0.04f && dist > 10.0f) {
+        if (crawl_shoot_timer > 0.65f && dist > 12.0f) {
             crawl_shoot_timer = 0.0f;
             tentacles.startGrappleCrawl(hx, hy, crawl_target_x, crawl_target_y);
         }
     }
 
-    // 若目的地在天花板 (crawl_target_y < 35) 且已接近 (dist <= 14px)，70% 概率转入高空荡秋千玩耍！
-    if (dist <= 12.0f || (state_timer >= state_duration && !tentacles.isGrappling())) {
-        if (crawl_target_y < 35.0f && (rand() % 100) < 70) {
+    // 若目的地在天花板 (crawl_target_y < 35) 且已接近 (dist <= 14px)，55% 概率转入高空荡秋千玩耍！
+    if (dist <= 14.0f || (state_timer >= state_duration && !tentacles.isGrappling())) {
+        if (crawl_target_y < 35.0f && (rand() % 100) < 55) {
             enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
         } else {
             enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
@@ -313,10 +309,10 @@ void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySyste
 void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles, SkeletonSystem &skeleton) {
     if (state_timer >= state_duration) {
         int roll = rand() % 100;
-        // 26% 概率从观察状态自发切换至高空荡秋千
-        if (roll < 26) {
+        // 20% 荡秋千, 45% 爬行探索, 35% 呼吸放松
+        if (roll < 20) {
             enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
-        } else if (roll < 88) { // 爬行探索
+        } else if (roll < 65) {
             enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
         } else {
             enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);

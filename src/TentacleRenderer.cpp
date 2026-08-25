@@ -73,7 +73,7 @@ void TentacleRenderer::updateGrappleCrawl(float dt, SkeletonSystem &skeleton, co
 
     switch (grapple.stage) {
         case GRAPPLE_SHOOT: {
-            constexpr float DURATION = 0.20f;
+            constexpr float DURATION = 0.32f; // 自然探出与伸展 (0.32s)
             float t = std::min(1.0f, grapple.timer / DURATION);
             grapple.shoot_progress = t;
             grapple.hand_x = grapple.start_x + (grapple.target_x - grapple.start_x) * t;
@@ -89,7 +89,7 @@ void TentacleRenderer::updateGrappleCrawl(float dt, SkeletonSystem &skeleton, co
         }
 
         case GRAPPLE_ANCHOR: {
-            constexpr float DURATION = 0.15f;
+            constexpr float DURATION = 0.18f;
             grapple.hand_x = grapple.target_x;
             grapple.hand_y = grapple.target_y;
             grapple.palm_spread = std::min(1.0f, grapple.timer / DURATION);
@@ -102,7 +102,7 @@ void TentacleRenderer::updateGrappleCrawl(float dt, SkeletonSystem &skeleton, co
         }
 
         case GRAPPLE_PULL: {
-            constexpr float DURATION = 0.55f;
+            constexpr float DURATION = 0.75f; // 沉稳有力的液态肉身拉动 (0.75s)
             grapple.hand_x = grapple.target_x;
             grapple.hand_y = grapple.target_y;
             grapple.palm_spread = 1.0f;
@@ -118,11 +118,11 @@ void TentacleRenderer::updateGrappleCrawl(float dt, SkeletonSystem &skeleton, co
             float dy = grapple.target_y - hy;
             float dist = std::sqrt(dx * dx + dy * dy);
 
-            // 当头部接近抓取点，进入 GRAPPLE_HOLD 阶段（继续吸住 0.6~1.0s 保持吸力抵抗重力！）
+            // 当头部接近抓取点，进入 GRAPPLE_HOLD 阶段（继续吸住 0.8~1.5s 保持吸力抵抗重力！）
             if (dist < 10.0f || grapple.timer >= DURATION) {
                 grapple.stage = GRAPPLE_HOLD;
                 grapple.timer = 0.0f;
-                grapple.hold_duration = 0.6f + (rand() % 5) * 0.1f;
+                grapple.hold_duration = 0.8f + (rand() % 8) * 0.1f;
             }
             break;
         }
@@ -132,7 +132,7 @@ void TentacleRenderer::updateGrappleCrawl(float dt, SkeletonSystem &skeleton, co
             grapple.hand_x = grapple.target_x;
             grapple.hand_y = grapple.target_y;
             grapple.palm_spread = 1.0f;
-            skeleton.setPullTarget(grapple.target_x, grapple.target_y, 2.2f);
+            skeleton.setPullTarget(grapple.target_x, grapple.target_y, 2.0f);
 
             if (grapple.timer >= grapple.hold_duration) {
                 grapple.stage = GRAPPLE_FUSE;

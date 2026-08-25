@@ -36,7 +36,7 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
 
     switch (new_state) {
         case STATE_IDLE:
-            state_duration = 1.0f + (rand() % 10) * 0.1f;
+            state_duration = 0.4f + (rand() % 5) * 0.1f;
             crawl_force_x = 0.0f;
             crawl_force_y = 0.0f;
             break;
@@ -95,7 +95,7 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
         }
 
         case STATE_OBSERVE:
-            state_duration = 1.5f + (rand() % 10) * 0.1f;
+            state_duration = 0.6f + (rand() % 6) * 0.1f;
             crawl_force_x = 0.0f;
             crawl_force_y = 0.0f;
             target_look_x = 40.0f + (rand() % (SCREEN_W - 80));
@@ -132,6 +132,27 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
 void CreatureAI::triggerStartle(float intensity) {
     startle_energy = intensity;
     enterState(STATE_STARTLED);
+}
+
+void CreatureAI::triggerReactiveCrawl(SkeletonSystem &skeleton, TentacleRenderer &tentacles) {
+    float hx, hy;
+    skeleton.getHeadPos(hx, hy);
+
+    // 挑选开阔腹地或上方天花板作为挣脱目标
+    float target_x = 50.0f + (rand() % (SCREEN_W - 100));
+    float target_y = (hy > 70.0f) ? (20.0f + (rand() % 40)) : (60.0f + (rand() % 50));
+
+    crawl_target_x = target_x;
+    crawl_target_y = target_y;
+    target_look_x = target_x;
+    target_look_y = target_y;
+
+    current_state = STATE_CRAWL;
+    state_timer = 0.0f;
+    state_duration = 5.0f;
+    crawl_shoot_timer = 0.0f;
+
+    tentacles.startGrappleCrawl(hx, hy, target_x, target_y);
 }
 
 void CreatureAI::triggerJolt(SkeletonSystem &skeleton, MetaballSystem &metaballs, float intensity) {
@@ -236,15 +257,13 @@ void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem
 
     if (state_timer >= state_duration) {
         int r = rand() % 100;
-        // 若毒液处于上半区 (hy < 65)，有 25% 概率直接挂上天花板荡秋千！
-        if (hy < 65.0f && r < 25) {
+        // 若毒液处于上半区 (hy < 65)，有 28% 概率直接挂上天花板荡秋千！
+        if (hy < 65.0f && r < 28) {
             enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
-        } else if (r < 65) {
+        } else if (r < 88) { // 88% 超高运动意愿！
             enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
-        } else if (r < 94) {
-            enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
         } else {
-            enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
+            enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
         }
     }
 }
@@ -257,18 +276,18 @@ void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySyste
     float dy = crawl_target_y - hy;
     float dist = std::sqrt(dx * dx + dy * dy);
 
-    // 连续大跨度连环触手迈步：如果触手已收回且距离目的地 > 12px，立即接续发射下一发触手！
+    // 极速连环触手迈步：前一根触手刚吸收完，下一发在 0.04s 内瞬间爆射！
     if (!tentacles.isGrappling()) {
         crawl_shoot_timer += dt;
-        if (crawl_shoot_timer > 0.12f && dist > 12.0f) {
+        if (crawl_shoot_timer > 0.04f && dist > 10.0f) {
             crawl_shoot_timer = 0.0f;
             tentacles.startGrappleCrawl(hx, hy, crawl_target_x, crawl_target_y);
         }
     }
 
-    // 若目的地在天花板 (crawl_target_y < 25) 且已接近 (dist <= 14px)，45% 概率转入高空荡秋千玩耍！
+    // 若目的地在天花板 (crawl_target_y < 25) 且已接近 (dist <= 14px)，50% 概率转入高空荡秋千玩耍！
     if (dist <= 12.0f || (state_timer >= state_duration && !tentacles.isGrappling())) {
-        if (crawl_target_y < 25.0f && (rand() % 100) < 45) {
+        if (crawl_target_y < 25.0f && (rand() % 100) < 50) {
             enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
         } else {
             enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
@@ -279,9 +298,9 @@ void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySyste
 void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles, SkeletonSystem &skeleton) {
     if (state_timer >= state_duration) {
         int roll = rand() % 100;
-        if (hy < 65.0f && roll < 22) {
+        if (hy < 65.0f && roll < 26) {
             enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
-        } else if (roll < 78) {
+        } else if (roll < 88) { // 88% 爬行概率！
             enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
         } else {
             enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);

@@ -173,27 +173,17 @@ void TentacleRenderer::spawnTentacle(const SkeletonSystem &skeleton, bool cling_
             t.start_y = node.y;
             t.is_clinging = cling_edge;
 
-            float dist_top = node.y;
-            float dist_l   = node.x;
-            float dist_r   = SCREEN_W - node.x;
-            float min_d = std::min({dist_top, dist_l, dist_r});
+            // 触手向四周开阔空间或最近玻璃边缘摸索
+            float angle = (rand() % 360) * 0.017453f;
+            float reach = 22.0f + (rand() % 28);
+            t.target_x = std::max(4.0f, std::min(SCREEN_W - 4.0f, node.x + std::cos(angle) * reach));
+            t.target_y = std::max(4.0f, std::min(SCREEN_H - 4.0f, node.y + std::sin(angle) * reach));
 
-            if (min_d == dist_top) {
-                t.target_x = node.x + (rand() % 30 - 15);
-                t.target_y = 0.0f;
-            } else if (min_d == dist_l) {
-                t.target_x = 0.0f;
-                t.target_y = node.y + (rand() % 30 - 15);
-            } else {
-                t.target_x = SCREEN_W;
-                t.target_y = node.y + (rand() % 30 - 15);
-            }
+            t.max_length = reach + 6.0f;
+            t.duration = 2.0f + (rand() % 15) * 0.1f; // 2.0 ~ 3.5 秒生命周期
 
-            t.max_length = min_d + 8.0f;
-            t.duration = 3.5f;
-
-            t.ctrl_x = (t.start_x + t.target_x) * 0.5f + ((rand() % 16) - 8);
-            t.ctrl_y = (t.start_y + t.target_y) * 0.5f + ((rand() % 16) - 8);
+            t.ctrl_x = (t.start_x + t.target_x) * 0.5f + ((rand() % 24) - 12);
+            t.ctrl_y = (t.start_y + t.target_y) * 0.5f + ((rand() % 24) - 12);
 
             t.length_progress = 0.0f;
             t.wave_phase = (rand() % 100) * 0.1f;
@@ -214,17 +204,17 @@ void TentacleRenderer::updateTentacle(int idx, float dt, const SkeletonSystem &s
 
     t.life_timer += dt;
 
-    float wave_speed = 3.0f + physiology.getNeuroTension() * 4.0f;
+    float wave_speed = 3.5f + physiology.getNeuroTension() * 4.5f;
     t.wave_phase += dt * wave_speed;
 
-    if (t.life_timer < 0.4f) {
-        t.length_progress = t.life_timer / 0.4f;
-    } else if (t.life_timer < t.duration - 0.4f) {
+    if (t.life_timer < 0.35f) {
+        t.length_progress = t.life_timer / 0.35f;
+    } else if (t.life_timer < t.duration - 0.35f) {
         t.length_progress = 1.0f;
-        float wave = std::sin(t.wave_phase) * 3.0f;
-        t.ctrl_x += wave * dt * 1.5f;
+        float wave = std::sin(t.wave_phase) * 3.5f;
+        t.ctrl_x += wave * dt * 2.0f;
     } else {
-        float retract = (t.duration - t.life_timer) / 0.4f;
+        float retract = (t.duration - t.life_timer) / 0.35f;
         t.length_progress = (retract < 0.0f) ? 0.0f : retract;
         if (t.length_progress <= 0.01f) {
             t.active = false;
@@ -240,15 +230,14 @@ void TentacleRenderer::update(float dt, SkeletonSystem &skeleton, const Physiolo
     // 1. 爬行抓取触手更新
     updateGrappleCrawl(dt, skeleton, physiology);
 
-    // 2. 倒置吸附微丝更新
+    // 2. 全天候多触手高频自发摸索生长 (Ambient Spawning)
     auto_spawn_timer += dt;
-    if (is_upside_down) {
-        if (auto_spawn_timer > 1.2f) {
-            auto_spawn_timer = 0.0f;
-            if ((rand() % 100) < 70) spawnTentacle(skeleton, true);
-        }
-    } else {
+    float spawn_threshold = (physiology.getNeuroTension() > 0.4f || is_upside_down) ? 0.45f : 0.85f;
+    if (auto_spawn_timer >= spawn_threshold) {
         auto_spawn_timer = 0.0f;
+        if ((rand() % 100) < 85) {
+            spawnTentacle(skeleton, is_upside_down);
+        }
     }
 
     for (int i = 0; i < MAX_TENTACLES; ++i) {

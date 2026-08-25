@@ -43,6 +43,7 @@ public:
 
     void triggerStartle(float intensity = 1.0f);
     void triggerJolt(SkeletonSystem &skeleton, MetaballSystem &metaballs, float intensity = 1.0f);
+    void triggerReactiveCrawl(SkeletonSystem &skeleton, TentacleRenderer &tentacles);
     void triggerInteraction();
     void updateSensors(float imu_gx, float imu_gy, float imu_gz, const PhysiologySystem &physiology, bool btn_a_pressed);
 

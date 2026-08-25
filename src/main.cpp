@@ -227,7 +227,6 @@ void loop() {
 
         skeleton.triggerSlingThrow(dir_x, dir_y, throw_speed);
         tentacles.reset(); // 打断爪盘与触手
-        ai.triggerStartle(1.5f);
         triggerVibration(25, 200);
     }
 
@@ -329,6 +328,9 @@ void loop() {
             float sp_vy = ((rand() % 80) - 40) * 0.08f;
             metaballs.spawnDroplet(hit_x + sp_vx * 2.0f, hit_y + sp_vy * 2.0f, sp_vx, sp_vy, 2.5f, true);
         }
+
+        // 撞击贴壁后瞬间激发狂暴反弹爬行，立刻射出触手向开阔地带挣脱爬行！
+        ai.triggerReactiveCrawl(skeleton, tentacles);
     }
 
     // 11. Voronoi 细胞与标量场（含符号粒子融合）更新

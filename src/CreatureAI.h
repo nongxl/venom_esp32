@@ -8,6 +8,8 @@
 #include "TentacleRenderer.h"
 #include "ExpressionLayer.h"
 #include "LLMClient.h"
+#include "PreySystem.h"
+#include "MouthSystem.h"
 
 enum CreatureState {
     STATE_IDLE = 0,
@@ -18,7 +20,10 @@ enum CreatureState {
     STATE_HESITATING,
     STATE_JOLTING,
     STATE_EXPRESSING,
-    STATE_SWING         // 高空蛛丝悬挂荡秋千状态
+    STATE_SWING,         // 高空蛛丝悬挂荡秋千状态
+    STATE_HUNT_TONGUE,   // 变色龙闪电长鞭卷舌捕食
+    STATE_HUNT_TENTACLE, // 触手抓取喂嘴捕食
+    STATE_HUNT_SNARE     // 黏液定身爬行吞食
 };
 
 class CreatureAI {
@@ -29,6 +34,7 @@ public:
     void update(float dt, SkeletonSystem &skeleton, MetaballSystem &metaballs,
                 TentacleRenderer &tentacles, PhysiologySystem &physiology,
                 RelationshipSystem &relationship, ExpressionLayer &expression,
+                PreySystem &prey, MouthSystem &mouth,
                 const ConsciousnessStateV3 &v3_state);
 
     CreatureState getState() const { return current_state; }
@@ -40,6 +46,7 @@ public:
 
     bool isStartled() const { return current_state == STATE_STARTLED || current_state == STATE_JOLTING; }
     bool isSleeping() const { return current_state == STATE_SLEEP; }
+    bool isHunting() const { return current_state == STATE_HUNT_TONGUE || current_state == STATE_HUNT_TENTACLE || current_state == STATE_HUNT_SNARE; }
 
     void triggerStartle(float intensity = 1.0f);
     void triggerJolt(SkeletonSystem &skeleton, MetaballSystem &metaballs, float intensity = 1.0f);
@@ -72,6 +79,7 @@ private:
     float target_look_y = 67.0f;
 
     float startle_energy = 0.0f;
+    int targeted_bug_idx = -1;
 
     void enterState(CreatureState new_state, TentacleRenderer *tentacles = nullptr, SkeletonSystem *skeleton = nullptr, float hx = 120.0f, float hy = 100.0f);
     void enterHesitation(CreatureState target_state, float delay_sec);
@@ -87,4 +95,10 @@ private:
     void updateJolting(float dt, float hx, float hy, const PhysiologySystem &physiology);
     void updateExpressing(float dt, float hx, float hy, const ExpressionLayer &expression);
     void updateSwing(float dt, float hx, float hy, SkeletonSystem &skeleton, TentacleRenderer &tentacles);
+
+    // 捕食状态更新
+    void checkAndTriggerHunting(float hx, float hy, PreySystem &prey, MouthSystem &mouth, TentacleRenderer &tentacles, SkeletonSystem &skeleton);
+    void updateHuntTongue(float dt, float hx, float hy, PreySystem &prey, MouthSystem &mouth, PhysiologySystem &physiology);
+    void updateHuntTentacle(float dt, float hx, float hy, PreySystem &prey, MouthSystem &mouth, TentacleRenderer &tentacles, PhysiologySystem &physiology);
+    void updateHuntSnare(float dt, float hx, float hy, PreySystem &prey, MouthSystem &mouth, SkeletonSystem &skeleton, TentacleRenderer &tentacles, PhysiologySystem &physiology);
 };

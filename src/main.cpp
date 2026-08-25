@@ -16,6 +16,8 @@
 #include "Renderer.h"
 #include "ConfigManager.h"
 #include "WebConfigPortal.h"
+#include "PreySystem.h"
+#include "MouthSystem.h"
 
 // ─────────────────────────────────────────────────────────────
 //  系统全局实例
@@ -31,7 +33,9 @@ static VoronoiSurface     voronoi;
 static SkeletonSystem     skeleton;
 static MetaballSystem     metaballs;
 static EyeSystem          eye;
+static MouthSystem        mouth;
 static TentacleRenderer   tentacles;
+static PreySystem         prey;
 static CreatureAI         ai;
 static Renderer           renderer;
 static WebConfigPortal    portal;
@@ -138,6 +142,8 @@ void setup() {
     metaballs.init();
     eye.init();
     tentacles.init();
+    prey.init();
+    mouth.init();
     ai.init();
     renderer.init(&canvas);
 
@@ -296,6 +302,7 @@ void loop() {
     relationship.update(dt, total_g_shake, (physiology.getStress() < 0.2f));
 
     // 7. 非语言表达层与液态符号系统更新
+    prey.update(dt);
     expression.update(dt, v3_state, physiology, relationship, rhythm, fluid_symbols, skeleton, is_upside_down);
     fluid_symbols.update(dt);
 
@@ -306,7 +313,7 @@ void loop() {
 
     // 9. AI 行为状态机更新
     ai.updateSensors(raw_ax, raw_ay, raw_az, physiology, btn_a_pressed);
-    ai.update(dt, skeleton, metaballs, tentacles, physiology, relationship, expression, v3_state);
+    ai.update(dt, skeleton, metaballs, tentacles, physiology, relationship, expression, prey, mouth, v3_state);
 
     // 10. 骨架动力学更新
     float crawl_bx, crawl_by;
@@ -341,11 +348,12 @@ void loop() {
     metaballs.computeField(skeleton, physiology, fluid_symbols, gx, gy);
 
     // 12. 触手与眼睛系统更新
+    mouth.update(dt, skeleton, physiology, look_x, look_y);
     tentacles.update(dt, skeleton, physiology, is_upside_down);
     eye.update(dt, skeleton, physiology, look_x, look_y, ai.isSleeping());
 
     // 13. 渲染输出
-    renderer.render(skeleton, metaballs, eye, tentacles, ai, physiology,
+    renderer.render(skeleton, metaballs, eye, mouth, tentacles, prey, ai, physiology,
                     voronoi, fluid_symbols, relationship, expression, v3_state, current_fps);
     canvas.pushSprite(0, 0);
 

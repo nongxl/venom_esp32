@@ -15,6 +15,13 @@ public:
     // 触发外界直接刺激
     void triggerShock(float amount);
 
+    // 摄入养分/捕食进食回血
+    void feedNutrient(float amount) {
+        energy = std::min(1.0f, energy + amount);
+        comfort = std::min(1.0f, comfort + amount * 0.5f);
+        stress = std::max(0.0f, stress - amount * 0.3f);
+    }
+
     // 获取五维生理心理参数
     float getEnergy()     const { return energy; }
     float getStress()     const { return stress; }

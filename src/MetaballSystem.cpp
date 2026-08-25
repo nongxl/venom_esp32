@@ -6,12 +6,15 @@
 MetaballSystem::MetaballSystem() {
     memset(field_buffer, 0, sizeof(field_buffer));
     for (int i = 0; i < MAX_DROPLETS; ++i) droplets[i].active = false;
+    for (int i = 0; i < MAX_SPIKE_ERUPTIONS; ++i) spikes[i].active = false;
 }
 
 void MetaballSystem::init() {
     memset(field_buffer, 0, sizeof(field_buffer));
     for (int i = 0; i < MAX_DROPLETS; ++i) droplets[i].active = false;
-    spike_time_phase = 0.0f;
+    for (int i = 0; i < MAX_SPIKE_ERUPTIONS; ++i) spikes[i].active = false;
+    auto_droplet_timer = 0.0f;
+    spike_spawn_timer = 0.0f;
 }
 
 void MetaballSystem::spawnDroplet(float x, float y, float vx, float vy, float r, bool is_jolt) {
@@ -41,6 +44,87 @@ void MetaballSystem::triggerJoltSpurt(const SkeletonSystem &skeleton, float inte
         float r = 2.5f + (rand() % 12) * 0.1f;
         spawnDroplet(cx + std::cos(angle) * 10.0f, cy + std::sin(angle) * 10.0f,
                      std::cos(angle) * speed, std::sin(angle) * speed - 1.0f, r, true);
+    }
+
+    // 震动受惊时瞬间暴射多根尖刺
+    triggerSpikeBurst(8, 1.4f);
+}
+
+void MetaballSystem::spawnRandomSpike(const PhysiologySystem &physiology) {
+    for (int i = 0; i < MAX_SPIKE_ERUPTIONS; ++i) {
+        if (!spikes[i].active) {
+            SpikeEruption &sp = spikes[i];
+            sp.active = true;
+            sp.age = 0.0f;
+
+            // 背部 (1, 2) 与尾部 (3, 4) 突刺概率更高
+            int r_node = rand() % 10;
+            if (r_node < 3)      sp.node_idx = 1;
+            else if (r_node < 6) sp.node_idx = 2;
+            else if (r_node < 8) sp.node_idx = 3;
+            else if (r_node < 9) sp.node_idx = 4;
+            else                 sp.node_idx = 0;
+
+            // 随机突刺发射方向 (背脊或侧向为主)
+            float base_angle = (rand() % 360) * 0.017453f;
+            sp.angle = base_angle;
+
+            float tension = physiology.getNeuroTension();
+            float spike_int = physiology.getSpikeIntensity();
+
+            // 尖刺突刺最大长度 (4.5px ~ 14.0px 丰富长短)
+            sp.max_len = 5.0f + (rand() % 45) * 0.1f + tension * 4.0f + spike_int * 5.0f;
+            if (sp.node_idx == 1 || sp.node_idx == 2) {
+                sp.max_len *= 1.3f;
+            }
+
+            sp.duration = 0.28f + (rand() % 16) * 0.01f;
+            sp.attack_time = 0.05f + (rand() % 3) * 0.01f;
+            break;
+        }
+    }
+}
+
+void MetaballSystem::triggerSpikeBurst(int count, float max_len_boost) {
+    for (int k = 0; k < count; ++k) {
+        for (int i = 0; i < MAX_SPIKE_ERUPTIONS; ++i) {
+            if (!spikes[i].active) {
+                SpikeEruption &sp = spikes[i];
+                sp.active = true;
+                sp.age = 0.0f;
+                sp.node_idx = rand() % SKELETON_NODE_COUNT;
+                sp.angle = (k * (360.0f / count) + (rand() % 25 - 12)) * 0.017453f;
+                sp.max_len = (6.0f + (rand() % 60) * 0.1f) * max_len_boost;
+                sp.duration = 0.32f + (rand() % 12) * 0.01f;
+                sp.attack_time = 0.05f;
+                break;
+            }
+        }
+    }
+}
+
+void MetaballSystem::updateSpikes(float dt, const PhysiologySystem &physiology) {
+    // 1. 推进所有尖刺生命周期
+    for (int i = 0; i < MAX_SPIKE_ERUPTIONS; ++i) {
+        if (spikes[i].active) {
+            spikes[i].age += dt;
+            if (spikes[i].age >= spikes[i].duration) {
+                spikes[i].active = false;
+            }
+        }
+    }
+
+    // 2. 自主突发尖刺激发计时器
+    spike_spawn_timer += dt;
+    float tension = physiology.getNeuroTension();
+    float trigger_interval = 0.12f / (1.0f + tension * 1.8f);
+
+    if (spike_spawn_timer >= trigger_interval) {
+        spike_spawn_timer = 0.0f;
+        spawnRandomSpike(physiology);
+        if (tension > 0.5f && (rand() % 100) < 50) {
+            spawnRandomSpike(physiology);
+        }
     }
 }
 
@@ -97,13 +181,12 @@ void MetaballSystem::updateDroplets(float dt, const SkeletonSystem &skeleton, fl
 }
 
 void MetaballSystem::update(float dt, const SkeletonSystem &skeleton, float gravity_x, float gravity_y, const PhysiologySystem &physiology) {
-    spike_time_phase += dt * (3.5f + physiology.getNeuroTension() * 7.0f);
+    updateSpikes(dt, physiology);
     updateDroplets(dt, skeleton, gravity_x, gravity_y, physiology);
 }
 
 void MetaballSystem::addMetaballToField(float cx, float cy, float rx, float ry, uint8_t intensity,
-                                       float contact_b, float contact_t, float contact_l, float contact_r,
-                                       float micro_spike_amp, float spike_phase) {
+                                       float contact_b, float contact_t, float contact_l, float contact_r) {
     float gcx = cx / (float)GRID_SCALE;
     float gcy = cy / (float)GRID_SCALE;
     float grx = rx / (float)GRID_SCALE;
@@ -112,12 +195,10 @@ void MetaballSystem::addMetaballToField(float cx, float cy, float rx, float ry, 
     if (grx < 1.0f) grx = 1.0f;
     if (gry < 1.0f) gry = 1.0f;
 
-    // 考虑更长随机尖刺的外扩搜索盒
-    float search_margin = 2.1f + micro_spike_amp * 1.5f;
-    int min_gx = std::max(0, (int)std::floor(gcx - grx * search_margin));
-    int max_gx = std::min(GRID_W - 1, (int)std::ceil(gcx + grx * search_margin));
-    int min_gy = std::max(0, (int)std::floor(gcy - gry * search_margin));
-    int max_gy = std::min(GRID_H - 1, (int)std::ceil(gcy + gry * search_margin));
+    int min_gx = std::max(0, (int)std::floor(gcx - grx * 1.85f));
+    int max_gx = std::min(GRID_W - 1, (int)std::ceil(gcx + grx * 1.85f));
+    int min_gy = std::max(0, (int)std::floor(gcy - gry * 1.85f));
+    int max_gy = std::min(GRID_H - 1, (int)std::ceil(gcy + gry * 1.85f));
 
     for (int gy = min_gy; gy <= max_gy; ++gy) {
         float dy = (float)gy - gcy;
@@ -126,34 +207,8 @@ void MetaballSystem::addMetaballToField(float cx, float cy, float rx, float ry, 
         for (int gx = min_gx; gx <= max_gx; ++gx) {
             float dx = (float)gx - gcx;
 
-            float cur_grx = grx;
-            float cur_gry = gry;
-
-            if (micro_spike_amp > 0.01f) {
-                float theta = std::atan2(dy, dx);
-
-                // 1. 低频空间包络 (使表面不同区域产生不均匀的长短分布)
-                float env = 0.65f + 0.35f * std::sin(3.0f * theta + spike_phase * 0.4f) *
-                                           std::cos(5.0f * theta - spike_phase * 0.3f);
-
-                // 2. 多频谐波叠加 (7阶中频、13阶锐刺、21阶高频细刺、31阶超高频毛刺)
-                float h1 = std::sin(7.0f * theta + spike_phase);
-                float h2 = std::cos(13.0f * theta - spike_phase * 1.2f);
-                float h3 = std::sin(21.0f * theta + spike_phase * 0.8f);
-                float h4 = std::cos(31.0f * theta - spike_phase * 1.5f);
-
-                float raw_harmonic = 0.32f * h1 + 0.30f * h2 + 0.23f * h3 + 0.15f * h4;
-
-                // 3. 指数尖锐化 (让向外突出的尖刺呈现针刺状高耸突起，波谷更饱满)
-                float sharp_peak = (raw_harmonic > 0.0f) ? (raw_harmonic + raw_harmonic * raw_harmonic * 1.8f) : raw_harmonic;
-
-                float spike_mod = 1.0f + micro_spike_amp * env * sharp_peak;
-                cur_grx *= spike_mod;
-                cur_gry *= spike_mod;
-            }
-
-            float inv_grx2 = 1.0f / (cur_grx * cur_grx * 3.24f);
-            float inv_gry2 = 1.0f / (cur_gry * cur_gry * 3.24f);
+            float inv_grx2 = 1.0f / (grx * grx * 3.24f);
+            float inv_gry2 = 1.0f / (gry * gry * 3.24f);
             float d_norm2 = dx * dx * inv_grx2 + dy * dy * inv_gry2;
 
             if (d_norm2 < 1.0f) {
@@ -188,43 +243,93 @@ void MetaballSystem::computeField(const SkeletonSystem &skeleton, const Physiolo
                                   const FluidSymbolSystem &fluid_symbols, float gx, float gy) {
     memset(field_buffer, 0, sizeof(field_buffer));
 
-    // 1. 骨架主球累加
-    float tension = physiology.getNeuroTension();
-    float spike_int = physiology.getSpikeIntensity();
-    EmotionState emotion = physiology.getEmotion();
-
-    float base_spike_amp = 0.08f + tension * 0.08f + spike_int * 0.12f;
-    if (emotion == EMOTION_ANGER) {
-        base_spike_amp += 0.08f;
-    } else if (emotion == EMOTION_FEAR) {
-        base_spike_amp += 0.05f;
-    }
-
+    // 1. 骨架主球坚实融合 (无连续旋转变形，纯正饱满水滴长条)
     int node_count = skeleton.getNodeCount();
     for (int i = 0; i < node_count; ++i) {
         const SkeletonNode &n = skeleton.getNode(i);
         uint8_t strength = (i == 0) ? 190 : (i == node_count - 1 ? 145 : 170);
-        float node_phase = spike_time_phase + i * 0.85f;
-
-        // 背部 (Node 1, 2) 与尾部 (Node 3, 4) 拥有更宽广的随机长短尖刺范围
-        float node_amp = base_spike_amp;
-        if (i == 1 || i == 2) node_amp *= 1.35f;
-        else if (i == 3 || i == 4) node_amp *= 1.50f;
 
         addMetaballToField(n.x + n.bleb_offset_x, n.y + n.bleb_offset_y,
                            n.radius_x, n.radius_y, strength,
-                           n.contact_bottom, n.contact_top, n.contact_left, n.contact_right,
-                           node_amp, node_phase);
+                           n.contact_bottom, n.contact_top, n.contact_left, n.contact_right);
     }
 
-    // 2. 飞溅微球累加
-    for (int i = 0; i < MAX_DROPLETS; ++i) {
-        if (droplets[i].active) {
-            addMetaballToField(droplets[i].x, droplets[i].y, droplets[i].radius, droplets[i].radius, 120, 0, 0, 0, 0, 0, 0);
+    // 2. 物理突发尖刺能量注入 (极速刺出 -> 软化变圆融回母体)
+    for (int i = 0; i < MAX_SPIKE_ERUPTIONS; ++i) {
+        if (!spikes[i].active) continue;
+
+        const SpikeEruption &sp = spikes[i];
+        const SkeletonNode &node = skeleton.getNode(sp.node_idx);
+
+        float current_len = 0.0f;
+        float tip_radius = 1.0f;
+        float spike_energy = 1.0f;
+
+        if (sp.age < sp.attack_time) {
+            // [爆发刺出阶段 (0.05s)]：极速冲出，尖端如针
+            float t = sp.age / sp.attack_time;
+            current_len = sp.max_len * t;
+            tip_radius = 1.0f;
+            spike_energy = 0.85f + 0.15f * t;
+        } else {
+            // [软化融入阶段 (0.30s)]：表面张力阻尼，尖端变钝变粗，缓缓融回身体
+            float t = (sp.age - sp.attack_time) / (sp.duration - sp.attack_time);
+            float decay = 1.0f - t;
+            current_len = sp.max_len * (decay * decay); // 非线性回缩
+            tip_radius = 1.0f + t * 2.8f;              // 尖端变粗变圆融入
+            spike_energy = decay;
+        }
+
+        if (current_len < 0.5f) continue;
+
+        // 计算该节点在 sp.angle 方向上的表面边缘半径
+        float cos_a = std::cos(sp.angle);
+        float sin_a = std::sin(sp.angle);
+        float r_edge = std::sqrt(node.radius_x * cos_a * node.radius_x * cos_a +
+                                 node.radius_y * sin_a * node.radius_y * sin_a);
+
+        // 沿突刺方向在 field_buffer 注入能量
+        for (float l = 0.0f; l <= current_len; l += 0.8f) {
+            float dist_from_center = r_edge + l;
+            float world_x = node.x + cos_a * dist_from_center;
+            float world_y = node.y + sin_a * dist_from_center;
+
+            float g_px = world_x / (float)GRID_SCALE;
+            float g_py = world_y / (float)GRID_SCALE;
+
+            float current_r = (1.0f - (l / current_len) * 0.45f) * tip_radius / (float)GRID_SCALE;
+            if (current_r < 0.6f) current_r = 0.6f;
+
+            int min_gx = std::max(0, (int)std::floor(g_px - current_r * 1.5f));
+            int max_gx = std::min(GRID_W - 1, (int)std::ceil(g_px + current_r * 1.5f));
+            int min_gy = std::max(0, (int)std::floor(g_py - current_r * 1.5f));
+            int max_gy = std::min(GRID_H - 1, (int)std::ceil(g_py + current_r * 1.5f));
+
+            for (int gy = min_gy; gy <= max_gy; ++gy) {
+                float dy = (float)gy - g_py;
+                int row_offset = gy * GRID_W;
+
+                for (int gx = min_gx; gx <= max_gx; ++gx) {
+                    float dx = (float)gx - g_px;
+                    float d2 = (dx * dx + dy * dy) / (current_r * current_r * 2.25f);
+                    if (d2 < 1.0f) {
+                        float v = (1.0f - d2) * 190.0f * spike_energy;
+                        int cur = field_buffer[row_offset + gx] + (int)v;
+                        field_buffer[row_offset + gx] = (cur > 255) ? 255 : (uint8_t)cur;
+                    }
+                }
+            }
         }
     }
 
-    // 3. 符号粒子流体势能注入
+    // 3. 飞溅微球累加
+    for (int i = 0; i < MAX_DROPLETS; ++i) {
+        if (droplets[i].active) {
+            addMetaballToField(droplets[i].x, droplets[i].y, droplets[i].radius, droplets[i].radius, 120, 0, 0, 0, 0);
+        }
+    }
+
+    // 4. 符号粒子流体势能注入
     int symCount = fluid_symbols.getPointCount();
     if (symCount > 0) {
         float gMag = std::sqrt(gx * gx + gy * gy);

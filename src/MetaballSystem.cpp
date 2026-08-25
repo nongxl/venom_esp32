@@ -288,8 +288,8 @@ void MetaballSystem::computeField(const SkeletonSystem &skeleton, const Physiolo
         float r_edge = std::sqrt(node.radius_x * cos_a * node.radius_x * cos_a +
                                  node.radius_y * sin_a * node.radius_y * sin_a);
 
-        // 沿突刺方向在 field_buffer 注入能量
-        for (float l = 0.0f; l <= current_len; l += 0.8f) {
+        // 沿突刺方向在 field_buffer 注入能量 (步长优化为 1.4f，大幅减少内层开销)
+        for (float l = 0.0f; l <= current_len; l += 1.4f) {
             float dist_from_center = r_edge + l;
             float world_x = node.x + cos_a * dist_from_center;
             float world_y = node.y + sin_a * dist_from_center;
@@ -297,8 +297,10 @@ void MetaballSystem::computeField(const SkeletonSystem &skeleton, const Physiolo
             float g_px = world_x / (float)GRID_SCALE;
             float g_py = world_y / (float)GRID_SCALE;
 
-            float current_r = (1.0f - (l / current_len) * 0.45f) * tip_radius / (float)GRID_SCALE;
+            float current_r = (1.0f - (l / current_len) * 0.40f) * tip_radius / (float)GRID_SCALE;
             if (current_r < 0.6f) current_r = 0.6f;
+
+            float inv_r2 = 1.0f / (current_r * current_r * 2.25f);
 
             int min_gx = std::max(0, (int)std::floor(g_px - current_r * 1.5f));
             int max_gx = std::min(GRID_W - 1, (int)std::ceil(g_px + current_r * 1.5f));
@@ -311,7 +313,7 @@ void MetaballSystem::computeField(const SkeletonSystem &skeleton, const Physiolo
 
                 for (int gx = min_gx; gx <= max_gx; ++gx) {
                     float dx = (float)gx - g_px;
-                    float d2 = (dx * dx + dy * dy) / (current_r * current_r * 2.25f);
+                    float d2 = (dx * dx + dy * dy) * inv_r2;
                     if (d2 < 1.0f) {
                         float v = (1.0f - d2) * 190.0f * spike_energy;
                         int cur = field_buffer[row_offset + gx] + (int)v;

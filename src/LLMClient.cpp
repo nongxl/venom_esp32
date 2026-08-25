@@ -27,27 +27,85 @@ void LLMClient::taskEntry(void *param) {
 }
 
 void LLMClient::init() {
-    // 启动 WiFi 连接 (非阻塞)
     WiFi.mode(WIFI_STA);
     WiFi.begin(DEFAULT_SSID, DEFAULT_PASSWORD);
 
-    // 创建 FreeRTOS 异步工作任务 (Core 0)
+    // 创建 FreeRTOS 异步工作任务 (Core 0，优先级 1，栈 8192 字节)
     xTaskCreatePinnedToCore(taskEntry, "LLMTask", 8192, this, 1, &llm_task_handle, 0);
 }
 
 void LLMClient::runLLMTask() {
     while (true) {
-        // 检查 WiFi 状态
+        // 1. 检查 WiFi 状态
         if (WiFi.status() == WL_CONNECTED) {
             if (!wifi_connected) {
                 wifi_connected = true;
-                Serial.println(">>> [LLM] WiFi Connected successfully!");
+                Serial.println(">>> [LLM Background] WiFi Connected successfully!");
             }
         } else {
             wifi_connected = false;
         }
 
-        vTaskDelay(pdMS_TO_TICKS(500));
+        // 2. 检查是否有主线程投递过来的 LLM 意图请求
+        bool has_req = false;
+        LLMRequestBuffer req;
+
+        portENTER_CRITICAL(&state_mutex);
+        if (request_buf.has_request) {
+            has_req = true;
+            req = request_buf;
+            request_buf.has_request = false;
+        }
+        portEXIT_CRITICAL(&state_mutex);
+
+        if (has_req) {
+            if (!wifi_connected) {
+                runLocalHeuristicFallback(req.stress, req.curiosity, req.comfort, req.attachment);
+            } else {
+                // 构建 JSON 请求
+                StaticJsonDocument<1536> doc;
+                doc["model"] = AI_MODEL;
+                doc["temperature"] = 0.7;
+                doc["max_tokens"] = 280;
+
+                JsonArray messages = doc.createNestedArray("messages");
+
+                JsonObject sys_msg = messages.createNestedObject();
+                sys_msg["role"] = "system";
+                sys_msg["content"] = "You are a conscious, living liquid symbiote (Venom) trapped inside an electronic glass device. "
+                                     "You perceive the human observer outside. Output strictly a single valid JSON object without markdown fences:\n"
+                                     "{\n"
+                                     "  \"emotional_shift\": \"calm|curious|agitated|fearful|defensive|fascinated|exhausted\",\n"
+                                     "  \"primary_intent\": \"watch_observer|approach_observer|avoid_observer|test_boundary|seek_shadow|seek_safety|patrol_territory|hide_presence|express_distress\",\n"
+                                     "  \"secondary_intent\": \"watch_observer|approach_observer|avoid_observer|test_boundary|seek_shadow|seek_safety|idle\",\n"
+                                     "  \"focus_target\": \"observer|container_edge|shadow|light_source|self\",\n"
+                                     "  \"impulse_strength\": 0.0-1.0,\n"
+                                     "  \"expression_urge\": 0.0-1.0,\n"
+                                     "  \"social_openness\": 0.0-1.0,\n"
+                                     "  \"resentment_delta\": -1.0-1.0,\n"
+                                     "  \"trust_delta\": -1.0-1.0,\n"
+                                     "  \"notes\": \"first-person visceral subjective experience of the symbiote trapped in glass\"\n"
+                                     "}";
+
+                JsonObject user_msg = messages.createNestedObject();
+                user_msg["role"] = "user";
+                char state_str[256];
+                snprintf(state_str, sizeof(state_str),
+                         "Current state: energy=%.2f, stress=%.2f, curiosity=%.2f, comfort=%.2f, attachment=%.2f. Behavior: %s. Events: %s.",
+                         req.energy, req.stress, req.curiosity, req.comfort, req.attachment, req.current_behavior, req.recent_events);
+                user_msg["content"] = state_str;
+
+                String payload;
+                serializeJson(doc, payload);
+
+                // 在后台核心 (Core 0) 执行 HTTP POST，主线程 (Core 1) 绝对 0 阻塞！
+                if (!sendHTTPRequest(payload)) {
+                    runLocalHeuristicFallback(req.stress, req.curiosity, req.comfort, req.attachment);
+                }
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
 
@@ -65,7 +123,6 @@ void LLMClient::runLocalHeuristicFallback(float stress, float curiosity, float c
     } else if (curiosity > 0.55f && comfort > 0.40f) {
         strncpy(latest_state.emotional_shift, "curious", sizeof(latest_state.emotional_shift) - 1);
         latest_state.primary_intent = INTENT_APPROACH_OBSERVER;
-        // 偶发意图冲突（想靠近但害怕）
         latest_state.secondary_intent = (attachment < 0.35f) ? INTENT_AVOID_OBSERVER : INTENT_WATCH_OBSERVER;
         latest_state.impulse_strength = 0.60f;
         latest_state.expression_urge = 0.45f;
@@ -99,11 +156,9 @@ void LLMClient::parseV3Response(const String &response_text) {
     const char *content = doc["choices"][0]["message"]["content"];
     if (!content) return;
 
-    // 解析返回的内容 JSON
     StaticJsonDocument<1024> content_doc;
     DeserializationError c_error = deserializeJson(content_doc, content);
     if (c_error) {
-        // 如果包含 markdown 标记，尝试剥离
         String s = content;
         int start = s.indexOf('{');
         int end = s.lastIndexOf('}');
@@ -134,20 +189,20 @@ void LLMClient::parseV3Response(const String &response_text) {
         latest_state.has_new_update = true;
         portEXIT_CRITICAL(&state_mutex);
 
-        Serial.printf(">>> [LLM V3] Intent: %s | Notes: %s\n", p_intent, notes_str);
+        Serial.printf(">>> [LLM Async V3] Intent: %s | Notes: %s\n", p_intent, notes_str);
     }
 }
 
 bool LLMClient::sendHTTPRequest(const String &json_payload) {
     WiFiClientSecure client;
-    client.setInsecure(); // 绕过 SSL 证书链深度校验，提速并减少内存消耗
+    client.setInsecure();
     HTTPClient http;
 
     if (!http.begin(client, LLM_URL)) {
         return false;
     }
 
-    http.setTimeout(7000);
+    http.setTimeout(6000);
     http.addHeader("Content-Type", "application/json");
     String auth = String("Bearer ") + DEFAULT_API_KEY;
     http.addHeader("Authorization", auth.c_str());
@@ -167,64 +222,26 @@ bool LLMClient::sendHTTPRequest(const String &json_payload) {
     return success;
 }
 
+// 主线程调用接口：纯无锁压入缓冲区，耗时 0 微秒！
 void LLMClient::requestConsciousnessUpdate(float energy, float stress, float curiosity,
                                            float comfort, float attachment,
                                            const char *current_behavior, const char *recent_events) {
     unsigned long now = millis();
-    if (now - last_request_time < 12000 || request_in_progress) {
-        return; // 限制请求频率，避免频繁占用网络
-    }
-
-    last_request_time = now;
-
-    if (!wifi_connected) {
-        // WiFi 未就绪时使用本地启发式引擎无缝托底
-        runLocalHeuristicFallback(stress, curiosity, comfort, attachment);
+    if (now - last_request_time < 12000) {
         return;
     }
+    last_request_time = now;
 
-    // 构建 System 与 User 消息
-    StaticJsonDocument<1536> doc;
-    doc["model"] = AI_MODEL;
-    doc["temperature"] = 0.7;
-    doc["max_tokens"] = 280;
-
-    JsonArray messages = doc.createNestedArray("messages");
-
-    JsonObject sys_msg = messages.createNestedObject();
-    sys_msg["role"] = "system";
-    sys_msg["content"] = "You are a conscious, living liquid symbiote (Venom) trapped inside an electronic glass device. "
-                         "You perceive the human observer outside. Output strictly a single valid JSON object without markdown fences:\n"
-                         "{\n"
-                         "  \"emotional_shift\": \"calm|curious|agitated|fearful|defensive|fascinated|exhausted\",\n"
-                         "  \"primary_intent\": \"watch_observer|approach_observer|avoid_observer|test_boundary|seek_shadow|seek_safety|patrol_territory|hide_presence|express_distress\",\n"
-                         "  \"secondary_intent\": \"watch_observer|approach_observer|avoid_observer|test_boundary|seek_shadow|seek_safety|idle\",\n"
-                         "  \"focus_target\": \"observer|container_edge|shadow|light_source|self\",\n"
-                         "  \"impulse_strength\": 0.0-1.0,\n"
-                         "  \"expression_urge\": 0.0-1.0,\n"
-                         "  \"social_openness\": 0.0-1.0,\n"
-                         "  \"resentment_delta\": -1.0-1.0,\n"
-                         "  \"trust_delta\": -1.0-1.0,\n"
-                         "  \"notes\": \"first-person visceral subjective experience of the symbiote trapped in glass\"\n"
-                         "}";
-
-    JsonObject user_msg = messages.createNestedObject();
-    user_msg["role"] = "user";
-    char state_str[256];
-    snprintf(state_str, sizeof(state_str),
-             "Current state: energy=%.2f, stress=%.2f, curiosity=%.2f, comfort=%.2f, attachment=%.2f. Behavior: %s. Events: %s.",
-             energy, stress, curiosity, comfort, attachment, current_behavior, recent_events);
-    user_msg["content"] = state_str;
-
-    String payload;
-    serializeJson(doc, payload);
-
-    // 发送请求
-    request_in_progress = true;
-    if (!sendHTTPRequest(payload)) {
-        runLocalHeuristicFallback(stress, curiosity, comfort, attachment);
-    }
-    request_in_progress = false;
+    portENTER_CRITICAL(&state_mutex);
+    request_buf.has_request = true;
+    request_buf.energy = energy;
+    request_buf.stress = stress;
+    request_buf.curiosity = curiosity;
+    request_buf.comfort = comfort;
+    request_buf.attachment = attachment;
+    if (current_behavior) strncpy(request_buf.current_behavior, current_behavior, 31);
+    if (recent_events) strncpy(request_buf.recent_events, recent_events, 31);
+    portEXIT_CRITICAL(&state_mutex);
 }
 
 ConsciousnessStateV3 LLMClient::getLatestState() {
@@ -236,6 +253,4 @@ ConsciousnessStateV3 LLMClient::getLatestState() {
     return res;
 }
 
-void LLMClient::update(float dt) {
-    // 定期检查与维持连接
-}
+void LLMClient::update(float dt) {}

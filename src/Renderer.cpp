@@ -74,7 +74,8 @@ void Renderer::renderFieldAndVoronoi(const MetaballSystem &metaballs, const Voro
                     }
                 }
 
-                float diff = std::sqrt(min_d2) - std::sqrt(min_d1);
+                float sqrt_d1 = std::sqrt(min_d1);
+                float diff = (min_d2 - min_d1) / (sqrt_d1 + std::sqrt(min_d2));
 
                 if (diff < membrane_thresh) {
                     // 活体肌肉纤维神经微反光

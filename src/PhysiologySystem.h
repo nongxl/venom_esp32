@@ -12,6 +12,15 @@ public:
     // 注入音频三频段能量 (由 main.cpp 中的 FFT/滤波器计算传入，范围 0.0 ~ 1.0)
     void feedAudioBands(float low, float mid, float high);
 
+    // 注入麦克风实时环境分贝数 (dB)
+    void feedMicDecibels(float db) {
+        current_mic_db = db;
+        // 声控激发强度 [0.0, 1.0] (45dB 起激发，78dB 达峰值)
+        sound_excitation = std::max(0.0f, std::min(1.0f, (db - 45.0f) / 33.0f));
+    }
+    float getMicDecibels() const { return current_mic_db; }
+    float getSoundExcitation() const { return sound_excitation; }
+
     // 触发外界直接刺激
     void triggerShock(float amount);
 
@@ -54,6 +63,8 @@ private:
     float attachment = 0.20f;
 
     // 音频能量与情绪惯性
+    float current_mic_db = 38.0f;
+    float sound_excitation = 0.0f;
     float raw_audio_low   = 0.0f;
     float raw_audio_mid   = 0.0f;
     float raw_audio_high  = 0.0f;

@@ -114,15 +114,16 @@ void MetaballSystem::updateSpikes(float dt, const PhysiologySystem &physiology) 
         }
     }
 
-    // 2. 自主突发尖刺激发计时器
+    // 2. 自主突发尖刺激发计时器 (受张力与环境声音分贝强烈驱动)
     spike_spawn_timer += dt;
     float tension = physiology.getNeuroTension();
-    float trigger_interval = 0.12f / (1.0f + tension * 1.8f);
+    float sound_ex = physiology.getSoundExcitation();
+    float trigger_interval = 0.12f / (1.0f + tension * 1.8f + sound_ex * 3.8f);
 
     if (spike_spawn_timer >= trigger_interval) {
         spike_spawn_timer = 0.0f;
         spawnRandomSpike(physiology);
-        if (tension > 0.5f && (rand() % 100) < 50) {
+        if ((tension > 0.4f || sound_ex > 0.35f) && (rand() % 100) < 65) {
             spawnRandomSpike(physiology);
         }
     }

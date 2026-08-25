@@ -390,6 +390,17 @@ void CreatureAI::update(float dt, SkeletonSystem &skeleton, MetaballSystem &meta
         case STATE_EXPRESSING: updateExpressing(dt, hx, hy, expression); break;
     }
 
+    // 麦克风声控互动与高分贝惊吓防卫
+    float mic_db = physiology.getMicDecibels();
+    if (mic_db > 73.0f && current_state != STATE_SWING && current_state != STATE_STARTLED && current_state != STATE_JOLTING) {
+        // 突发高分贝/大声吹气：瞬间受惊防卫姿态并向四周激射微液滴！
+        triggerStartle(0.75f);
+        metaballs.triggerJoltSpurt(skeleton, 1.2f);
+    } else if (mic_db > 55.0f && current_state == STATE_IDLE) {
+        // 中等环境音/人声：唤醒毒液进入警觉观察
+        enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
+    }
+
     // 猎物感知与眼球注视锁定 (Stalking Focus)
     if (bugs && current_state != STATE_SLEEP && current_state != STATE_STARTLED) {
         float bx, by;

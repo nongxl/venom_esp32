@@ -67,6 +67,8 @@ void triggerVibration(int duration_ms, uint8_t power = 180) {
     vibrate_end_ms = millis() + duration_ms;
 }
 
+static float smoothed_mic_db = 38.0f;
+
 static void processAudioBands() {
     if (!M5.Mic.isEnabled()) return;
 
@@ -78,10 +80,12 @@ static void processAudioBands() {
             float high_energy = 0.0f;
             int zero_crossings = 0;
             float prev_sample = 0.0f;
+            float sum_sq = 0.0f;
 
             for (int i = 0; i < 128; ++i) {
                 float sample = (float)mic_raw_buffer[i] / 32768.0f;
                 float abs_val = std::abs(sample);
+                sum_sq += sample * sample;
 
                 if ((sample > 0 && prev_sample < 0) || (sample < 0 && prev_sample > 0)) {
                     zero_crossings++;
@@ -94,6 +98,12 @@ static void processAudioBands() {
                 prev_sample = sample;
             }
 
+            // 计算均方根并换算为环境音量分贝 (28dB ~ 96dB)
+            float rms = std::sqrt(sum_sq / 128.0f);
+            float raw_db = 20.0f * std::log10(std::max(0.00005f, rms)) + 92.0f;
+            raw_db = std::max(28.0f, std::min(96.0f, raw_db));
+            smoothed_mic_db = smoothed_mic_db * 0.75f + raw_db * 0.25f;
+
             low_energy  = std::min(1.0f, (low_energy / 32.0f) * 2.5f);
             mid_energy  = std::min(1.0f, (mid_energy / 64.0f) * 3.0f);
             high_energy = std::min(1.0f, (high_energy / 128.0f) * 3.8f);
@@ -103,6 +113,7 @@ static void processAudioBands() {
             }
 
             physiology.feedAudioBands(low_energy, mid_energy, high_energy);
+            physiology.feedMicDecibels(smoothed_mic_db);
         }
     }
 }

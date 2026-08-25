@@ -55,6 +55,10 @@ void VoronoiSurface::updateSeedDynamics(float dt, const SkeletonSystem &skeleton
             break;
     }
 
+    // 叠加麦克风实时环境音量分贝驱动的表面高频翻滚噪波
+    float sound_ex = physiology.getSoundExcitation();
+    jitter_energy += sound_ex * 0.85f;
+
     for (int i = 0; i < VORONOI_SEEDS; ++i) {
         VoronoiSeed &seed = seeds[i];
         const SkeletonNode &node = skeleton.getNode(seed.attach_node);

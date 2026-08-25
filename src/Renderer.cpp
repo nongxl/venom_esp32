@@ -203,20 +203,34 @@ void Renderer::renderHUD(const CreatureAI &ai, const PhysiologySystem &physiolog
                          const RelationshipSystem &relationship, const ExpressionLayer &expression,
                          const ConsciousnessStateV3 &v3_state, float fps) {
     canvas->setTextSize(1);
-    canvas->setTextColor(TFT_WHITE, 0x0000);
+    canvas->setTextColor(TFT_WHITE, 0x0841);
 
     canvas->fillRect(2, 2, SCREEN_W - 4, 38, 0x0841);
     canvas->drawRect(2, 2, SCREEN_W - 4, 38, COLOR_GLOW_CYAN);
 
+    // 行 1 (Y=5): 固定三列对齐 [Col1: X=6, Col2: X=84, Col3: X=170]
     canvas->setCursor(6, 5);
-    canvas->printf("AI: %s | Emo: %s | FPS: %.1f", ai.getStateName(), physiology.getEmotionName(), fps);
+    canvas->printf("AI: %-6s", ai.getStateName());
+    canvas->setCursor(84, 5);
+    canvas->printf("EMO: %-6s", physiology.getEmotionName());
+    canvas->setCursor(170, 5);
+    canvas->printf("FPS: %4.1f", fps);
 
+    // 行 2 (Y=16)
     canvas->setCursor(6, 16);
-    canvas->printf("Trust: %.2f | Resent: %.2f | Expr: %s",
-                   relationship.getTrust(), relationship.getResentment(), expression.getExpressionName());
+    canvas->printf("TRU: %4.2f", relationship.getTrust());
+    canvas->setCursor(84, 16);
+    canvas->printf("RES: %4.2f", relationship.getResentment());
+    canvas->setCursor(170, 16);
+    canvas->printf("EXP: %-6s", expression.getExpressionName());
 
+    // 行 3 (Y=27): 展示麦克风实时环境音量分贝 (dB)
     canvas->setCursor(6, 27);
-    canvas->printf("Intent: %s | Social: %.2f", v3_state.emotional_shift, relationship.getSocialOpenness());
+    canvas->printf("MIC: %2.0fdB", physiology.getMicDecibels());
+    canvas->setCursor(84, 27);
+    canvas->printf("SOC: %4.2f", relationship.getSocialOpenness());
+    canvas->setCursor(170, 27);
+    canvas->printf("INT: %-6s", v3_state.emotional_shift);
 
     // 动态打字机心声涌现面板
     renderMindEchoPanel();

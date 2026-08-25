@@ -34,6 +34,7 @@ public:
                 float respiration, bool is_upside_down);
 
     void applyImpulse(float ix, float iy);
+    void triggerSlingThrow(float dir_x, float dir_y, float speed);
     void triggerLocalBleb(int node_index, float intensity = 1.0f);
 
     // 主动抓取触手牵引接口
@@ -49,6 +50,7 @@ public:
 
     bool isAttachedToWall() const;
     bool isStickyToyAdhered() const { return sticky_clog_timer > 0.0f; }
+    bool isFlying() const { return flying_timer > 0.0f; }
 
     // 撞击事件查询与消费（供外部触发马达触觉与液滴飞溅）
     bool checkAndConsumeImpactEvent(float &impact_speed, float &impact_x, float &impact_y) {
@@ -72,7 +74,8 @@ private:
     float pull_target_y = 100.0f;
     float pull_strength = 0.0f;
 
-    // 黏性玩具吸附与撞击状态
+    // 高速飞行抛体与黏性吸附状态
+    float flying_timer = 0.0f;
     float sticky_clog_timer = 0.0f;
     bool impact_occurred = false;
     float last_impact_speed = 0.0f;

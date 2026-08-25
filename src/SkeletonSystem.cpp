@@ -40,11 +40,13 @@ void SkeletonSystem::init() {
 
     has_pull_target = false;
     pull_strength = 0.0f;
+    flying_timer = 0.0f;
     sticky_clog_timer = 0.0f;
     impact_occurred = false;
 }
 
 void SkeletonSystem::setPullTarget(float tx, float ty, float force) {
+    if (flying_timer > 0.0f) return; // 飞行期间拒绝爬行拉力干扰
     has_pull_target = true;
     pull_target_x = tx;
     pull_target_y = ty;
@@ -60,6 +62,18 @@ void SkeletonSystem::applyImpulse(float ix, float iy) {
     for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
         nodes[i].vx += ix / nodes[i].mass;
         nodes[i].vy += iy / nodes[i].mass;
+    }
+}
+
+// 激发干脆利落的极速甩飞抛体运动
+void SkeletonSystem::triggerSlingThrow(float dir_x, float dir_y, float speed) {
+    flying_timer = 0.50f; // 0.5s 高速无阻尼飞行冲刺
+    clearPullTarget();    // 立即解除任何正在进行的触手牵引！
+    sticky_clog_timer = 0.0f;
+
+    for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
+        nodes[i].vx = dir_x * speed;
+        nodes[i].vy = dir_y * speed;
     }
 }
 
@@ -90,79 +104,83 @@ void SkeletonSystem::applyWallAdhesion(int i) {
     n.contact_left = 0.0f;
     n.contact_right = 0.0f;
 
-    // 1. 底部地面高速撞击与贴紧形变
+    // 1. 底部地面撞击
     float dist_b = (SCREEN_H - 1) - n.y;
     if (dist_b < r) {
         float penetration = r - dist_b;
         n.y -= penetration * 0.90f;
 
-        if (n.vy > 1.8f) {
+        if (n.vy > 1.2f || flying_timer > 0.0f) {
             impact_occurred = true;
-            last_impact_speed = n.vy;
+            last_impact_speed = std::max(last_impact_speed, n.vy);
             impact_hit_x = n.x;
             impact_hit_y = n.y;
-            sticky_clog_timer = 0.90f; // 激发黏性玩具吸附
+            sticky_clog_timer = 1.0f; // 激发 1.0s 黏性玩具吸附
+            flying_timer = 0.0f;      // 撞墙瞬间立即终止飞行
         }
 
         n.vy = 0.0f;
-        n.vx *= (sticky_clog_timer > 0.0f) ? 0.35f : 0.82f;
+        n.vx *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
         n.contact_bottom = std::min(1.0f, penetration / (r * 0.30f));
     }
 
-    // 2. 顶部天花板高速撞击与贴紧形变
+    // 2. 顶部天花板撞击
     float dist_t = n.y - 1;
     if (dist_t < r) {
         float penetration = r - dist_t;
         n.y += penetration * 0.90f;
 
-        if (n.vy < -1.8f) {
+        if (n.vy < -1.2f || flying_timer > 0.0f) {
             impact_occurred = true;
-            last_impact_speed = -n.vy;
+            last_impact_speed = std::max(last_impact_speed, -n.vy);
             impact_hit_x = n.x;
             impact_hit_y = n.y;
-            sticky_clog_timer = 0.90f;
+            sticky_clog_timer = 1.0f;
+            flying_timer = 0.0f;
         }
 
         n.vy = 0.0f;
-        n.vx *= (sticky_clog_timer > 0.0f) ? 0.35f : 0.82f;
+        n.vx *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
         n.contact_top = std::min(1.0f, penetration / (r * 0.30f));
     }
 
-    // 3. 左壁高速撞击与贴紧形变
+    // 3. 左壁撞击
     float dist_l = n.x - 1;
     if (dist_l < r) {
         float penetration = r - dist_l;
         n.x += penetration * 0.90f;
 
-        if (n.vx < -1.8f) {
+        if (n.vx < -1.2f || flying_timer > 0.0f) {
             impact_occurred = true;
-            last_impact_speed = -n.vx;
+            last_impact_speed = std::max(last_impact_speed, -n.vx);
             impact_hit_x = n.x;
             impact_hit_y = n.y;
-            sticky_clog_timer = 0.90f;
+            sticky_clog_timer = 1.0f;
+            flying_timer = 0.0f;
         }
 
         n.vx = 0.0f;
-        n.vy *= (sticky_clog_timer > 0.0f) ? 0.35f : 0.82f;
+        n.vy *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
         n.contact_left = std::min(1.0f, penetration / (r * 0.30f));
     }
 
-    // 4. 右壁高速撞击与贴紧形变
+    // 4. 右壁撞击
     float dist_r = (SCREEN_W - 1) - n.x;
     if (dist_r < r) {
         float penetration = r - dist_r;
         n.x -= penetration * 0.90f;
 
-        if (n.vx > 1.8f) {
+        if (n.vx > 1.2f || flying_timer > 0.0f) {
             impact_occurred = true;
-            last_impact_speed = n.vx;
+            last_impact_speed = std::max(last_impact_speed, n.vx);
             impact_hit_x = n.x;
             impact_hit_y = n.y;
-            sticky_clog_timer = 0.90f;
+            sticky_clog_timer = 1.0f;
+            flying_timer = 0.0f;
         }
 
         n.vx = 0.0f;
-        n.vy *= (sticky_clog_timer > 0.0f) ? 0.35f : 0.82f;
+        n.vy *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
         n.contact_right = std::min(1.0f, penetration / (r * 0.30f));
     }
 }
@@ -170,29 +188,29 @@ void SkeletonSystem::applyWallAdhesion(int i) {
 void SkeletonSystem::updateNodePhysics(int i, float dt, float gx, float gy, float cfx, float cfy, float tension, bool is_upside_down) {
     SkeletonNode &n = nodes[i];
 
-    // 共生体主动抗重力肌张力与黏性玩具吸附
     float muscle_resistance = 0.35f + tension * 0.45f;
     if (has_pull_target) {
         muscle_resistance = 0.85f;
     }
     if (sticky_clog_timer > 0.0f) {
-        muscle_resistance = 1.0f; // 黏性玩具吸附状态下完全抵抗重力下坠
+        muscle_resistance = 1.0f;
     }
     if (is_upside_down) {
         muscle_resistance = std::max(muscle_resistance, 0.75f);
     }
 
-    float eff_gx = gx * (1.0f - muscle_resistance);
-    float eff_gy = gy * (1.0f - muscle_resistance);
+    float eff_gx = (flying_timer > 0.0f) ? 0.0f : (gx * (1.0f - muscle_resistance));
+    float eff_gy = (flying_timer > 0.0f) ? 0.0f : (gy * (1.0f - muscle_resistance));
 
     n.vx += eff_gx * (0.35f / n.mass);
     n.vy += eff_gy * (0.35f / n.mass);
 
-    n.vx += cfx * (0.8f / n.mass);
-    n.vy += cfy * (0.8f / n.mass);
+    if (flying_timer <= 0.0f) {
+        n.vx += cfx * (0.8f / n.mass);
+        n.vy += cfy * (0.8f / n.mass);
+    }
 
-    // 主动抓取牵引
-    if (has_pull_target && i == 0) {
+    if (has_pull_target && i == 0 && flying_timer <= 0.0f) {
         float dx = pull_target_x - n.x;
         float dy = pull_target_y - n.y;
         float dist = std::sqrt(dx * dx + dy * dy);
@@ -204,8 +222,10 @@ void SkeletonSystem::updateNodePhysics(int i, float dt, float gx, float gy, floa
     }
 
     float damp = SPRING_DAMPING - tension * 0.10f;
-    if (sticky_clog_timer > 0.0f) {
-        damp *= 0.82f; // 黏性高阻尼
+    if (flying_timer > 0.0f) {
+        damp = 0.985f; // 飞行态无损极速冲刺！
+    } else if (sticky_clog_timer > 0.0f) {
+        damp *= 0.80f; // 黏性吸附高阻尼
     }
 
     n.vx *= damp;
@@ -230,8 +250,8 @@ void SkeletonSystem::solveSpringConstraints(float tension) {
         float dist = std::sqrt(dx * dx + dy * dy);
 
         float rest = rest_lengths[i - 1];
-        if (has_pull_target) {
-            rest *= 1.35f;
+        if (has_pull_target || flying_timer > 0.0f) {
+            rest *= 1.45f; // 高速飞行时受离心力拉长身躯
         }
 
         if (dist > 0.01f) {
@@ -244,11 +264,11 @@ void SkeletonSystem::solveSpringConstraints(float tension) {
             curr.vx -= (nx * force) / curr.mass;
             curr.vy -= (ny * force) / curr.mass;
 
-            float back_pull = (has_pull_target || sticky_clog_timer > 0.0f) ? 0.02f : 0.05f;
+            float back_pull = (has_pull_target || sticky_clog_timer > 0.0f || flying_timer > 0.0f) ? 0.02f : 0.05f;
             prev.vx += (nx * force * back_pull) / prev.mass;
             prev.vy += (ny * force * back_pull) / prev.mass;
 
-            float max_allowed_dist = rest * 2.1f;
+            float max_allowed_dist = rest * 2.2f;
             if (dist > max_allowed_dist) {
                 curr.x = prev.x + nx * max_allowed_dist;
                 curr.y = prev.y + ny * max_allowed_dist;
@@ -261,6 +281,11 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
                             float crawl_force_x, float crawl_force_y,
                             float neuro_tension, float spike_intensity,
                             float respiration, bool is_upside_down) {
+    if (flying_timer > 0.0f) {
+        flying_timer -= dt;
+        if (flying_timer < 0.0f) flying_timer = 0.0f;
+    }
+
     if (sticky_clog_timer > 0.0f) {
         sticky_clog_timer -= dt;
         if (sticky_clog_timer < 0.0f) sticky_clog_timer = 0.0f;
@@ -273,15 +298,15 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
     solveSpringConstraints(neuro_tension);
     solveSpringConstraints(neuro_tension);
 
-    // 【黏性玩具极端贴边拍扁形变算法 (Extreme Pancake Splatting)】
-    float stick_boost = (sticky_clog_timer > 0.0f) ? (1.0f + (sticky_clog_timer / 0.90f) * 1.6f) : 1.0f;
+    // 【黏性玩具极端贴边拍扁形变算法】
+    float stick_boost = (sticky_clog_timer > 0.0f) ? (1.0f + (sticky_clog_timer / 1.0f) * 1.8f) : 1.0f;
 
     for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
         SkeletonNode &n = nodes[i];
         float r = n.base_radius * (1.0f + respiration);
 
-        if (has_pull_target) {
-            r *= 0.88f;
+        if (has_pull_target || flying_timer > 0.0f) {
+            r *= 0.85f;
         }
 
         float contact_y = std::max(n.contact_bottom, n.contact_top);
@@ -290,14 +315,12 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         float flat_x = 1.0f;
         float flat_y = 1.0f;
 
-        // 贴上下边：厚度压缩至 0.28x，横向狂暴展宽至 2.65x
         if (contact_y > 0.02f) {
             float eff_cy = std::min(1.0f, contact_y * stick_boost);
             flat_y -= eff_cy * 0.72f;
             flat_x += eff_cy * 1.65f;
         }
 
-        // 贴左右边：厚度压缩至 0.28x，纵向狂暴展宽至 2.65x
         if (contact_x > 0.02f) {
             float eff_cx = std::min(1.0f, contact_x * stick_boost);
             flat_x -= eff_cx * 0.72f;
@@ -306,7 +329,7 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
 
         float v_speed = std::sqrt(n.vx * n.vx + n.vy * n.vy);
         if (v_speed > 0.4f) {
-            float stretch = std::min(1.4f, 1.0f + v_speed * 0.08f);
+            float stretch = std::min(1.6f, 1.0f + v_speed * 0.09f);
             flat_x *= stretch;
             flat_y /= std::sqrt(stretch);
         }

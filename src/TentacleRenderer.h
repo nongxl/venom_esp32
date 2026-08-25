@@ -67,6 +67,14 @@ public:
     bool isGrappling() const { return grapple.active; }
     GrappleStage getGrappleStage() const { return grapple.stage; }
 
+    void reset() {
+        grapple.active = false;
+        grapple.stage = GRAPPLE_INACTIVE;
+        for (int i = 0; i < MAX_TENTACLES; ++i) {
+            tentacles[i].active = false;
+        }
+    }
+
 private:
     Tentacle tentacles[MAX_TENTACLES];
     GrappleTendril grapple;

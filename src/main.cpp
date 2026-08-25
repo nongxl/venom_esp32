@@ -182,25 +182,37 @@ void loop() {
     float gy = (std::abs(imu_lpf_y) > 0.8f) ? (imu_lpf_y * 0.45f) : 0.0f;
     bool is_upside_down = (imu_lpf_y < -3.5f);
 
-    // 1.1 挥动甩掷惯性冲击 (Shake Violent Sling Impulse)
-    static float prev_raw_ax = 0.0f;
-    static float prev_raw_ay = 0.0f;
+    // 1.1 甩动抛体干脆甩飞系统 (Dynamic Accel Shake Sling Physics)
+    float acc_mag = std::sqrt(raw_ax * raw_ax + raw_ay * raw_ay + raw_az * raw_az);
+    float dynamic_g = std::max(0.0f, acc_mag - 1.0f);
     static unsigned long last_sling_time_ms = 0;
 
-    float d_ax = raw_ax - prev_raw_ax;
-    float d_ay = raw_ay - prev_raw_ay;
-    float jerk_mag = std::sqrt(d_ax * d_ax + d_ay * d_ay);
-
-    if (jerk_mag > 0.75f && (millis() - last_sling_time_ms > 220)) {
+    // 当用户用力甩动设备时 (动态合加速度 > 0.50g 即可 100% 灵敏触发)
+    if (dynamic_g > 0.50f && (millis() - last_sling_time_ms > 250)) {
         last_sling_time_ms = millis();
-        // 瞬间向甩掷方向施加强力惯性冲量，将毒液狠狠甩向边缘！
-        float throw_ix = -d_ax * 15.0f;
-        float throw_iy = d_ay * 15.0f;
-        skeleton.applyImpulse(throw_ix, throw_iy);
-        ai.triggerStartle(1.3f);
+
+        // 确定甩掷方向: 横屏模式下向右甩动 raw_ax < 0 -> dir_x > 0; 向上甩动 raw_ay < 0 -> dir_y < 0
+        float dir_x = -raw_ax;
+        float dir_y = raw_ay;
+        float dir_len = std::sqrt(dir_x * dir_x + dir_y * dir_y);
+
+        if (dir_len > 0.12f) {
+            dir_x /= dir_len;
+            dir_y /= dir_len;
+        } else {
+            dir_x = (rand() % 2 == 0) ? 1.0f : -1.0f;
+            dir_y = 0.0f;
+        }
+
+        // 初速度 38.0 ~ 58.0 px/s (极速横跨屏幕直冲边界！)
+        float throw_speed = 38.0f + dynamic_g * 14.0f;
+        if (throw_speed > 58.0f) throw_speed = 58.0f;
+
+        skeleton.triggerSlingThrow(dir_x, dir_y, throw_speed);
+        tentacles.reset(); // 打断爪盘与触手
+        ai.triggerStartle(1.5f);
+        triggerVibration(25, 200);
     }
-    prev_raw_ax = raw_ax;
-    prev_raw_ay = raw_ay;
 
     // 2. 音频分析与节拍检测
     processAudioBands();

@@ -16,10 +16,11 @@ enum HuntAction {
 
 enum HuntPhase {
     PHASE_IDLE = 0,
-    PHASE_SHOOT,        // 弹射长舌 / 射出触手 / 飞射黏液弹
-    PHASE_RETRACT,      // 卷回长舌 / 拖回触手
-    PHASE_CRAWL_ENGULF, // 黏液定身后爬过去包覆吞噬
-    PHASE_DIGEST        // 吞噬消化反馈
+    PHASE_SHOOT,          // 弹射长舌 / 射出触手 / 极速飞射狙击黏液弹
+    PHASE_RETRACT,        // 卷回长舌 / 拖回触手
+    PHASE_STALK_OBSERVE,  // 【黏液狙击命中后的原地戏谑观察阶段 1.2~1.8s】
+    PHASE_CRAWL_ENGULF,   // 观察满足后大步爬过去包覆吞噬
+    PHASE_DIGEST          // 吞噬消化反馈
 };
 
 struct SplatParticle {
@@ -39,6 +40,7 @@ struct HuntContext {
     int target_bug_idx = -1;
 
     float timer = 0.0f;
+    float observe_duration = 1.5f;
     float start_x = 120.0f;
     float start_y = 100.0f;
     float target_x = 120.0f;
@@ -73,6 +75,8 @@ public:
 
     bool isHunting() const { return hunt.active; }
     HuntAction getCurrentAction() const { return hunt.action; }
+    HuntPhase getCurrentPhase() const { return hunt.phase; }
+    void getTargetPos(float &tx, float &ty) const { tx = hunt.target_x; ty = hunt.target_y; }
 
 private:
     HuntContext hunt;

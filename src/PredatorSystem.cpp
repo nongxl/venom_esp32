@@ -115,11 +115,11 @@ bool PredatorSystem::tryTriggerHunt(PreyBugSystem &bugs, const SkeletonSystem &s
         hunt.mucus_y = hy;
         float dir_x = dx / dist;
         float dir_y = dy / dist;
-        hunt.mucus_vx = dir_x * 175.0f;
-        hunt.mucus_vy = dir_y * 175.0f;
+        hunt.mucus_vx = dir_x * 420.0f; // 极速破空狙击弹丸 (0.08~0.15s 瞬间破空命中！)
+        hunt.mucus_vy = dir_y * 420.0f;
 
         // 喷射瞬间枪口初速度溅射
-        spawnSplatBurst(hx, hy, 4, 0.6f);
+        spawnSplatBurst(hx, hy, 4, 0.8f);
     }
 
     return true;
@@ -238,13 +238,13 @@ void PredatorSystem::updateMucusSnare(float dt, PreyBugSystem &bugs, SkeletonSys
     hunt.start_y = hy;
 
     if (hunt.phase == PHASE_SHOOT) {
-        // 纯黑黏液弹飞行
+        // 极速纯黑黏液弹飞行 (420px/s)
         hunt.mucus_x += hunt.mucus_vx * dt;
         hunt.mucus_y += hunt.mucus_vy * dt;
 
         // 飞行后抛黑色尾迹液滴
         hunt.trail_spawn_timer += dt;
-        if (hunt.trail_spawn_timer >= 0.035f) {
+        if (hunt.trail_spawn_timer >= 0.025f) {
             hunt.trail_spawn_timer = 0.0f;
             for (int i = 0; i < MAX_SPLAT_PARTICLES; ++i) {
                 if (!splats[i].active) {
@@ -254,7 +254,7 @@ void PredatorSystem::updateMucusSnare(float dt, PreyBugSystem &bugs, SkeletonSys
                     splats[i].vx = -hunt.mucus_vx * 0.12f + ((rand() % 20) - 10);
                     splats[i].vy = -hunt.mucus_vy * 0.12f + ((rand() % 20) - 10);
                     splats[i].radius = 1.2f;
-                    splats[i].life = 0.5f;
+                    splats[i].life = 0.4f;
                     break;
                 }
             }
@@ -264,14 +264,27 @@ void PredatorSystem::updateMucusSnare(float dt, PreyBugSystem &bugs, SkeletonSys
         float dy = hunt.target_y - hunt.mucus_y;
         float dist = std::sqrt(dx * dx + dy * dy);
 
-        if (dist < 8.0f || hunt.timer > 0.45f) {
+        if (dist < 10.0f || hunt.timer > 0.28f) {
             // 命中虫子！爆浆溅射出 8 颗黑色黏液滴，将虫子死死定身！
             spawnSplatBurst(hunt.target_x, hunt.target_y, 8, 1.2f);
             bugs.snareBug(hunt.target_bug_idx);
+
+            // 【关键重构】：不立刻过去吃，先进入 1.2~1.8s 原地戏谑观察阶段！
+            hunt.phase = PHASE_STALK_OBSERVE;
+            hunt.timer = 0.0f;
+            hunt.observe_duration = 1.3f + (rand() % 6) * 0.1f;
+            skeleton.clearPullTarget();
+        }
+    } else if (hunt.phase == PHASE_STALK_OBSERVE) {
+        // 【观察戏谑阶段】：毒液在原地静止并微调呼吸，眼睛死死盯住挣扎的虫子
+        skeleton.clearPullTarget();
+
+        if (hunt.timer >= hunt.observe_duration) {
             hunt.phase = PHASE_CRAWL_ENGULF;
             hunt.timer = 0.0f;
         }
     } else if (hunt.phase == PHASE_CRAWL_ENGULF) {
+        // 【从容爬行包覆吞噬阶段】
         const PreyBug &b = bugs.getBug(hunt.target_bug_idx);
         float target_pos_x = b.x;
         float target_pos_y = b.y;
@@ -281,7 +294,7 @@ void PredatorSystem::updateMucusSnare(float dt, PreyBugSystem &bugs, SkeletonSys
         float dy = target_pos_y - hy;
         float dist = std::sqrt(dx * dx + dy * dy);
 
-        skeleton.setPullTarget(target_pos_x, target_pos_y, 1.9f);
+        skeleton.setPullTarget(target_pos_x, target_pos_y, 2.0f);
 
         if (dist < 12.0f || hunt.timer > 2.5f) {
             skeleton.clearPullTarget();

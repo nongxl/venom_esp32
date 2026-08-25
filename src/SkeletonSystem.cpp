@@ -231,10 +231,17 @@ void SkeletonSystem::updateNodePhysics(int i, float dt, float gx, float gy, floa
         float dx = pull_target_x - n.x;
         float dy = pull_target_y - n.y;
         float dist = std::sqrt(dx * dx + dy * dy);
-        if (dist > 1.2f) {
-            float pull_mag = pull_strength * 5.2f;
-            n.vx += (dx / dist) * pull_mag;
-            n.vy += (dy / dist) * pull_mag;
+        if (dist > 0.2f) {
+            // 平滑 PD 弹簧拉力（连续过渡，无阶跃突变）
+            float k_p = pull_strength * 2.5f;
+            n.vx += dx * k_p * dt * 30.0f;
+            n.vy += dy * k_p * dt * 30.0f;
+        }
+        if (dist < 5.0f) {
+            // 靠近抓取点时施加平滑临界阻尼刹车，稳稳吸附，绝不原地抖动！
+            float brake = 0.55f + (dist / 5.0f) * 0.35f;
+            n.vx *= brake;
+            n.vy *= brake;
         }
     }
 

@@ -70,4 +70,5 @@ private:
 
     void drawCrawler(M5Canvas &canvas, const PreyBug &b) const;
     void drawFlyer(M5Canvas &canvas, const PreyBug &b) const;
+    void drawHollowSpiderWeb(M5Canvas &canvas, const PreyBug &b) const;
 };

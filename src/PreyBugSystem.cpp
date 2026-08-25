@@ -256,19 +256,9 @@ void PreyBugSystem::drawCrawler(M5Canvas &canvas, const PreyBug &b) const {
     canvas.drawLine(ix, iy, (int)ant_x1, (int)ant_y1, 0xFFFF);
     canvas.drawLine(ix, iy, (int)ant_x2, (int)ant_y2, 0xFFFF);
 
-    // 4. 纯黑色黏液定身污渍与拉丝特效 (Black Slime Splat)
+    // 4. 镂空不规则共生体蛛网定身特效 (Hollow Spiderweb)
     if (b.state == BUG_SNARED) {
-        // 中心实心纯黑黏液池
-        canvas.fillCircle(ix, iy, 5, COLOR_VENOM_CORE);
-        // 向外延伸的 5 根黑色黏丝拉爪
-        for (int k = 0; k < 5; ++k) {
-            float s_angle = (float)k * 1.256f + b.glow_phase * 0.2f;
-            float leg_x = b.x + std::cos(s_angle) * 7.5f;
-            float leg_y = b.y + std::sin(s_angle) * 7.5f;
-            canvas.drawLine(ix, iy, (int)leg_x, (int)leg_y, COLOR_VENOM_CORE);
-            canvas.drawPixel((int)leg_x, (int)leg_y, COLOR_DITHER_GRAY);
-        }
-        canvas.drawPixel(ix + 1, iy + 1, COLOR_DITHER_GRAY);
+        drawHollowSpiderWeb(canvas, b);
     }
 }
 
@@ -305,18 +295,78 @@ void PreyBugSystem::drawFlyer(M5Canvas &canvas, const PreyBug &b) const {
     float eye_y = b.y + sin_a * 3.0f;
     canvas.drawPixel((int)eye_x, (int)eye_y, 0x07E0);
 
-    // 4. 纯黑色黏液定身污渍与拉丝特效 (Black Slime Splat)
+    // 4. 镂空不规则共生体蛛网定身特效 (Hollow Spiderweb)
     if (b.state == BUG_SNARED) {
-        canvas.fillCircle(ix, iy, 5, COLOR_VENOM_CORE);
-        for (int k = 0; k < 5; ++k) {
-            float s_angle = (float)k * 1.256f + b.glow_phase * 0.2f;
-            float leg_x = b.x + std::cos(s_angle) * 7.5f;
-            float leg_y = b.y + std::sin(s_angle) * 7.5f;
-            canvas.drawLine(ix, iy, (int)leg_x, (int)leg_y, COLOR_VENOM_CORE);
-            canvas.drawPixel((int)leg_x, (int)leg_y, COLOR_DITHER_GRAY);
-        }
-        canvas.drawPixel(ix + 1, iy + 1, COLOR_DITHER_GRAY);
+        drawHollowSpiderWeb(canvas, b);
     }
+}
+
+void PreyBugSystem::drawHollowSpiderWeb(M5Canvas &canvas, const PreyBug &b) const {
+    int cx = (int)b.x;
+    int cy = (int)b.y;
+
+    // 6 根不规则放射蛛丝的天然偏角与长度
+    static const float BASE_ANGLES[6] = { 0.28f, 1.25f, 2.22f, 3.42f, 4.45f, 5.50f };
+    static const float STRUT_LENS[6]  = { 11.5f,  9.0f, 12.0f, 10.5f, 12.5f,  9.5f };
+
+    float strut_x[6];
+    float strut_y[6];
+    float mid_x[6];
+    float mid_y[6];
+
+    // 挣扎微颤
+    float struggle_vib = std::sin(b.snare_timer * 36.0f) * 0.6f;
+
+    // 1. 计算 6 个末端黏附锚点与中部内环丝节点
+    for (int k = 0; k < 6; ++k) {
+        float ang = BASE_ANGLES[k] + struggle_vib * 0.06f;
+        float r_len = STRUT_LENS[k] + ((k % 2 == 0) ? 1.0f : -0.5f);
+
+        strut_x[k] = b.x + std::cos(ang) * r_len;
+        strut_y[k] = b.y + std::sin(ang) * r_len;
+
+        float mid_len = 5.2f + ((k % 3 == 0) ? 0.8f : -0.5f);
+        mid_x[k] = b.x + std::cos(ang) * mid_len;
+        mid_y[k] = b.y + std::sin(ang) * mid_len;
+    }
+
+    // 2. 绘制 6 根放射状黑色主蛛丝 (从虫身辐射向四周)
+    for (int k = 0; k < 6; ++k) {
+        canvas.drawLine(cx, cy, (int)strut_x[k], (int)strut_y[k], COLOR_VENOM_CORE);
+    }
+
+    // 3. 绘制内层与外层镂空环状连接蛛丝 (Web Rings)
+    for (int k = 0; k < 6; ++k) {
+        int next_k = (k + 1) % 6;
+
+        // 内环镂空连接丝
+        canvas.drawLine((int)mid_x[k], (int)mid_y[k], (int)mid_x[next_k], (int)mid_y[next_k], COLOR_VENOM_CORE);
+
+        // 外环不规则连接丝
+        if (k % 2 == 0) {
+            float out_x1 = b.x + (strut_x[k] - b.x) * 0.82f;
+            float out_y1 = b.y + (strut_y[k] - b.y) * 0.82f;
+            float out_x2 = b.x + (strut_x[next_k] - b.x) * 0.82f;
+            float out_y2 = b.y + (strut_y[next_k] - b.y) * 0.82f;
+            canvas.drawLine((int)out_x1, (int)out_y1, (int)out_x2, (int)out_y2, COLOR_VENOM_CORE);
+        }
+    }
+
+    // 4. 绘制黏在屏幕玻璃平面上的接触吸点 (Anchor Contact Pads)
+    for (int k = 0; k < 6; ++k) {
+        int px = (int)strut_x[k];
+        int py = (int)strut_y[k];
+        canvas.drawPixel(px, py, COLOR_VENOM_CORE);
+        canvas.drawPixel(px + 1, py, COLOR_VENOM_CORE);
+        canvas.drawPixel(px, py + 1, COLOR_VENOM_CORE);
+        canvas.drawPixel(px - 1, py - 1, COLOR_DITHER_GRAY); // 玻璃反光微点
+    }
+
+    // 5. 虫子身体上的 2 根微小缠绕黑丝 (中心留出大片镂空空间供细腿/小翅膀挣扎)
+    float perp_x = -std::sin(b.angle);
+    float perp_y = std::cos(b.angle);
+    canvas.drawLine(cx, cy, (int)(b.x + perp_x * 2.8f), (int)(b.y + perp_y * 2.8f), COLOR_VENOM_CORE);
+    canvas.drawLine(cx, cy, (int)(b.x - perp_x * 2.8f), (int)(b.y - perp_y * 2.8f), COLOR_VENOM_CORE);
 }
 
 void PreyBugSystem::draw(M5Canvas &canvas) const {

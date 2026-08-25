@@ -77,11 +77,11 @@ void PhysiologySystem::updateInternalDynamics(float dt) {
         curiosity = std::max(0.1f, curiosity - dt * 0.15f);
     }
 
-    // 精力消耗与恢复
-    if (neuro_tension > 0.4f) {
-        energy = std::max(0.05f, energy - dt * 0.04f);
-    } else if (comfort > 0.7f) {
-        energy = std::min(1.0f, energy + dt * 0.02f);
+    // 精力恢复维持在健康高位
+    if (comfort > 0.4f) {
+        energy = std::min(1.0f, energy + dt * 0.04f);
+    } else {
+        energy = std::max(0.40f, energy - dt * 0.02f);
     }
 }
 

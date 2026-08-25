@@ -27,13 +27,13 @@ void EyeSystem::triggerBlink() {
 }
 
 void EyeSystem::updateBlinking(float dt, bool is_sleep, EmotionState emotion) {
-    if (is_sleep || emotion == EMOTION_EXHAUSTED) {
+    if (is_sleep) {
         eyelid_close = eyelid_close * 0.85f + 1.0f * 0.15f;
         return;
     }
 
     if (is_blinking) {
-        float blink_speed = (emotion == EMOTION_FEAR || emotion == EMOTION_STRESS) ? 14.0f : 8.0f;
+        float blink_speed = (emotion == EMOTION_FEAR || emotion == EMOTION_STRESS) ? 18.0f : 12.0f;
         blink_phase += dt * blink_speed;
         if (blink_phase < 1.0f) {
             eyelid_close = blink_phase;
@@ -43,12 +43,12 @@ void EyeSystem::updateBlinking(float dt, bool is_sleep, EmotionState emotion) {
             eyelid_close = 0.0f;
             is_blinking = false;
             blink_timer = 0.0f;
-            // 紧张时眨眼更频繁，好奇/平静时眨眼较慢
-            float base_int = (emotion == EMOTION_STRESS) ? 1.0f : ((emotion == EMOTION_CURIOSITY) ? 4.0f : 2.5f);
-            next_blink_interval = base_int + (rand() % 200) * 0.01f;
+            float base_int = (emotion == EMOTION_STRESS) ? 1.5f : ((emotion == EMOTION_CURIOSITY) ? 4.5f : 3.0f);
+            next_blink_interval = base_int + (rand() % 150) * 0.01f;
         }
     } else {
-        eyelid_close = eyelid_close * 0.8f;
+        eyelid_close = eyelid_close * 0.65f;
+        if (eyelid_close < 0.02f) eyelid_close = 0.0f;
         blink_timer += dt;
         if (blink_timer >= next_blink_interval) {
             triggerBlink();

@@ -2,320 +2,337 @@
 #include <cmath>
 
 MouthSystem::MouthSystem() {
-    init();
+    current_mode = FEED_NONE;
+    current_stage = FEED_STAGE_IDLE;
 }
 
 void MouthSystem::init() {
-    state = MOUTH_IDLE;
-    state_timer = 0.0f;
-    open_amount = 0.25f; // 微咧坏笑
-    chew_phase = 0.0f;
-    chew_count = 0;
+    current_mode = FEED_NONE;
+    current_stage = FEED_STAGE_IDLE;
+    stage_timer = 0.0f;
+    mouth_open_ratio = 0.0f;
     tongue_progress = 0.0f;
-    target_bug_idx = -1;
-    tongue_wave_phase = 0.0f;
-    lick_angle = 0.0f;
-}
-
-void MouthSystem::triggerTongueStrike(float target_x, float target_y, int bug_idx) {
-    state = MOUTH_STRIKE_TONGUE;
-    state_timer = 0.0f;
-    tongue_progress = 0.0f;
-    strike_target_x = target_x;
-    strike_target_y = target_y;
-    target_bug_idx = bug_idx;
-    open_amount = 1.0f; // 猛张大嘴
-}
-
-void MouthSystem::triggerReceiveFeed(int bug_idx) {
-    state = MOUTH_RECEIVE_FEED;
-    state_timer = 0.0f;
-    target_bug_idx = bug_idx;
-    open_amount = 0.95f; // 大嘴张开准备接虫
-}
-
-void MouthSystem::triggerChewAndSwallow() {
-    state = MOUTH_CHEW;
-    state_timer = 0.0f;
-    chew_phase = 0.0f;
+    slime.active = false;
     chew_count = 0;
-    open_amount = 0.5f;
-    target_bug_idx = -1;
+    trigger_vibe = false;
 }
 
-void MouthSystem::triggerLickLips() {
-    state = MOUTH_LICK;
-    state_timer = 0.0f;
-    lick_angle = 0.0f;
-    open_amount = 0.35f;
+void MouthSystem::updateMouthAnchor(const SkeletonSystem &skeleton) {
+    const SkeletonNode &head = skeleton.getNode(0);
+    const SkeletonNode &neck = skeleton.getNode(1);
+
+    float dx = head.x - neck.x;
+    float dy = head.y - neck.y;
+    float len = std::sqrt(dx * dx + dy * dy);
+
+    if (len > 0.01f) {
+        dx /= len;
+        dy /= len;
+    } else {
+        dx = 0.0f;
+        dy = 1.0f;
+    }
+
+    // 嘴巴位于头部骨架稍稍靠前下侧
+    mouth_x = head.x + dx * 4.5f;
+    mouth_y = head.y + dy * 4.5f + 3.0f;
+    mouth_angle = std::atan2(dy, dx);
+
+    tongue_root_x = mouth_x;
+    tongue_root_y = mouth_y;
 }
 
-void MouthSystem::update(float dt, const SkeletonSystem &skeleton, const PhysiologySystem &physiology, float look_x, float look_y) {
-    state_timer += dt;
-    tongue_wave_phase += dt * 4.5f;
+bool MouthSystem::startPredation(FeedMode mode, float bug_x, float bug_y) {
+    if (current_mode != FEED_NONE) return false;
 
-    float hx, hy;
-    skeleton.getHeadPos(hx, hy);
+    current_mode = mode;
+    target_bug_x = bug_x;
+    target_bug_y = bug_y;
+    stage_timer = 0.0f;
 
-    switch (state) {
-        case MOUTH_IDLE: {
-            // 常规状态：随呼吸和张力微幅开合 (0.15 ~ 0.35)
-            float tension = physiology.getNeuroTension();
-            float base_open = 0.20f + tension * 0.25f;
-            float breath = std::sin(tongue_wave_phase * 0.8f) * 0.08f;
-            open_amount = std::max(0.10f, std::min(0.60f, base_open + breath));
+    switch (mode) {
+        case FEED_TONGUE:
+            current_stage = FEED_STAGE_OPEN_MOUTH;
+            tongue_progress = 0.0f;
             break;
-        }
 
-        case MOUTH_OPEN: {
-            open_amount = 0.95f;
-            if (state_timer > 1.2f) {
-                state = MOUTH_IDLE;
+        case FEED_TENTACLE:
+            current_stage = FEED_STAGE_TENTACLE_PULL;
+            break;
+
+        case FEED_SLIME_STALK:
+            current_stage = FEED_STAGE_SLIME_FLY;
+            slime.active = true;
+            slime.x = mouth_x;
+            slime.y = mouth_y;
+            slime.target_x = bug_x;
+            slime.target_y = bug_y;
+            slime.progress = 0.0f;
+            break;
+
+        default:
+            current_mode = FEED_NONE;
+            return false;
+    }
+
+    return true;
+}
+
+bool MouthSystem::checkAndConsumeChompVibration() {
+    if (trigger_vibe) {
+        trigger_vibe = false;
+        return true;
+    }
+    return false;
+}
+
+void MouthSystem::update(float dt, const SkeletonSystem &skeleton, BugSystem &bugs,
+                        TentacleRenderer &tentacles, PhysiologySystem &physiology) {
+    updateMouthAnchor(skeleton);
+
+    if (current_mode == FEED_NONE) {
+        // 平时嘴巴微微闭合，伴随呼吸微弱张合 (0.0 ~ 0.08)
+        mouth_open_ratio = 0.03f + 0.03f * std::sin(stage_timer * 2.0f);
+        stage_timer += dt;
+        return;
+    }
+
+    stage_timer += dt;
+
+    switch (current_mode) {
+        case FEED_TONGUE: {
+            // 变色龙闪电卷舌
+            if (current_stage == FEED_STAGE_OPEN_MOUTH) {
+                // 1. 大嘴迅猛裂开 (0.08s)
+                mouth_open_ratio = std::min(1.0f, stage_timer / 0.08f);
+                if (stage_timer >= 0.08f) {
+                    current_stage = FEED_STAGE_TONGUE_EXTEND;
+                    stage_timer = 0.0f;
+                }
+            } else if (current_stage == FEED_STAGE_TONGUE_EXTEND) {
+                // 2. 粉红长舌闪电弹射命中虫子 (0.12s)
+                constexpr float DURATION = 0.12f;
+                tongue_progress = std::min(1.0f, stage_timer / DURATION);
+                tongue_tip_x = tongue_root_x + (target_bug_x - tongue_root_x) * tongue_progress;
+                tongue_tip_y = tongue_root_y + (target_bug_y - tongue_root_y) * tongue_progress;
+
+                // 舌头中间带有弹簧下垂弧度
+                tongue_ctrl_x = (tongue_root_x + tongue_tip_x) * 0.5f;
+                tongue_ctrl_y = (tongue_root_y + tongue_tip_y) * 0.5f + 12.0f * (1.0f - tongue_progress);
+
+                if (stage_timer >= DURATION) {
+                    bugs.setBugCaptured(target_bug_x, target_bug_y);
+                    current_stage = FEED_STAGE_TONGUE_RETRACT;
+                    stage_timer = 0.0f;
+                }
+            } else if (current_stage == FEED_STAGE_TONGUE_RETRACT) {
+                // 3. 舌头卷回虫子拉入口中 (0.14s)
+                constexpr float DURATION = 0.14f;
+                float t = std::min(1.0f, stage_timer / DURATION);
+                tongue_progress = 1.0f - t;
+                tongue_tip_x = tongue_root_x + (target_bug_x - tongue_root_x) * tongue_progress;
+                tongue_tip_y = tongue_root_y + (target_bug_y - tongue_root_y) * tongue_progress;
+                tongue_ctrl_y = (tongue_root_y + tongue_tip_y) * 0.5f + 8.0f * tongue_progress;
+
+                bugs.setBugCaptured(tongue_tip_x, tongue_tip_y);
+
+                if (stage_timer >= DURATION) {
+                    bugs.setBugEaten();
+                    current_stage = FEED_STAGE_CHEWING;
+                    stage_timer = 0.0f;
+                    chew_count = 3;
+                    chew_phase = 0.0f;
+                    trigger_vibe = true;
+                    physiology.feedNutrition(0.25f, 0.20f);
+                }
+            } else if (current_stage == FEED_STAGE_CHEWING) {
+                // 4. 咔嚓咔嚓咀嚼动画 (0.55s)
+                chew_phase += dt * 18.0f;
+                mouth_open_ratio = 0.35f + 0.45f * std::abs(std::sin(chew_phase));
+
+                if (stage_timer >= 0.55f) {
+                    mouth_open_ratio = 0.0f;
+                    current_mode = FEED_NONE;
+                    current_stage = FEED_STAGE_IDLE;
+                }
             }
             break;
         }
 
-        case MOUTH_STRIKE_TONGUE: {
-            // 变色龙闪电长鞭卷舌：全程仅需 0.30s (0.15s 弹射 + 0.15s 回拉)
-            constexpr float TOTAL_TIME = 0.32f;
-            tongue_progress = state_timer / TOTAL_TIME;
-            open_amount = 1.0f;
+        case FEED_TENTACLE: {
+            // 触手抓捕塞入口中
+            if (current_stage == FEED_STAGE_TENTACLE_PULL) {
+                mouth_open_ratio = std::min(0.85f, stage_timer * 1.5f);
+                if (tentacles.getGrappleStage() == GRAPPLE_FUSE || stage_timer >= 0.75f) {
+                    bugs.setBugEaten();
+                    current_stage = FEED_STAGE_CHEWING;
+                    stage_timer = 0.0f;
+                    chew_count = 3;
+                    chew_phase = 0.0f;
+                    trigger_vibe = true;
+                    physiology.feedNutrition(0.25f, 0.20f);
+                }
+            } else if (current_stage == FEED_STAGE_CHEWING) {
+                chew_phase += dt * 18.0f;
+                mouth_open_ratio = 0.35f + 0.45f * std::abs(std::sin(chew_phase));
 
-            float reach_factor;
-            if (tongue_progress < 0.5f) {
-                // 弹射阶段 (0.0 -> 1.0 极速前进)
-                reach_factor = (tongue_progress / 0.5f);
-                reach_factor = std::sin(reach_factor * 1.5708f); // 缓入极速
-            } else {
-                // 回拉阶段 (1.0 -> 0.0 闪电收回)
-                reach_factor = 1.0f - ((tongue_progress - 0.5f) / 0.5f);
-                reach_factor = reach_factor * reach_factor; // 爆发力回缩
-            }
-
-            // 计算舌尖当前坐标
-            tongue_tip_x = hx + (strike_target_x - hx) * reach_factor;
-            tongue_tip_y = hy + 6.0f + (strike_target_y - (hy + 6.0f)) * reach_factor;
-
-            if (tongue_progress >= 1.0f) {
-                tongue_progress = 1.0f;
-                // 舌头收回口中，进入咀嚼吞噬！
-                triggerChewAndSwallow();
+                if (stage_timer >= 0.55f) {
+                    mouth_open_ratio = 0.0f;
+                    current_mode = FEED_NONE;
+                    current_stage = FEED_STAGE_IDLE;
+                }
             }
             break;
         }
 
-        case MOUTH_RECEIVE_FEED: {
-            open_amount = 0.90f + std::sin(state_timer * 10.0f) * 0.10f;
-            if (state_timer > 1.8f) {
-                triggerChewAndSwallow();
+        case FEED_SLIME_STALK: {
+            // 喷射黏液黏住爬近吞噬
+            if (current_stage == FEED_STAGE_SLIME_FLY) {
+                mouth_open_ratio = 0.75f;
+                constexpr float FLY_TIME = 0.20f;
+                slime.progress = std::min(1.0f, stage_timer / FLY_TIME);
+                slime.x = mouth_x + (slime.target_x - mouth_x) * slime.progress;
+                slime.y = mouth_y + (slime.target_y - mouth_y) * slime.progress;
+
+                if (stage_timer >= FLY_TIME) {
+                    slime.active = false;
+                    bugs.setBugSlimed();
+                    mouth_open_ratio = 0.1f;
+                    current_stage = FEED_STAGE_OPEN_MOUTH; // 爬到附近后张嘴吃
+                    stage_timer = 0.0f;
+                }
+            } else if (current_stage == FEED_STAGE_OPEN_MOUTH) {
+                float dx = target_bug_x - mouth_x;
+                float dy = target_bug_y - mouth_y;
+                float dist = std::sqrt(dx * dx + dy * dy);
+
+                if (dist <= 18.0f) {
+                    mouth_open_ratio = 0.95f;
+                    bugs.setBugEaten();
+                    current_stage = FEED_STAGE_CHEWING;
+                    stage_timer = 0.0f;
+                    chew_count = 3;
+                    chew_phase = 0.0f;
+                    trigger_vibe = true;
+                    physiology.feedNutrition(0.25f, 0.20f);
+                }
+            } else if (current_stage == FEED_STAGE_CHEWING) {
+                chew_phase += dt * 18.0f;
+                mouth_open_ratio = 0.35f + 0.45f * std::abs(std::sin(chew_phase));
+
+                if (stage_timer >= 0.55f) {
+                    mouth_open_ratio = 0.0f;
+                    current_mode = FEED_NONE;
+                    current_stage = FEED_STAGE_IDLE;
+                }
             }
             break;
         }
 
-        case MOUTH_CHEW: {
-            // 咀嚼咬合：快速开合 3 次
-            chew_phase += dt * 14.0f;
-            open_amount = 0.20f + (std::sin(chew_phase) * 0.5f + 0.5f) * 0.55f;
-
-            if (chew_phase > 6.283f * 3.0f) {
-                // 咀嚼完成，转入舔嘴唇
-                triggerLickLips();
-            }
+        default:
+            current_mode = FEED_NONE;
             break;
-        }
-
-        case MOUTH_LICK: {
-            // 满足地舔嘴唇一圈
-            constexpr float LICK_TIME = 0.8f;
-            float t = state_timer / LICK_TIME;
-            lick_angle = t * 6.28318f;
-            open_amount = 0.25f + std::sin(lick_angle) * 0.15f;
-
-            if (state_timer >= LICK_TIME) {
-                state = MOUTH_IDLE;
-            }
-            break;
-        }
     }
 }
 
-void MouthSystem::drawMouthCavityAndTeeth(M5Canvas &canvas, float mx, float my, float face_angle, float mouth_w, float mouth_h, float open_ratio) const {
-    if (open_ratio < 0.08f) return;
+void MouthSystem::drawMouthAndTeeth(M5Canvas &canvas) const {
+    int mx = (int)mouth_x;
+    int my = (int)mouth_y;
 
-    float ca = std::cos(face_angle);
-    float sa = std::sin(face_angle);
-    float perp_x = -sa;
-    float perp_y = ca;
-
-    float half_w = mouth_w * 0.5f;
-    float half_h = mouth_h * 0.5f * open_ratio;
-
-    // 1. 绘制暗红深邃口腔底腔 (Deep Crimson Cavity)
-    uint16_t cavity_color = canvas.color565(130, 22, 35);
-    int p_count = 10;
-    int poly_x[10];
-    int poly_y[10];
-
-    for (int p = 0; p < p_count; ++p) {
-        float angle = (float)p * (6.28318f / (float)p_count);
-        float px = std::cos(angle) * half_w;
-        float py = std::sin(angle) * half_h;
-        poly_x[p] = (int)std::round(mx + ca * px + perp_x * py);
-        poly_y[p] = (int)std::round(my + sa * px + perp_y * py);
+    if (mouth_open_ratio < 0.12f) {
+        // 【平时微闭嘴型】：一条略带俏皮弧度的深黑红裂缝，露出一颗小白尖牙 (又凶又萌)
+        canvas.drawLine(mx - 5, my, mx + 5, my, 0x1800);
+        canvas.drawPixel(mx, my + 1, 0x1800);
+        // 微露 1 颗可爱小尖牙
+        canvas.drawPixel(mx - 1, my + 1, 0xFFFF);
+        canvas.drawPixel(mx - 1, my + 2, 0xFFFF);
+        return;
     }
 
-    // 填充口腔
-    for (int p = 1; p < p_count - 1; ++p) {
-        canvas.fillTriangle(poly_x[0], poly_y[0], poly_x[p], poly_y[p], poly_x[p+1], poly_y[p+1], cavity_color);
+    // 【张嘴/进食/咀嚼嘴型】：深暗红内腔 + 上下两排锯齿状锐利白尖牙！
+    int rx = (int)(mouth_width * 0.5f);
+    int ry = (int)(mouth_height * 0.5f * mouth_open_ratio) + 2;
+
+    // 1. 深红黑色口腔内部
+    uint16_t mouth_cavity_col = 0x3000; // 暗深红
+    canvas.fillEllipse(mx, my, rx, ry, mouth_cavity_col);
+    canvas.drawEllipse(mx, my, rx, ry, COLOR_VENOM_CORE);
+
+    // 2. 上排白色锯齿尖牙 (3~4 颗)
+    for (int i = -2; i <= 2; ++i) {
+        if (i == 0) continue;
+        int tx = mx + i * 3;
+        int ty = my - ry + 1;
+        int tooth_h = (std::abs(i) == 1) ? 4 : 3;
+        canvas.fillTriangle(tx - 1, ty, tx + 1, ty, tx, ty + tooth_h, 0xFFFF);
     }
 
-    // 2. 绘制上排锐利白三角锯齿尖牙 (5 颗尖牙)
-    constexpr int TOP_TEETH = 5;
-    uint16_t tooth_color = TFT_WHITE;
-    uint16_t tooth_shadow = canvas.color565(180, 190, 205);
-
-    for (int i = 0; i < TOP_TEETH; ++i) {
-        float t_pos = ((float)i / (float)(TOP_TEETH - 1)) * 2.0f - 1.0f; // -1.0 ~ 1.0
-        float tx_base = t_pos * (half_w * 0.78f);
-        float ty_base = -half_h * 0.72f;
-
-        float tooth_len = (4.0f + (1.0f - std::abs(t_pos)) * 2.5f) * open_ratio;
-        float tooth_w = 2.4f;
-
-        // 尖端朝口腔内部下方
-        float b1_x = mx + ca * (tx_base - tooth_w) + perp_x * ty_base;
-        float b1_y = my + sa * (tx_base - tooth_w) + perp_y * ty_base;
-        float b2_x = mx + ca * (tx_base + tooth_w) + perp_x * ty_base;
-        float b2_y = my + sa * (tx_base + tooth_w) + perp_y * ty_base;
-        float tip_x = mx + ca * tx_base + perp_x * (ty_base + tooth_len);
-        float tip_y = my + sa * tx_base + perp_y * (ty_base + tooth_len);
-
-        canvas.fillTriangle((int)b1_x, (int)b1_y, (int)b2_x, (int)b2_y, (int)tip_x, (int)tip_y, tooth_color);
-        canvas.drawLine((int)b1_x, (int)b1_y, (int)tip_x, (int)tip_y, tooth_shadow);
-    }
-
-    // 3. 绘制下排锐利白三角锯齿尖牙 (4 颗交错尖牙)
-    constexpr int BOT_TEETH = 4;
-    for (int i = 0; i < BOT_TEETH; ++i) {
-        float t_pos = ((float)(i + 0.5f) / (float)BOT_TEETH) * 2.0f - 1.0f;
-        float tx_base = t_pos * (half_w * 0.70f);
-        float ty_base = half_h * 0.72f;
-
-        float tooth_len = (3.5f + (1.0f - std::abs(t_pos)) * 2.0f) * open_ratio;
-        float tooth_w = 2.2f;
-
-        // 尖端朝上
-        float b1_x = mx + ca * (tx_base - tooth_w) + perp_x * ty_base;
-        float b1_y = my + sa * (tx_base - tooth_w) + perp_y * ty_base;
-        float b2_x = mx + ca * (tx_base + tooth_w) + perp_x * ty_base;
-        float b2_y = my + sa * (tx_base + tooth_w) + perp_y * ty_base;
-        float tip_x = mx + ca * tx_base + perp_x * (ty_base - tooth_len);
-        float tip_y = my + sa * tx_base + perp_y * (ty_base - tooth_len);
-
-        canvas.fillTriangle((int)b1_x, (int)b1_y, (int)b2_x, (int)b2_y, (int)tip_x, (int)tip_y, tooth_color);
-        canvas.drawLine((int)b2_x, (int)b2_y, (int)tip_x, (int)tip_y, tooth_shadow);
-    }
-
-    // 4. 勾勒厚实黑嘴唇轮廓
-    for (int p = 0; p < p_count; ++p) {
-        int next_p = (p + 1) % p_count;
-        canvas.drawLine(poly_x[p], poly_y[p], poly_x[next_p], poly_y[next_p], COLOR_VENOM_CORE);
-        canvas.drawLine(poly_x[p]+1, poly_y[p], poly_x[next_p]+1, poly_y[next_p], COLOR_VENOM_CORE);
+    // 3. 下排白色锯齿尖牙 (3 颗)
+    for (int i = -1; i <= 1; ++i) {
+        int tx = mx + i * 4;
+        int ty = my + ry - 1;
+        int tooth_h = 3;
+        canvas.fillTriangle(tx - 1, ty, tx + 1, ty, tx, ty - tooth_h, 0xFFFF);
     }
 }
 
-void MouthSystem::drawTongue(M5Canvas &canvas, float mx, float my, float face_angle, float open_ratio) const {
-    uint16_t tongue_core = canvas.color565(255, 65, 105);
-    uint16_t tongue_light = canvas.color565(255, 135, 165);
+void MouthSystem::drawChameleonTongue(M5Canvas &canvas) const {
+    if (current_mode != FEED_TONGUE || tongue_progress <= 0.02f) return;
 
-    if (state == MOUTH_STRIKE_TONGUE && tongue_progress > 0.01f) {
-        // 【变色龙闪电长舌弹射捕食形态】
-        constexpr int SEGMENTS = 10;
-        float sx = mx;
-        float sy = my;
-        float ex = tongue_tip_x;
-        float ey = tongue_tip_y;
+    constexpr int SEGMENTS = 10;
+    float prev_x = tongue_root_x;
+    float prev_y = tongue_root_y;
 
-        // 弧线弯曲控制点
-        float mid_x = (sx + ex) * 0.5f + std::sin(tongue_wave_phase) * 6.0f;
-        float mid_y = (sy + ey) * 0.5f - 8.0f;
+    uint16_t tongue_color = 0xFACB; // 变色龙粉嫩亮粉红
+    uint16_t tongue_core  = 0xF814; // 深粉红核心
 
-        float prev_x = sx;
-        float prev_y = sy;
+    // 绘制弹性变色龙长卷舌
+    for (int step = 1; step <= SEGMENTS; ++step) {
+        float s = (float)step / (float)SEGMENTS;
+        float one_minus_s = 1.0f - s;
 
-        for (int step = 1; step <= SEGMENTS; ++step) {
-            float t = (float)step / (float)SEGMENTS;
-            float omt = 1.0f - t;
-            float cur_x = omt * omt * sx + 2.0f * omt * t * mid_x + t * t * ex;
-            float cur_y = omt * omt * sy + 2.0f * omt * t * mid_y + t * t * ey;
+        float cur_x = one_minus_s * one_minus_s * tongue_root_x +
+                      2.0f * one_minus_s * s * tongue_ctrl_x +
+                      s * s * tongue_tip_x;
+        float cur_y = one_minus_s * one_minus_s * tongue_root_y +
+                      2.0f * one_minus_s * s * tongue_ctrl_y +
+                      s * s * tongue_tip_y;
 
-            int thick = (int)std::round(4.2f * (1.0f - t * 0.35f));
-            for (int off = -thick / 2; off <= thick / 2; ++off) {
-                canvas.drawLine((int)prev_x + off, (int)prev_y, (int)cur_x + off, (int)cur_y, tongue_core);
-                canvas.drawLine((int)prev_x, (int)prev_y + off, (int)cur_x, (int)cur_y + off, tongue_core);
-            }
-
-            prev_x = cur_x;
-            prev_y = cur_y;
+        int thick = (s < 0.5f) ? 3 : 2;
+        canvas.drawLine((int)prev_x, (int)prev_y, (int)cur_x, (int)cur_y, tongue_color);
+        if (thick > 2) {
+            canvas.drawLine((int)prev_x + 1, (int)prev_y, (int)cur_x + 1, (int)cur_y, tongue_core);
         }
 
-        // 舌尖变色龙大肉垫吸盘 (末端卷住虫子)
-        canvas.fillCircle((int)ex, (int)ey, 3, tongue_core);
-        canvas.drawCircle((int)ex, (int)ey, 3, tongue_light);
-        canvas.drawPixel((int)ex, (int)ey, TFT_WHITE);
+        prev_x = cur_x;
+        prev_y = cur_y;
     }
-    else if (state == MOUTH_LICK) {
-        // 【满足舔唇一圈形态】
-        float lx = mx + std::cos(lick_angle) * 11.0f;
-        float ly = my + std::sin(lick_angle) * 6.0f;
 
-        canvas.fillCircle((int)lx, (int)ly, 3, tongue_core);
-        canvas.drawLine((int)mx, (int)my, (int)lx, (int)ly, tongue_core);
-        canvas.drawPixel((int)lx, (int)ly, tongue_light);
-    }
-    else if (open_ratio > 0.15f) {
-        // 【常规活体游动小舌尖】
-        float tip_len = 8.0f + open_ratio * 7.0f;
-        float sway = std::sin(tongue_wave_phase) * 3.5f;
+    // 舌尖带有饱满的粉红黏液吸盘球
+    int tip_x = (int)tongue_tip_x;
+    int tip_y = (int)tongue_tip_y;
+    canvas.fillCircle(tip_x, tip_y, 3, tongue_core);
+    canvas.drawCircle(tip_x, tip_y, 3, tongue_color);
+    canvas.drawPixel(tip_x - 1, tip_y - 1, 0xFFFF); // 吸盘高光
+}
 
-        float ca = std::cos(face_angle);
-        float sa = std::sin(face_angle);
-        float perp_x = -sa;
-        float perp_y = ca;
+void MouthSystem::drawSlimeProjectile(M5Canvas &canvas) const {
+    if (!slime.active) return;
+    int sx = (int)slime.x;
+    int sy = (int)slime.y;
 
-        float t1_x = mx + ca * (tip_len * 0.5f) + perp_x * sway;
-        float t1_y = my + sa * (tip_len * 0.5f) + perp_y * sway + 2.0f;
-        float t2_x = mx + ca * tip_len + perp_x * (sway * 1.5f);
-        float t2_y = my + sa * tip_len + perp_y * (sway * 1.5f) + 4.0f;
-
-        canvas.drawLine((int)mx, (int)my, (int)t1_x, (int)t1_y, tongue_core);
-        canvas.drawLine((int)t1_x, (int)t1_y, (int)t2_x, (int)t2_y, tongue_core);
-        canvas.fillCircle((int)t2_x, (int)t2_y, 2, tongue_core);
-        canvas.drawPixel((int)t2_x, (int)t2_y, tongue_light);
-    }
+    // 吐出的青荧光黏液飞弹
+    canvas.fillCircle(sx, sy, 4, COLOR_GLOW_CYAN);
+    canvas.fillCircle(sx, sy, 2, 0xFFFF);
 }
 
 void MouthSystem::draw(M5Canvas &canvas, const SkeletonSystem &skeleton) const {
-    float hx, hy;
-    skeleton.getHeadPos(hx, hy);
+    // 1. 变色龙舌头 (在嘴唇后方伸出)
+    drawChameleonTongue(canvas);
 
-    // 计算头部朝向角
-    const SkeletonNode &head = skeleton.getNode(0);
-    const SkeletonNode &neck = skeleton.getNode(1);
-    float dx = head.x - neck.x;
-    float dy = head.y - neck.y;
-    float face_angle = (std::abs(dx) > 0.1f || std::abs(dy) > 0.1f) ? std::atan2(dy, dx) : 1.57f;
+    // 2. 黏液飞弹
+    drawSlimeProjectile(canvas);
 
-    // 嘴巴基准中心：位于头部中心前下方
-    float mx = hx + std::cos(face_angle) * (head.radius_x * 0.18f);
-    float my = hy + std::sin(face_angle) * (head.radius_y * 0.18f) + 4.5f;
-
-    float mouth_w = head.radius_x * 1.08f;
-    float mouth_h = head.radius_y * 0.70f;
-
-    // 1. 绘制暗红口腔与白色锯齿尖牙
-    drawMouthCavityAndTeeth(canvas, mx, my, face_angle, mouth_w, mouth_h, open_amount);
-
-    // 2. 绘制游动/弹射长舌头
-    drawTongue(canvas, mx, my, face_angle, open_amount);
+    // 3. 又凶又萌的嘴巴与白尖牙
+    drawMouthAndTeeth(canvas);
 }

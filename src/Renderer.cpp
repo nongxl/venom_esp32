@@ -263,8 +263,8 @@ void Renderer::renderHUD(const CreatureAI &ai, const PhysiologySystem &physiolog
 }
 
 void Renderer::render(const SkeletonSystem &skeleton, const MetaballSystem &metaballs,
-                      const EyeSystem &eye, const MouthSystem &mouth,
-                      const TentacleRenderer &tentacles, const PreySystem &prey,
+                      const EyeSystem &eye, const TentacleRenderer &tentacles,
+                      const MouthSystem &mouth, const BugSystem &bugs,
                       const CreatureAI &ai, const PhysiologySystem &physiology,
                       const VoronoiSurface &voronoi, const FluidSymbolSystem &fluid_symbols,
                       const RelationshipSystem &relationship, const ExpressionLayer &expression,
@@ -276,8 +276,8 @@ void Renderer::render(const SkeletonSystem &skeleton, const MetaballSystem &meta
 
     canvas->fillSprite(getBackgroundColor());
 
-    // 1. 绘制小虫子生态 (爬虫步足动画 / 飞虫荧光振翅 / 黏液定身斑块)
-    prey.draw(*canvas);
+    // 1. 绘制小虫子 (背景层爬行/飞行)
+    bugs.draw(*canvas);
 
     // 2. 绘制坚实饱满的黑色主体与表面沥青噪波
     renderFieldAndVoronoi(metaballs, voronoi, physiology);
@@ -285,11 +285,13 @@ void Renderer::render(const SkeletonSystem &skeleton, const MetaballSystem &meta
     // 3. 绘制贴墙荧光
     renderMeniscusGlow(metaballs);
 
-    // 4. 绘制大嘴、白色锯齿尖牙与粉红游动/弹射长舌头 (Q 版又凶又萌)
+    // 4. 绘制触手
+    tentacles.draw(*canvas);
+
+    // 5. 绘制又凶又萌大嘴、白尖牙与变色龙长卷舌
     mouth.draw(*canvas, skeleton);
 
-    // 5. 绘制触手与眼睛
-    tentacles.draw(*canvas);
+    // 6. 绘制灵动眼球与血丝微表情
     eye.draw(*canvas, physiology);
 
     if (show_hud) {

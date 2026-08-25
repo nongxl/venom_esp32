@@ -9,19 +9,17 @@ void CreatureAI::init() {
 
 const char* CreatureAI::getStateName() const {
     switch (current_state) {
-        case STATE_IDLE:          return "IDLE";
-        case STATE_CRAWL:         return "CRAWL";
-        case STATE_OBSERVE:       return "OBSERVE";
-        case STATE_SLEEP:         return "SLEEP";
-        case STATE_STARTLED:      return "STARTLED";
-        case STATE_HESITATING:    return "HESITATE";
-        case STATE_JOLTING:       return "JOLT";
-        case STATE_EXPRESSING:    return "EXPRESS";
-        case STATE_SWING:         return "SWING";
-        case STATE_HUNT_TONGUE:   return "HUNT_TONGUE";
-        case STATE_HUNT_TENTACLE: return "HUNT_TENTACLE";
-        case STATE_HUNT_SNARE:    return "HUNT_SNARE";
-        default:                  return "UNKNOWN";
+        case STATE_IDLE:       return "IDLE";
+        case STATE_CRAWL:      return "CRAWL";
+        case STATE_OBSERVE:    return "OBSERVE";
+        case STATE_SLEEP:      return "SLEEP";
+        case STATE_STARTLED:   return "STARTLED";
+        case STATE_HESITATING: return "HESITATE";
+        case STATE_JOLTING:    return "JOLT";
+        case STATE_EXPRESSING: return "EXPRESS";
+        case STATE_SWING:      return "SWING";
+        case STATE_HUNTING:    return "HUNT";
+        default:               return "UNKNOWN";
     }
 }
 
@@ -105,22 +103,6 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
             target_look_y = 25.0f + (rand() % (SCREEN_H - 50));
             break;
 
-        case STATE_HUNT_TONGUE:
-            state_duration = 0.60f;
-            crawl_force_x = 0.0f;
-            crawl_force_y = 0.0f;
-            break;
-
-        case STATE_HUNT_TENTACLE:
-            state_duration = 1.20f;
-            crawl_force_x = 0.0f;
-            crawl_force_y = 0.0f;
-            break;
-
-        case STATE_HUNT_SNARE:
-            state_duration = 4.0f;
-            break;
-
         case STATE_SLEEP:
             state_duration = 1.8f;
             crawl_force_x = 0.0f;
@@ -181,57 +163,92 @@ void CreatureAI::triggerJolt(SkeletonSystem &skeleton, MetaballSystem &metaballs
 }
 
 void CreatureAI::triggerInteraction() {
-    float roll = (rand() % 100) * 0.01f;
-    if (roll < 0.60f) {
-        enterHesitation(STATE_OBSERVE, 0.20f);
+    if (current_state == STATE_SLEEP) {
+        enterState(STATE_OBSERVE);
+    } else if (current_state == STATE_IDLE) {
+        enterHesitation(STATE_CRAWL, 0.12f);
     } else {
-        enterState(STATE_IDLE);
+        triggerStartle(0.7f);
     }
 }
 
 void CreatureAI::updateSensors(float imu_gx, float imu_gy, float imu_gz, const PhysiologySystem &physiology, bool btn_a_pressed) {
+    if (btn_a_pressed) {
+        triggerInteraction();
+        return;
+    }
+
     float total_g = std::sqrt(imu_gx * imu_gx + imu_gy * imu_gy + imu_gz * imu_gz);
-    if (total_g > 18.0f) {
+    if (total_g > IMU_SHAKE_THRESHOLD && current_state != STATE_STARTLED && current_state != STATE_JOLTING) {
+        triggerStartle(1.2f);
+        return;
+    }
+
+    if (physiology.getAudioHigh() > 0.70f && current_state != STATE_STARTLED && current_state != STATE_JOLTING) {
         triggerStartle(0.9f);
+        return;
     }
 }
 
 void CreatureAI::updateOrganicBreathing(float dt, const PhysiologySystem &physiology, const ExpressionLayer &expression) {
-    float rate = 2.2f + physiology.getNeuroTension() * 2.8f;
-    if (expression.getCurrentExpression() != EXPR_NONE) rate *= 1.4f;
+    float base_speed = (physiology.getEmotion() == EMOTION_STRESS || physiology.getEmotion() == EMOTION_FEAR) ? 4.5f : 2.0f;
+    float audio_low_boost = physiology.getAudioLow() * 3.5f;
 
-    respiration_phase += dt * rate;
-    if (respiration_phase > 6.2831853f) respiration_phase -= 6.2831853f;
+    if (expression.getCurrentExpression() == EXPR_OBSERVE || expression.getCurrentExpression() == EXPR_SILENT_OBSERVATION) {
+        base_speed *= 0.65f;
+    }
 
-    float sin_val = std::sin(respiration_phase);
-    respiration_factor = (sin_val > 0.0f) ? std::pow(sin_val, 1.2f) : -std::pow(-sin_val, 0.8f);
+    respiration_phase += dt * (base_speed + audio_low_boost);
+
+    float s = std::sin(respiration_phase);
+    float raw_resp = (s > 0) ? std::pow(s, 0.75f) : -std::pow(-s, 1.2f);
+
+    twitch_timer += dt;
+    if (twitch_timer > 1.8f) {
+        twitch_timer = 0.0f;
+        if ((rand() % 100) < 40) {
+            twitch_offset = ((rand() % 40) - 20) * 0.002f;
+        } else {
+            twitch_offset = 0.0f;
+        }
+    }
+
+    respiration_factor = raw_resp * (0.04f + physiology.getAudioLow() * 0.03f) + twitch_offset;
 }
 
 void CreatureAI::updateMicroBehaviors(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology) {
     micro_behavior_timer += dt;
-    if (micro_behavior_timer > 3.5f) {
+    if (micro_behavior_timer > 1.2f) {
         micro_behavior_timer = 0.0f;
-        int action = rand() % 100;
-        if (action < 35) {
-            twitch_timer = 0.18f;
-            twitch_offset = ((rand() % 40) - 20) * 0.12f;
+        if ((rand() % 100) < 70) {
+            int node = rand() % SKELETON_NODE_COUNT;
+            skeleton.triggerLocalBleb(node, 0.35f + physiology.getNeuroTension() * 0.5f);
         }
-    }
-
-    if (twitch_timer > 0.0f) {
-        twitch_timer -= dt;
-        skeleton.applyImpulse(twitch_offset, -twitch_offset * 0.5f);
     }
 }
 
 void CreatureAI::updateHesitating(float dt, float hx, float hy, const ExpressionLayer &expression) {
     hesitation_timer -= dt;
-    target_look_x = hx + std::sin(state_timer * 12.0f) * 6.0f;
-    target_look_y = hy + std::cos(state_timer * 12.0f) * 6.0f;
-
     if (hesitation_timer <= 0.0f) {
-        current_state = pending_state;
-        state_timer = 0.0f;
+        enterState(pending_state);
+        return;
+    }
+
+    float phase = expression.getHesitationStep();
+    float p_mod = fmod(phase, 4.0f);
+
+    if (p_mod < 1.0f) {
+        crawl_force_x = 0.45f;
+        crawl_force_y = 0.0f;
+    } else if (p_mod < 2.0f) {
+        crawl_force_x = 0.0f;
+        crawl_force_y = 0.0f;
+    } else if (p_mod < 3.0f) {
+        crawl_force_x = -0.40f;
+        crawl_force_y = 0.0f;
+    } else {
+        crawl_force_x = 0.35f;
+        crawl_force_y = 0.0f;
     }
 }
 
@@ -241,9 +258,10 @@ void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem
 
     if (state_timer >= state_duration) {
         int r = rand() % 100;
+        // 若毒液处于上半区 (hy < 65)，有 28% 概率直接挂上天花板荡秋千！
         if (hy < 65.0f && r < 28) {
             enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
-        } else if (r < 88) {
+        } else if (r < 88) { // 88% 超高运动意愿！
             enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
         } else {
             enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
@@ -268,6 +286,7 @@ void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySyste
         }
     }
 
+    // 若目的地在天花板 (crawl_target_y < 25) 且已接近 (dist <= 14px)，50% 概率转入高空荡秋千玩耍！
     if (dist <= 12.0f || (state_timer >= state_duration && !tentacles.isGrappling())) {
         if (crawl_target_y < 25.0f && (rand() % 100) < 50) {
             enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
@@ -282,7 +301,7 @@ void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySys
         int roll = rand() % 100;
         if (hy < 65.0f && roll < 26) {
             enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
-        } else if (roll < 88) {
+        } else if (roll < 88) { // 88% 爬行概率！
             enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
         } else {
             enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
@@ -291,143 +310,15 @@ void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySys
 }
 
 void CreatureAI::updateSwing(float dt, float hx, float hy, SkeletonSystem &skeleton, TentacleRenderer &tentacles) {
+    // 眼睛注视点：好奇地注视正下方屏幕或观察者
     target_look_x = hx + std::sin(state_timer * 2.0f) * 30.0f;
     target_look_y = hy + 45.0f;
 
+    // 荡秋千时间结束，或身体受到剧烈激惹时，平稳落地
     if (state_timer >= state_duration || !skeleton.isHanging()) {
         skeleton.clearHangingAnchor();
         tentacles.endCeilingSwing();
         enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
-    }
-}
-
-void CreatureAI::checkAndTriggerHunting(float hx, float hy, PreySystem &prey, MouthSystem &mouth, TentacleRenderer &tentacles, SkeletonSystem &skeleton) {
-    if (isHunting() || isStartled() || current_state == STATE_SWING) return;
-
-    float bug_dist = 999.0f;
-    int bug_idx = prey.findClosestBug(hx, hy, bug_dist, 140.0f);
-
-    if (bug_idx >= 0) {
-        float bx, by;
-        prey.getBugPos(bug_idx, bx, by);
-        PreyState b_state = prey.getBugState(bug_idx);
-
-        // 视线瞬间紧盯猎物！
-        target_look_x = bx;
-        target_look_y = by;
-
-        if (b_state == PREY_FREE) {
-            int roll = rand() % 100;
-            if (bug_dist < 85.0f || roll < 52) {
-                // 【方式 1：52% 变色龙闪电长舌弹射】
-                targeted_bug_idx = bug_idx;
-                enterState(STATE_HUNT_TONGUE, &tentacles, &skeleton, hx, hy);
-                mouth.triggerTongueStrike(bx, by, bug_idx);
-                prey.hookBugWithTongue(bug_idx);
-            } else if (roll < 80) {
-                // 【方式 2：28% 触手抓取喂嘴】
-                targeted_bug_idx = bug_idx;
-                enterState(STATE_HUNT_TENTACLE, &tentacles, &skeleton, hx, hy);
-                tentacles.startGrappleCrawl(hx, hy, bx, by);
-                prey.grabBugWithTentacle(bug_idx);
-                mouth.triggerReceiveFeed(bug_idx);
-            } else {
-                // 【方式 3：20% 黏液定身爬食】
-                targeted_bug_idx = bug_idx;
-                enterState(STATE_HUNT_SNARE, &tentacles, &skeleton, hx, hy);
-                prey.launchSlimeSnare(hx, hy, bug_idx);
-                crawl_target_x = bx;
-                crawl_target_y = by;
-            }
-        } else if (b_state == PREY_SNARED && current_state != STATE_HUNT_SNARE) {
-            // 发现被定身的虫子，直接开启爬行捕食
-            targeted_bug_idx = bug_idx;
-            enterState(STATE_HUNT_SNARE, &tentacles, &skeleton, hx, hy);
-            crawl_target_x = bx;
-            crawl_target_y = by;
-        }
-    }
-}
-
-void CreatureAI::updateHuntTongue(float dt, float hx, float hy, PreySystem &prey, MouthSystem &mouth, PhysiologySystem &physiology) {
-    if (targeted_bug_idx >= 0) {
-        float tx, ty;
-        mouth.getTongueTipPos(tx, ty);
-        // 舌头弹射卷中后，虫子跟随舌尖极速拉回
-        prey.updateSnaredBugPos(targeted_bug_idx, tx, ty);
-        target_look_x = tx;
-        target_look_y = ty;
-
-        // 舌头收回口中，触发吞噬！
-        if (mouth.getState() == MOUTH_CHEW || mouth.getState() == MOUTH_LICK || state_timer >= state_duration) {
-            prey.eatBug(targeted_bug_idx);
-            physiology.feedNutrient(0.20f);
-            targeted_bug_idx = -1;
-            enterState(STATE_OBSERVE);
-        }
-    } else {
-        enterState(STATE_OBSERVE);
-    }
-}
-
-void CreatureAI::updateHuntTentacle(float dt, float hx, float hy, PreySystem &prey, MouthSystem &mouth, TentacleRenderer &tentacles, PhysiologySystem &physiology) {
-    if (targeted_bug_idx >= 0) {
-        float bx, by;
-        prey.getBugPos(targeted_bug_idx, bx, by);
-        target_look_x = bx;
-        target_look_y = by;
-
-        // 触手收回到头部附近时，虫子被送入口中
-        float dx = bx - hx;
-        float dy = by - hy;
-        float dist = std::sqrt(dx * dx + dy * dy);
-
-        if (dist < 14.0f || state_timer >= state_duration || !tentacles.isGrappling()) {
-            prey.eatBug(targeted_bug_idx);
-            mouth.triggerChewAndSwallow();
-            physiology.feedNutrient(0.20f);
-            targeted_bug_idx = -1;
-            enterState(STATE_OBSERVE);
-        }
-    } else {
-        enterState(STATE_OBSERVE);
-    }
-}
-
-void CreatureAI::updateHuntSnare(float dt, float hx, float hy, PreySystem &prey, MouthSystem &mouth, SkeletonSystem &skeleton, TentacleRenderer &tentacles, PhysiologySystem &physiology) {
-    if (targeted_bug_idx >= 0) {
-        float bx, by;
-        prey.getBugPos(targeted_bug_idx, bx, by);
-        target_look_x = bx;
-        target_look_y = by;
-        crawl_target_x = bx;
-        crawl_target_y = by;
-
-        float dx = bx - hx;
-        float dy = by - hy;
-        float dist = std::sqrt(dx * dx + dy * dy);
-
-        // 连续大步触手冲向虫子
-        if (!tentacles.isGrappling()) {
-            crawl_shoot_timer += dt;
-            if (crawl_shoot_timer > 0.05f && dist > 12.0f) {
-                crawl_shoot_timer = 0.0f;
-                tentacles.startGrappleCrawl(hx, hy, bx, by);
-            }
-        }
-
-        // 毒液爬到虫子跟前（距离 < 16px），大嘴猛张一口吞下！
-        if (dist <= 16.0f) {
-            prey.eatBug(targeted_bug_idx);
-            mouth.triggerChewAndSwallow();
-            physiology.feedNutrient(0.25f);
-            targeted_bug_idx = -1;
-            enterState(STATE_OBSERVE);
-        } else if (state_timer >= state_duration) {
-            enterState(STATE_OBSERVE);
-        }
-    } else {
-        enterState(STATE_OBSERVE);
     }
 }
 
@@ -460,8 +351,8 @@ void CreatureAI::updateExpressing(float dt, float hx, float hy, const Expression
 void CreatureAI::update(float dt, SkeletonSystem &skeleton, MetaballSystem &metaballs,
                         TentacleRenderer &tentacles, PhysiologySystem &physiology,
                         RelationshipSystem &relationship, ExpressionLayer &expression,
-                        PreySystem &prey, MouthSystem &mouth,
-                        const ConsciousnessStateV3 &v3_state) {
+                        const ConsciousnessStateV3 &v3_state,
+                        BugSystem &bugs, MouthSystem &mouth) {
     state_timer += dt;
 
     updateOrganicBreathing(dt, physiology, expression);
@@ -470,29 +361,65 @@ void CreatureAI::update(float dt, SkeletonSystem &skeleton, MetaballSystem &meta
     float hx, hy;
     skeleton.getHeadPos(hx, hy);
 
-    // 1. 猎物侦测与捕食动机触发
-    checkAndTriggerHunting(hx, hy, prey, mouth, tentacles, skeleton);
+    // 1. 【小虫子感知与捕食系统联动】
+    if (bugs.hasActiveBug()) {
+        float bug_x, bug_y;
+        bugs.getBugPos(bug_x, bug_y);
 
-    // 2. 状态机分发
+        // 眼睛视线优先好奇锁定小虫子
+        target_look_x = bug_x;
+        target_look_y = bug_y;
+
+        // 若当前未在捕食中，计算捕食决策
+        if (!mouth.isHunting() && current_state != STATE_SWING &&
+            current_state != STATE_STARTLED && current_state != STATE_JOLTING) {
+            float dx = bug_x - hx;
+            float dy = bug_y - hy;
+            float dist = std::sqrt(dx * dx + dy * dy);
+
+            if (dist <= 85.0f) {
+                // 距离适中，发起捕食！
+                int mode_roll = rand() % 100;
+                if (mode_roll < 45) {
+                    // 模态 1: 变色龙闪电卷舌
+                    mouth.startPredation(FEED_TONGUE, bug_x, bug_y);
+                } else if (mode_roll < 75) {
+                    // 模态 2: 触手抓捕塞入嘴中
+                    tentacles.startGrappleCrawl(hx, hy, bug_x, bug_y);
+                    mouth.startPredation(FEED_TENTACLE, bug_x, bug_y);
+                } else {
+                    // 模态 3: 喷射黏液黏住爬近吞食
+                    mouth.startPredation(FEED_SLIME_STALK, bug_x, bug_y);
+                    crawl_target_x = bug_x;
+                    crawl_target_y = bug_y;
+                    if (current_state != STATE_CRAWL) {
+                        enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
+                    }
+                }
+            } else if (dist <= 150.0f && current_state != STATE_CRAWL) {
+                // 距离较远，主动爬向小虫子
+                crawl_target_x = bug_x;
+                crawl_target_y = bug_y;
+                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
+            }
+        }
+    }
+
     if (expression.getCurrentExpression() != EXPR_NONE &&
         current_state != STATE_STARTLED && current_state != STATE_JOLTING &&
-        current_state != STATE_HESITATING && current_state != STATE_SWING &&
-        !isHunting()) {
+        current_state != STATE_HESITATING && current_state != STATE_SWING) {
         current_state = STATE_EXPRESSING;
     }
 
     switch (current_state) {
-        case STATE_HESITATING:    updateHesitating(dt, hx, hy, expression); break;
-        case STATE_IDLE:          updateIdle(dt, hx, hy, physiology, relationship, tentacles, skeleton); break;
-        case STATE_CRAWL:         updateCrawl(dt, hx, hy, physiology, tentacles, skeleton); break;
-        case STATE_OBSERVE:       updateObserve(dt, hx, hy, physiology, tentacles, skeleton); break;
-        case STATE_SWING:         updateSwing(dt, hx, hy, skeleton, tentacles); break;
-        case STATE_HUNT_TONGUE:   updateHuntTongue(dt, hx, hy, prey, mouth, physiology); break;
-        case STATE_HUNT_TENTACLE: updateHuntTentacle(dt, hx, hy, prey, mouth, tentacles, physiology); break;
-        case STATE_HUNT_SNARE:    updateHuntSnare(dt, hx, hy, prey, mouth, skeleton, tentacles, physiology); break;
-        case STATE_SLEEP:         updateSleep(dt, hx, hy, physiology); break;
-        case STATE_STARTLED:      updateStartled(dt, hx, hy, physiology); break;
-        case STATE_JOLTING:       updateJolting(dt, hx, hy, physiology); break;
-        case STATE_EXPRESSING:    updateExpressing(dt, hx, hy, expression); break;
+        case STATE_HESITATING: updateHesitating(dt, hx, hy, expression); break;
+        case STATE_IDLE:       updateIdle(dt, hx, hy, physiology, relationship, tentacles, skeleton); break;
+        case STATE_CRAWL:      updateCrawl(dt, hx, hy, physiology, tentacles, skeleton); break;
+        case STATE_OBSERVE:    updateObserve(dt, hx, hy, physiology, tentacles, skeleton); break;
+        case STATE_SWING:      updateSwing(dt, hx, hy, skeleton, tentacles); break;
+        case STATE_SLEEP:      updateSleep(dt, hx, hy, physiology); break;
+        case STATE_STARTLED:   updateStartled(dt, hx, hy, physiology); break;
+        case STATE_JOLTING:    updateJolting(dt, hx, hy, physiology); break;
+        case STATE_EXPRESSING: updateExpressing(dt, hx, hy, expression); break;
     }
 }

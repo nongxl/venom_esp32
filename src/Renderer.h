@@ -13,7 +13,7 @@
 #include "RelationshipSystem.h"
 #include "ExpressionLayer.h"
 #include "LLMClient.h"
-#include "PreySystem.h"
+#include "BugSystem.h"
 #include "MouthSystem.h"
 
 enum MindEchoState {
@@ -29,8 +29,8 @@ public:
 
     void init(M5Canvas *target_canvas);
     void render(const SkeletonSystem &skeleton, const MetaballSystem &metaballs,
-                const EyeSystem &eye, const MouthSystem &mouth,
-                const TentacleRenderer &tentacles, const PreySystem &prey,
+                const EyeSystem &eye, const TentacleRenderer &tentacles,
+                const MouthSystem &mouth, const BugSystem &bugs,
                 const CreatureAI &ai, const PhysiologySystem &physiology,
                 const VoronoiSurface &voronoi, const FluidSymbolSystem &fluid_symbols,
                 const RelationshipSystem &relationship, const ExpressionLayer &expression,

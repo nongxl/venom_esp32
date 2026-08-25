@@ -16,7 +16,7 @@
 #include "Renderer.h"
 #include "ConfigManager.h"
 #include "WebConfigPortal.h"
-#include "PreySystem.h"
+#include "BugSystem.h"
 #include "MouthSystem.h"
 
 // ─────────────────────────────────────────────────────────────
@@ -33,9 +33,9 @@ static VoronoiSurface     voronoi;
 static SkeletonSystem     skeleton;
 static MetaballSystem     metaballs;
 static EyeSystem          eye;
-static MouthSystem        mouth;
 static TentacleRenderer   tentacles;
-static PreySystem         prey;
+static BugSystem          bugs;
+static MouthSystem        mouth;
 static CreatureAI         ai;
 static Renderer           renderer;
 static WebConfigPortal    portal;
@@ -142,14 +142,14 @@ void setup() {
     metaballs.init();
     eye.init();
     tentacles.init();
-    prey.init();
+    bugs.init();
     mouth.init();
     ai.init();
     renderer.init(&canvas);
 
     prev_micros = micros();
-    Serial.println("\n>>> [Venom Symbiote] Fluid Symbol Field Fusion Ready! <<<");
-    Serial.println(">>> Commands: 'symbol <eye|?|!|x|o|heart|warning|splash>', 'screenshot', 'leak', 'hud' <<<");
+    Serial.println("\n>>> [Venom Symbiote] Bug Predation & Chameleon Tongue Ready! <<<");
+    Serial.println(">>> Commands: 'bug <fly|crawl>', 'symbol <name>', 'screenshot', 'leak', 'hud' <<<");
 }
 
 void loop() {
@@ -274,6 +274,16 @@ void loop() {
         } else if (cmd.equalsIgnoreCase("leak")) {
             renderer.triggerMindEcho(llm.getLatestNotes());
             Serial.printf(">>> [LEAK] Mind Echo Triggered: \"%s\"\n", llm.getLatestNotes());
+        } else if (cmd.startsWith("bug")) {
+            String btype = cmd.substring(3);
+            btype.trim();
+            if (btype.equalsIgnoreCase("crawl")) {
+                bugs.spawnBugManual(BUG_CRAWLER);
+                Serial.println(">>> [BUG] Crawler spawned on wall!");
+            } else {
+                bugs.spawnBugManual(BUG_FLYER);
+                Serial.println(">>> [BUG] Flying firefly spawned!");
+            }
         } else if (cmd.startsWith("symbol")) {
             String sym = cmd.substring(6);
             sym.trim();
@@ -301,28 +311,34 @@ void loop() {
     physiology.update(dt, total_g_shake, is_upside_down, btn_a_pressed);
     relationship.update(dt, total_g_shake, (physiology.getStress() < 0.2f));
 
-    // 7. 非语言表达层与液态符号系统更新
-    prey.update(dt);
+    // 7. 小虫子与嘴巴进食系统更新
+    bugs.update(dt);
+    mouth.update(dt, skeleton, bugs, tentacles, physiology);
+    if (mouth.checkAndConsumeChompVibration()) {
+        triggerVibration(30, 200); // 吞咽咔嚓咀嚼微震动
+    }
+
+    // 8. 非语言表达层与液态符号系统更新
     expression.update(dt, v3_state, physiology, relationship, rhythm, fluid_symbols, skeleton, is_upside_down);
     fluid_symbols.update(dt);
 
-    // 8. 毒液爬行头部物理擦除/重吸收墨迹
+    // 9. 毒液爬行头部物理擦除/重吸收墨迹
     float hx, hy;
     skeleton.getHeadPos(hx, hy);
     fluid_symbols.wipePoints(hx, hy, 22.0f);
 
-    // 9. AI 行为状态机更新
+    // 10. AI 行为状态机更新 (融入小虫子与捕食意图)
     ai.updateSensors(raw_ax, raw_ay, raw_az, physiology, btn_a_pressed);
-    ai.update(dt, skeleton, metaballs, tentacles, physiology, relationship, expression, prey, mouth, v3_state);
+    ai.update(dt, skeleton, metaballs, tentacles, physiology, relationship, expression, v3_state, bugs, mouth);
 
-    // 10. 骨架动力学更新
+    // 11. 骨架动力学更新
     float crawl_bx, crawl_by;
     ai.getCrawlBias(crawl_bx, crawl_by);
     skeleton.update(dt, gx, gy, crawl_bx, crawl_by,
                     physiology.getNeuroTension(), physiology.getSpikeIntensity(),
                     ai.getRespiration(), is_upside_down);
 
-    // 10.1 撞击“啪嗒”事件检测与触觉/飞溅联动 (Sticky Splat Feedback)
+    // 11.1 撞击“啪嗒”事件检测与触觉/飞溅联动 (Sticky Splat Feedback)
     float imp_spd, hit_x, hit_y;
     if (skeleton.checkAndConsumeImpactEvent(imp_spd, hit_x, hit_y)) {
         // “啪嗒”拍在玻璃上的有力短促震动反馈
@@ -340,20 +356,19 @@ void loop() {
         ai.triggerReactiveCrawl(skeleton, tentacles);
     }
 
-    // 11. Voronoi 细胞与标量场（含符号粒子融合）更新
+    // 12. Voronoi 细胞与标量场（含符号粒子融合）更新
     float look_x, look_y;
     ai.getLookTarget(look_x, look_y);
     voronoi.update(dt, skeleton, physiology, look_x, look_y);
     metaballs.update(dt, skeleton, gx, gy, physiology);
     metaballs.computeField(skeleton, physiology, fluid_symbols, gx, gy);
 
-    // 12. 触手与眼睛系统更新
-    mouth.update(dt, skeleton, physiology, look_x, look_y);
+    // 13. 触手与眼睛系统更新
     tentacles.update(dt, skeleton, physiology, is_upside_down);
     eye.update(dt, skeleton, physiology, look_x, look_y, ai.isSleeping());
 
-    // 13. 渲染输出
-    renderer.render(skeleton, metaballs, eye, mouth, tentacles, prey, ai, physiology,
+    // 14. 渲染输出 (叠加小虫子、嘴巴与长舌头)
+    renderer.render(skeleton, metaballs, eye, tentacles, mouth, bugs, ai, physiology,
                     voronoi, fluid_symbols, relationship, expression, v3_state, current_fps);
     canvas.pushSprite(0, 0);
 

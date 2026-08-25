@@ -364,8 +364,7 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
 
     for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
         SkeletonNode &n = nodes[i];
-        // 呼吸体积仅作自然柔和的 ±5% 微幅起伏，时刻保持饱满坚实的共生体躯干轮廓
-        float r = n.base_radius * (1.0f + respiration * 0.05f);
+        float r = n.base_radius * (1.0f + respiration);
 
         if (has_pull_target || flying_timer > 0.0f) {
             r *= 0.85f;

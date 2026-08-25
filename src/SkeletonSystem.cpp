@@ -299,8 +299,8 @@ void SkeletonSystem::solveSpringConstraints(float tension) {
             prev.vx += (nx * force * back_pull) / prev.mass;
             prev.vy += (ny * force * back_pull) / prev.mass;
 
-            // 严格骨架间距刚性钳制：最大允许距离仅 1.35 倍，严禁身体脱节撕裂！
-            float max_allowed_dist = rest * 1.35f;
+            // 允许骨架拉伸为细长液态丝线 (拉丝行为表现)
+            float max_allowed_dist = rest * 2.2f;
             if (dist > max_allowed_dist) {
                 curr.x = prev.x + nx * max_allowed_dist;
                 curr.y = prev.y + ny * max_allowed_dist;
@@ -416,10 +416,10 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
             flat_y += eff * 0.25f;
         }
 
-        // 速度形变：基于速度主方向自然拉长
+        // 速度形变：基于速度主方向自然拉长成细线 (液态共生体拉丝行为)
         float v_speed = std::sqrt(n.vx * n.vx + n.vy * n.vy);
-        if (v_speed > 0.8f) {
-            float stretch = std::min(1.22f, 1.0f + (v_speed - 0.8f) * 0.04f);
+        if (v_speed > 0.6f) {
+            float stretch = std::min(2.0f, 1.0f + (v_speed - 0.6f) * 0.12f);
             if (std::abs(n.vx) > std::abs(n.vy)) {
                 flat_x *= stretch;
                 flat_y /= std::sqrt(stretch);
@@ -429,11 +429,11 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
             }
         }
 
-        // 严格安全钳位
-        flat_x = std::max(0.78f, std::min(1.22f, flat_x));
-        flat_y = std::max(0.78f, std::min(1.22f, flat_y));
+        // 放宽形变范围，允许细丝形态
+        flat_x = std::max(0.35f, std::min(2.2f, flat_x));
+        flat_y = std::max(0.35f, std::min(2.2f, flat_y));
 
-        n.radius_x = std::max(6.5f, r * flat_x);
-        n.radius_y = std::max(6.5f, r * flat_y);
+        n.radius_x = std::max(2.5f, r * flat_x);
+        n.radius_y = std::max(2.5f, r * flat_y);
     }
 }

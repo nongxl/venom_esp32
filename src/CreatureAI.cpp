@@ -42,14 +42,14 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
 
     switch (new_state) {
         case STATE_IDLE:
-            state_duration = 3.5f + (rand() % 30) * 0.1f; // 3.5 ~ 6.5s 舒缓发呆呼吸
+            state_duration = 1.5f + (rand() % 18) * 0.1f; // 1.5 ~ 3.2s 舒缓发呆呼吸
             crawl_force_x = 0.0f;
             crawl_force_y = 0.0f;
             break;
 
         case STATE_CRAWL: {
-            state_duration = 3.2f + (rand() % 15) * 0.1f; // 3.2 ~ 4.7s 爬1~2步即休整
-            crawl_shoot_timer = 0.60f; // 刚进入爬行时先观察准备 0.60s 再迈出第一步
+            state_duration = 4.5f + (rand() % 20) * 0.1f; // 4.5 ~ 6.5s 探索爬行
+            crawl_shoot_timer = 0.35f; // 刚进入爬行时先观察准备 0.35s 再迈出第一步
 
             // 基于原生好奇心与全景空间探索模型选择目标 (优先开阔腹地)
             int roll = rand() % 100;
@@ -106,7 +106,7 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
         }
 
         case STATE_OBSERVE:
-            state_duration = 4.0f + (rand() % 40) * 0.1f; // 4.0 ~ 8.0s 停顿观察与发呆
+            state_duration = 2.2f + (rand() % 24) * 0.1f; // 2.2 ~ 4.5s 停顿观察与发呆
             crawl_force_x = 0.0f;
             crawl_force_y = 0.0f;
             target_look_x = 40.0f + (rand() % (SCREEN_W - 80));
@@ -114,7 +114,7 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
             break;
 
         case STATE_SLEEP:
-            state_duration = 18.0f + (rand() % 140) * 0.1f; // 安详深度睡眠 18 ~ 32 秒，恢复体力
+            state_duration = 14.0f + (rand() % 100) * 0.1f; // 安详深度睡眠 14 ~ 24 秒，恢复体力
             crawl_force_x = 0.0f;
             crawl_force_y = 0.0f;
             break;
@@ -273,25 +273,25 @@ void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem
         float energy = physiology.getEnergy();
         int r = rand() % 100;
 
-        // 体力低下时 (< 0.35) 优先进入深度睡眠恢复状态
-        if (energy < 0.35f) {
+        // 体力低下时 (< 0.30) 优先进入深度睡眠恢复状态
+        if (energy < 0.30f) {
             enterState(STATE_SLEEP, &tentacles, &skeleton, hx, hy);
-        } else if (energy < 0.65f) {
-            // 中度疲惫：72% 停顿观察, 23% 呼吸发呆, 仅 5% 偶尔移动
-            if (r < 5) {
+        } else if (energy < 0.60f) {
+            // 中度疲惫：18% 爬行探索, 55% 停顿观察, 27% 呼吸发呆
+            if (r < 18) {
                 enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
-            } else if (r < 77) {
+            } else if (r < 73) {
                 enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
             } else {
                 enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
             }
         } else {
-            // 精力充沛：60% 观察周围, 28% 安静发呆, 仅 7% 偶尔爬行, 5% 荡秋千
-            if (r < 5) {
+            // 精力充沛：26% 爬行探索, 12% 荡秋千, 42% 观察周围, 20% 安静发呆
+            if (r < 12) {
                 enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
-            } else if (r < 12) {
+            } else if (r < 38) {
                 enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
-            } else if (r < 72) {
+            } else if (r < 80) {
                 enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
             } else {
                 enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
@@ -325,18 +325,18 @@ void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySyste
 
     const_cast<PhysiologySystem&>(physiology).consumeEnergy(dt * 0.022f * anti_gravity_mult);
 
-    // 从容触手迈步：触手收回后必须深呼吸等待 1.35s，绝不连续连迈！
+    // 自然触手迈步：触手收回后停顿 0.85s 观察呼吸，再从容迈出下一步！
     if (!tentacles.isGrappling()) {
         crawl_shoot_timer += dt;
-        if (crawl_shoot_timer > 1.35f && dist > 14.0f) {
+        if (crawl_shoot_timer > 0.85f && dist > 14.0f) {
             crawl_shoot_timer = 0.0f;
             tentacles.startGrappleCrawl(hx, hy, crawl_target_x, crawl_target_y);
         }
     }
 
-    // 爬行 1 步或接近目标 (dist <= 16px)，立刻主动停下来休整发呆！
+    // 爬行到达目标或超时，转入观察发呆
     if (dist <= 16.0f || (state_timer >= state_duration && !tentacles.isGrappling())) {
-        if (crawl_target_y < 35.0f && physiology.getEnergy() > 0.55f && (rand() % 100) < 40) {
+        if (crawl_target_y < 35.0f && physiology.getEnergy() > 0.55f && (rand() % 100) < 45) {
             enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
         } else {
             enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
@@ -349,24 +349,24 @@ void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySys
         float energy = physiology.getEnergy();
         int roll = rand() % 100;
 
-        if (energy < 0.35f) {
+        if (energy < 0.30f) {
             enterState(STATE_SLEEP, &tentacles, &skeleton, hx, hy);
-        } else if (energy < 0.65f) {
-            // 中度疲惫：75% 安静发呆, 20% 观察周围, 仅 5% 偶尔移动
-            if (roll < 5) {
+        } else if (energy < 0.60f) {
+            // 中度疲惫：18% 爬行探索, 55% 安静发呆, 27% 观察周围
+            if (roll < 18) {
                 enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
-            } else if (roll < 80) {
+            } else if (roll < 73) {
                 enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
             } else {
                 enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
             }
         } else {
-            // 精力充沛：65% 安静发呆, 23% 观察周围, 仅 7% 偶尔爬行, 5% 荡秋千
-            if (roll < 5) {
+            // 精力充沛：26% 爬行探索, 12% 荡秋千, 42% 安静发呆, 20% 观察周围
+            if (roll < 12) {
                 enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
-            } else if (roll < 12) {
+            } else if (roll < 38) {
                 enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
-            } else if (roll < 77) {
+            } else if (roll < 80) {
                 enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
             } else {
                 enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);

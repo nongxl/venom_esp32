@@ -132,10 +132,21 @@ void SkeletonSystem::applyWallAdhesion(int i) {
 void SkeletonSystem::updateNodePhysics(int i, float dt, float gx, float gy, float cfx, float cfy, float tension, bool is_upside_down) {
     SkeletonNode &n = nodes[i];
 
-    // 主动向上或向中央拉拽时，适度削弱下坠重力以助推离开角落
-    float g_scale = is_upside_down ? (0.25f - tension * 0.15f) : (has_pull_target ? 0.45f : 1.0f);
-    n.vx += gx * g_scale * 0.45f;
-    n.vy += gy * g_scale * 0.45f;
+    // 共生体主动抗重力肌张力 (Antigravity Muscle Resistance):
+    // 活体肌肉纤维产生主动支撑力抵消大部分重力下坠，呈现出质心抵抗引力的生命力
+    float muscle_resistance = 0.35f + tension * 0.45f;
+    if (has_pull_target) {
+        muscle_resistance = 0.85f; // 正在爬行攀登时几乎完全抵消下坠重力
+    }
+    if (is_upside_down) {
+        muscle_resistance = std::max(muscle_resistance, 0.75f);
+    }
+
+    float eff_gx = gx * (1.0f - muscle_resistance);
+    float eff_gy = gy * (1.0f - muscle_resistance);
+
+    n.vx += eff_gx * (0.35f / n.mass);
+    n.vy += eff_gy * (0.35f / n.mass);
 
     n.vx += cfx * (0.8f / n.mass);
     n.vy += cfy * (0.8f / n.mass);

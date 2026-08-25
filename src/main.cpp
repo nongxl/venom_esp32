@@ -164,18 +164,23 @@ void loop() {
         vibrate_end_ms = 0;
     }
 
-    // 1. IMU 采集与姿态
+    // 1. 真实物理 IMU 坐标对齐 (M5StickS3 横屏 Rotation 1)
     float raw_ax = 0.0f, raw_ay = 0.0f, raw_az = 0.0f;
     if (M5.Imu.isEnabled()) {
         M5.Imu.getAccel(&raw_ax, &raw_ay, &raw_az);
     }
-    imu_lpf_x = imu_lpf_x * IMU_LPF_ALPHA + raw_ay * (1.0f - IMU_LPF_ALPHA);
-    imu_lpf_y = imu_lpf_y * IMU_LPF_ALPHA + raw_ax * (1.0f - IMU_LPF_ALPHA);
-    imu_lpf_z = imu_lpf_z * IMU_LPF_ALPHA + raw_az * (1.0f - IMU_LPF_ALPHA);
+    // 横屏模式: 屏幕水平 X 对应 -raw_ax * 9.8，垂直 Y 对应 raw_ay * 9.8
+    float cur_gx = -raw_ax * 9.8f;
+    float cur_gy = raw_ay * 9.8f;
 
-    bool is_upside_down = (imu_lpf_y < -0.3f);
-    float gx = (std::abs(imu_lpf_x) > IMU_DEADZONE) ? (imu_lpf_x * 0.5f) : 0.0f;
-    float gy = (std::abs(imu_lpf_y) > IMU_DEADZONE) ? (imu_lpf_y * 0.5f) : DEFAULT_GRAVITY_Y;
+    imu_lpf_x = imu_lpf_x * 0.82f + cur_gx * 0.18f;
+    imu_lpf_y = imu_lpf_y * 0.82f + cur_gy * 0.18f;
+    imu_lpf_z = imu_lpf_z * 0.82f + raw_az * 0.18f;
+
+    // 传感器静止死区过滤 (平放桌面时自然归零，彻底消灭右下角假引力)
+    float gx = (std::abs(imu_lpf_x) > 0.8f) ? (imu_lpf_x * 0.45f) : 0.0f;
+    float gy = (std::abs(imu_lpf_y) > 0.8f) ? (imu_lpf_y * 0.45f) : 0.0f;
+    bool is_upside_down = (imu_lpf_y < -3.5f);
 
     // 2. 音频分析与节拍检测
     processAudioBands();

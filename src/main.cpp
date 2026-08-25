@@ -1,0 +1,271 @@
+#include <M5Unified.h>
+#include <Preferences.h>
+#include "config.h"
+#include "PhysiologySystem.h"
+#include "RelationshipSystem.h"
+#include "FluidSymbolSystem.h"
+#include "RhythmDetector.h"
+#include "LLMClient.h"
+#include "ExpressionLayer.h"
+#include "VoronoiSurface.h"
+#include "SkeletonSystem.h"
+#include "MetaballSystem.h"
+#include "EyeSystem.h"
+#include "TentacleRenderer.h"
+#include "CreatureAI.h"
+#include "Renderer.h"
+
+// ─────────────────────────────────────────────────────────────
+//  系统全局实例
+// ─────────────────────────────────────────────────────────────
+static M5Canvas           canvas(&M5.Display);
+static PhysiologySystem   physiology;
+static RelationshipSystem relationship;
+static FluidSymbolSystem  fluid_symbols;
+static RhythmDetector     rhythm;
+static LLMClient          llm;
+static ExpressionLayer    expression;
+static VoronoiSurface     voronoi;
+static SkeletonSystem     skeleton;
+static MetaballSystem     metaballs;
+static EyeSystem          eye;
+static TentacleRenderer   tentacles;
+static CreatureAI         ai;
+static Renderer           renderer;
+
+// IMU 低通滤波值
+static float imu_lpf_x = 0.0f;
+static float imu_lpf_y = DEFAULT_GRAVITY_Y;
+static float imu_lpf_z = 0.0f;
+
+// 时间与帧率诊断
+static unsigned long prev_micros = 0;
+static float current_fps = 30.0f;
+static float fps_calc_accumulator = 0.0f;
+static int   fps_calc_frames = 0;
+static unsigned long last_fps_update_ms = 0;
+
+// 震动电机脉冲
+static unsigned long vibrate_end_ms = 0;
+
+// 麦克风三频段音频分析缓存
+static int16_t mic_raw_buffer[128];
+static unsigned long last_mic_sample_ms = 0;
+
+// LLM 意图请求调度计时
+static unsigned long last_llm_request_ms = 0;
+
+void triggerVibration(int duration_ms, uint8_t power = 180) {
+    ledcWrite(VIBR_PWM_CHANNEL, power);
+    vibrate_end_ms = millis() + duration_ms;
+}
+
+static void processAudioBands() {
+    if (!M5.Mic.isEnabled()) return;
+
+    if (millis() - last_mic_sample_ms >= 20) {
+        last_mic_sample_ms = millis();
+        if (M5.Mic.record(mic_raw_buffer, 128, 8000)) {
+            float low_energy = 0.0f;
+            float mid_energy = 0.0f;
+            float high_energy = 0.0f;
+            int zero_crossings = 0;
+            float prev_sample = 0.0f;
+
+            for (int i = 0; i < 128; ++i) {
+                float sample = (float)mic_raw_buffer[i] / 32768.0f;
+                float abs_val = std::abs(sample);
+
+                if ((sample > 0 && prev_sample < 0) || (sample < 0 && prev_sample > 0)) {
+                    zero_crossings++;
+                }
+
+                if (i % 4 == 0) low_energy += abs_val;
+                if (i % 2 == 0) mid_energy += abs_val;
+                high_energy += abs_val;
+
+                prev_sample = sample;
+            }
+
+            low_energy  = std::min(1.0f, (low_energy / 32.0f) * 2.5f);
+            mid_energy  = std::min(1.0f, (mid_energy / 64.0f) * 3.0f);
+            high_energy = std::min(1.0f, (high_energy / 128.0f) * 3.8f);
+
+            if (zero_crossings > 35) {
+                high_energy = std::min(1.0f, high_energy * 1.5f + 0.2f);
+            }
+
+            physiology.feedAudioBands(low_energy, mid_energy, high_energy);
+        }
+    }
+}
+
+void setup() {
+    auto cfg = M5.config();
+    cfg.serial_baudrate = 115200;
+    cfg.internal_imu = true;
+    cfg.internal_mic = true;
+    cfg.internal_spk = true;
+    M5.begin(cfg);
+
+    M5.Display.setRotation(1);
+    M5.Display.setBrightness(SYSTEM_BRIGHTNESS);
+    canvas.setPsram(false);
+    canvas.createSprite(SCREEN_W, SCREEN_H);
+
+    M5.Imu.begin();
+    M5.Mic.begin();
+    M5.Speaker.setVolume(SYSTEM_VOLUME);
+
+    pinMode(VIBR_PIN, OUTPUT);
+    ledcSetup(VIBR_PWM_CHANNEL, VIBR_PWM_FREQ, VIBR_PWM_BITS);
+    ledcAttachPin(VIBR_PIN, VIBR_PWM_CHANNEL);
+    ledcWrite(VIBR_PWM_CHANNEL, 0);
+
+    physiology.init();
+    relationship.init();
+    fluid_symbols.init();
+    rhythm.init();
+    llm.init();
+    expression.init();
+    voronoi.init();
+    skeleton.init();
+    metaballs.init();
+    eye.init();
+    tentacles.init();
+    ai.init();
+    renderer.init(&canvas);
+
+    prev_micros = micros();
+    Serial.println("\n>>> [Venom Symbiote] Solid Flesh & Organic Glyphs Ready! <<<");
+    Serial.println(">>> Commands: 'screenshot', 'leak', 'symbol <ring|?|!|x|ripple>', 'hud' <<<");
+}
+
+void loop() {
+    M5.update();
+
+    unsigned long now_micros = micros();
+    float dt = (now_micros - prev_micros) * 0.000001f;
+    prev_micros = now_micros;
+    if (dt > 0.1f) dt = 0.1f;
+    if (dt < 0.001f) dt = 0.001f;
+
+    fps_calc_accumulator += (1.0f / dt);
+    fps_calc_frames++;
+    if (millis() - last_fps_update_ms >= 500) {
+        current_fps = fps_calc_accumulator / (float)fps_calc_frames;
+        fps_calc_accumulator = 0.0f;
+        fps_calc_frames = 0;
+        last_fps_update_ms = millis();
+    }
+
+    if (vibrate_end_ms > 0 && millis() >= vibrate_end_ms) {
+        ledcWrite(VIBR_PWM_CHANNEL, 0);
+        vibrate_end_ms = 0;
+    }
+
+    // 1. IMU 采集与姿态
+    float raw_ax = 0.0f, raw_ay = 0.0f, raw_az = 0.0f;
+    if (M5.Imu.isEnabled()) {
+        M5.Imu.getAccel(&raw_ax, &raw_ay, &raw_az);
+    }
+    imu_lpf_x = imu_lpf_x * IMU_LPF_ALPHA + raw_ay * (1.0f - IMU_LPF_ALPHA);
+    imu_lpf_y = imu_lpf_y * IMU_LPF_ALPHA + raw_ax * (1.0f - IMU_LPF_ALPHA);
+    imu_lpf_z = imu_lpf_z * IMU_LPF_ALPHA + raw_az * (1.0f - IMU_LPF_ALPHA);
+
+    bool is_upside_down = (imu_lpf_y < -0.3f);
+    float gx = (std::abs(imu_lpf_x) > IMU_DEADZONE) ? (imu_lpf_x * 0.5f) : 0.0f;
+    float gy = (std::abs(imu_lpf_y) > IMU_DEADZONE) ? (imu_lpf_y * 0.5f) : DEFAULT_GRAVITY_Y;
+
+    // 2. 音频分析与节拍检测
+    processAudioBands();
+    float total_g_shake = std::max(0.0f, std::abs(raw_ax) + std::abs(raw_ay) + std::abs(raw_az) - 1.0f);
+    rhythm.update(dt, total_g_shake, physiology.getAudioHigh());
+
+    // 3. 按键与交互
+    bool btn_a_pressed = M5.BtnA.wasPressed();
+    bool btn_b_pressed = M5.BtnB.wasPressed();
+
+    if (btn_a_pressed) {
+        ai.triggerJolt(skeleton, metaballs, 1.2f);
+        triggerVibration(50, 220);
+    }
+
+    if (btn_b_pressed) {
+        renderer.toggleHUD();
+        triggerVibration(25, 150);
+    }
+
+    // 4. 串口交互指令
+    if (Serial.available()) {
+        String cmd = Serial.readStringUntil('\n');
+        cmd.trim();
+        if (cmd.equalsIgnoreCase("screenshot") || cmd.equalsIgnoreCase("s")) {
+            renderer.sendScreenshotSerial();
+        } else if (cmd.equalsIgnoreCase("hud")) {
+            renderer.toggleHUD();
+        } else if (cmd.equalsIgnoreCase("leak")) {
+            renderer.toggleHUD();
+            Serial.printf(">>> [LEAK] Mind Echo: \"%s\"\n", llm.getLatestNotes());
+        } else if (cmd.startsWith("symbol")) {
+            if (cmd.indexOf("ring") >= 0)   fluid_symbols.spawnSymbol(SYMBOL_RING, SCREEN_W * 0.5f, SCREEN_H * 0.5f);
+            if (cmd.indexOf("?") >= 0)      fluid_symbols.spawnSymbol(SYMBOL_QUESTION, SCREEN_W * 0.5f, SCREEN_H * 0.5f);
+            if (cmd.indexOf("!") >= 0)      fluid_symbols.spawnSymbol(SYMBOL_EXCLAMATION, SCREEN_W * 0.5f, SCREEN_H * 0.5f);
+            if (cmd.indexOf("x") >= 0)      fluid_symbols.spawnSymbol(SYMBOL_CROSS, SCREEN_W * 0.5f, SCREEN_H * 0.5f);
+            if (cmd.indexOf("ripple") >= 0) fluid_symbols.spawnSymbol(SYMBOL_RIPPLE, SCREEN_W * 0.5f, SCREEN_H * 0.5f);
+        } else if (cmd.equalsIgnoreCase("theme")) {
+            renderer.nextTheme();
+        }
+    }
+
+    // 5. LLM 意识系统异步请求与意图更新
+    if (millis() - last_llm_request_ms >= 18000) {
+        last_llm_request_ms = millis();
+        llm.requestConsciousnessUpdate(physiology.getEnergy(), physiology.getStress(),
+                                       physiology.getCuriosity(), physiology.getComfort(),
+                                       physiology.getAttachment(), ai.getStateName(),
+                                       (total_g_shake > 0.4f) ? "shake" : "calm");
+    }
+
+    ConsciousnessStateV3 v3_state = llm.getLatestState();
+    if (v3_state.has_new_update) {
+        relationship.applyDeltas(v3_state.trust_delta, v3_state.resentment_delta, v3_state.social_openness);
+    }
+
+    // 6. 生理与关系系统更新
+    physiology.update(dt, total_g_shake, is_upside_down, btn_a_pressed);
+    relationship.update(dt, total_g_shake, (physiology.getStress() < 0.2f));
+
+    // 7. 非语言表达层与液态符号系统更新
+    expression.update(dt, v3_state, physiology, relationship, rhythm, fluid_symbols, skeleton, is_upside_down);
+    fluid_symbols.update(dt, skeleton, gx, gy);
+
+    // 8. AI 行为状态机更新
+    ai.updateSensors(raw_ax, raw_ay, raw_az, physiology, btn_a_pressed);
+    ai.update(dt, skeleton, metaballs, physiology, relationship, expression, v3_state);
+
+    // 9. 骨架动力学更新
+    float crawl_bx, crawl_by;
+    ai.getCrawlBias(crawl_bx, crawl_by);
+    skeleton.update(dt, gx, gy, crawl_bx, crawl_by,
+                    physiology.getNeuroTension(), physiology.getSpikeIntensity(),
+                    ai.getRespiration(), is_upside_down);
+
+    // 10. Voronoi 细胞与标量场更新
+    float look_x, look_y;
+    ai.getLookTarget(look_x, look_y);
+    voronoi.update(dt, skeleton, physiology, look_x, look_y);
+    metaballs.update(dt, skeleton, gx, gy, physiology);
+    metaballs.computeField(skeleton, physiology);
+
+    // 11. 触手与眼睛系统更新
+    tentacles.update(dt, skeleton, physiology, is_upside_down);
+    eye.update(dt, skeleton, physiology, look_x, look_y, ai.isSleeping());
+
+    // 12. 渲染输出
+    renderer.render(skeleton, metaballs, eye, tentacles, ai, physiology,
+                    voronoi, fluid_symbols, relationship, expression, v3_state, current_fps);
+    canvas.pushSprite(0, 0);
+
+    delay(2);
+}

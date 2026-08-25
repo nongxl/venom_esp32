@@ -1,0 +1,16 @@
+# PlatformIO & Build Artifacts
+.pio/
+.vscode/
+compile_commands.json
+
+# 敏感信息存储文件（切勿提交 API Key 与 WiFi 密码）
+src/secrets.h
+
+# 本地配置文件
+**/config.json
+**/wifi.json
+
+# 系统与 IDE 缓存
+.DS_Store
+Thumbs.db
+*.tmp

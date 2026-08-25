@@ -182,6 +182,26 @@ void loop() {
     float gy = (std::abs(imu_lpf_y) > 0.8f) ? (imu_lpf_y * 0.45f) : 0.0f;
     bool is_upside_down = (imu_lpf_y < -3.5f);
 
+    // 1.1 挥动甩掷惯性冲击 (Shake Violent Sling Impulse)
+    static float prev_raw_ax = 0.0f;
+    static float prev_raw_ay = 0.0f;
+    static unsigned long last_sling_time_ms = 0;
+
+    float d_ax = raw_ax - prev_raw_ax;
+    float d_ay = raw_ay - prev_raw_ay;
+    float jerk_mag = std::sqrt(d_ax * d_ax + d_ay * d_ay);
+
+    if (jerk_mag > 0.75f && (millis() - last_sling_time_ms > 220)) {
+        last_sling_time_ms = millis();
+        // 瞬间向甩掷方向施加强力惯性冲量，将毒液狠狠甩向边缘！
+        float throw_ix = -d_ax * 15.0f;
+        float throw_iy = d_ay * 15.0f;
+        skeleton.applyImpulse(throw_ix, throw_iy);
+        ai.triggerStartle(1.3f);
+    }
+    prev_raw_ax = raw_ax;
+    prev_raw_ay = raw_ay;
+
     // 2. 音频分析与节拍检测
     processAudioBands();
     float total_g_shake = std::max(0.0f, std::abs(raw_ax) + std::abs(raw_ay) + std::abs(raw_az) - 1.0f);
@@ -258,6 +278,21 @@ void loop() {
     skeleton.update(dt, gx, gy, crawl_bx, crawl_by,
                     physiology.getNeuroTension(), physiology.getSpikeIntensity(),
                     ai.getRespiration(), is_upside_down);
+
+    // 10.1 撞击“啪嗒”事件检测与触觉/飞溅联动 (Sticky Splat Feedback)
+    float imp_spd, hit_x, hit_y;
+    if (skeleton.checkAndConsumeImpactEvent(imp_spd, hit_x, hit_y)) {
+        // “啪嗒”拍在玻璃上的有力短促震动反馈
+        triggerVibration(45, 255);
+        // 瞬间向外爆射 6 根应力尖刺
+        metaballs.triggerSpikeBurst(6, 1.35f);
+        // 飞溅 3 颗微小黏液滴
+        for (int k = 0; k < 3; ++k) {
+            float sp_vx = ((rand() % 80) - 40) * 0.08f;
+            float sp_vy = ((rand() % 80) - 40) * 0.08f;
+            metaballs.spawnDroplet(hit_x + sp_vx * 2.0f, hit_y + sp_vy * 2.0f, sp_vx, sp_vy, 2.5f, true);
+        }
+    }
 
     // 11. Voronoi 细胞与标量场（含符号粒子融合）更新
     float look_x, look_y;

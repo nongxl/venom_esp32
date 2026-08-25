@@ -17,6 +17,7 @@ enum HuntAction {
 enum HuntPhase {
     PHASE_IDLE = 0,
     PHASE_SHOOT,          // 弹射长舌 / 射出触手 / 极速飞射狙击黏液弹
+    PHASE_HOLD,           // 舌尖吸中/触手抓牢后的张力停顿阶段 (0.22~0.30s)
     PHASE_RETRACT,        // 卷回长舌 / 拖回触手
     PHASE_STALK_OBSERVE,  // 【黏液狙击命中后的原地戏谑观察阶段 1.2~1.8s】
     PHASE_CRAWL_ENGULF,   // 观察满足后大步爬过去包覆吞噬
@@ -82,6 +83,7 @@ private:
     HuntContext hunt;
     SplatParticle splats[MAX_SPLAT_PARTICLES];
     float hunt_decision_cooldown = 1.0f;
+    HuntAction last_hunt_action = HUNT_NONE;
 
     void spawnSplatBurst(float at_x, float at_y, int count, float speed_mult = 1.0f);
     void updateSplatParticles(float dt);

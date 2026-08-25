@@ -73,8 +73,8 @@ bool PredatorSystem::tryTriggerHunt(PreyBugSystem &bugs, const SkeletonSystem &s
     float dy = by - hy;
     float dist = std::sqrt(dx * dx + dy * dy);
 
-    // 捕食射程判断 (最大有效射程 95px)
-    if (dist > 95.0f || dist < 6.0f) return false;
+    // 捕食射程判断 (最大有效射程 125px，覆盖屏幕大半腹地)
+    if (dist > 125.0f || dist < 6.0f) return false;
 
     hunt.active = true;
     hunt.target_bug_idx = bug_idx;
@@ -88,25 +88,28 @@ bool PredatorSystem::tryTriggerHunt(PreyBugSystem &bugs, const SkeletonSystem &s
     hunt.progress = 0.0f;
     hunt.trail_spawn_timer = 0.0f;
 
-    // 动作决策权重分布
+    // 【三大进食动作智能防重复轮换决策机制】
+    // 彻底杜绝单一连续蛛网，大幅提高舌头与触手出镜率 (合占 75%+)
     int roll = rand() % 100;
-    if (dist < 60.0f) {
-        if (roll < 45) {
-            hunt.action = HUNT_TONGUE;      // 变色龙闪电弹舌
-        } else if (roll < 80) {
-            hunt.action = HUNT_TENTACLE;    // 暗黑触手抓取
-        } else {
-            hunt.action = HUNT_MUCUS;       // 黑色黏液定身爬行
-        }
+    if (last_hunt_action == HUNT_MUCUS) {
+        // 上次使用了黏液弹 -> 本次 100% 在舌头和触手之间交替！
+        hunt.action = (roll < 50) ? HUNT_TONGUE : HUNT_TENTACLE;
+    } else if (last_hunt_action == HUNT_TONGUE) {
+        // 上次使用了舌头 -> 本次在触手 (60%) 与黏液弹 (40%) 中挑选
+        hunt.action = (roll < 60) ? HUNT_TENTACLE : HUNT_MUCUS;
+    } else if (last_hunt_action == HUNT_TENTACLE) {
+        // 上次使用了触手 -> 本次在长舌 (60%) 与黏液弹 (40%) 中挑选
+        hunt.action = (roll < 60) ? HUNT_TONGUE : HUNT_MUCUS;
     } else {
-        if (roll < 55) {
-            hunt.action = HUNT_MUCUS;       // 远距离喷射黑色黏液弹
+        if (roll < 40) {
+            hunt.action = HUNT_TONGUE;      // 40% 变色龙闪电长舌
         } else if (roll < 80) {
-            hunt.action = HUNT_TONGUE;      // 极限长舌弹射
+            hunt.action = HUNT_TENTACLE;    // 40% 暗黑触手抓取
         } else {
-            hunt.action = HUNT_TENTACLE;    // 远距触手
+            hunt.action = HUNT_MUCUS;       // 20% 黑色黏液定身
         }
     }
+    last_hunt_action = hunt.action;
 
     hunt.phase = PHASE_SHOOT;
 
@@ -162,20 +165,28 @@ void PredatorSystem::updateTongueStrike(float dt, PreyBugSystem &bugs, SkeletonS
     }
 
     if (hunt.phase == PHASE_SHOOT) {
-        constexpr float SHOOT_DUR = 0.11f; // 0.11s 闪电射出
+        constexpr float SHOOT_DUR = 0.14f; // 0.14s 闪电射出
         float t = std::min(1.0f, hunt.timer / SHOOT_DUR);
         hunt.progress = t;
         hunt.tip_x = hunt.start_x + (hunt.target_x - hunt.start_x) * t;
         hunt.tip_y = hunt.start_y + (hunt.target_y - hunt.start_y) * t;
 
         if (hunt.timer >= SHOOT_DUR) {
-            // 舌尖黏中虫子，进入卷回阶段
+            // 舌尖黏中虫子，进入 0.22s 吸盘吸附颤动展示阶段！
             bugs.catchBug(hunt.target_bug_idx, hunt.tip_x, hunt.tip_y);
+            hunt.phase = PHASE_HOLD;
+            hunt.timer = 0.0f;
+        }
+    } else if (hunt.phase == PHASE_HOLD) {
+        // 吸盘死死吸牢虫子，舌尖微颤，虫子惊慌挣扎
+        bugs.catchBug(hunt.target_bug_idx, hunt.tip_x, hunt.tip_y);
+        constexpr float HOLD_DUR = 0.22f;
+        if (hunt.timer >= HOLD_DUR) {
             hunt.phase = PHASE_RETRACT;
             hunt.timer = 0.0f;
         }
     } else if (hunt.phase == PHASE_RETRACT) {
-        constexpr float RETRACT_DUR = 0.13f; // 0.13s 极速卷回
+        constexpr float RETRACT_DUR = 0.24f; // 0.24s 强力卷回
         float t = std::min(1.0f, hunt.timer / RETRACT_DUR);
         hunt.progress = 1.0f - t;
         hunt.tip_x = hunt.target_x + (hunt.start_x - hunt.target_x) * t;
@@ -211,12 +222,20 @@ void PredatorSystem::updateTentacleGrab(float dt, PreyBugSystem &bugs, SkeletonS
         hunt.tip_y = hunt.start_y + (hunt.target_y - hunt.start_y) * t;
 
         if (hunt.timer >= SHOOT_DUR) {
+            // 三指爪盘紧紧抓住虫子，进入 0.28s 抽搐收紧展示阶段！
             bugs.catchBug(hunt.target_bug_idx, hunt.tip_x, hunt.tip_y);
+            hunt.phase = PHASE_HOLD;
+            hunt.timer = 0.0f;
+        }
+    } else if (hunt.phase == PHASE_HOLD) {
+        bugs.catchBug(hunt.target_bug_idx, hunt.tip_x, hunt.tip_y);
+        constexpr float HOLD_DUR = 0.28f;
+        if (hunt.timer >= HOLD_DUR) {
             hunt.phase = PHASE_RETRACT;
             hunt.timer = 0.0f;
         }
     } else if (hunt.phase == PHASE_RETRACT) {
-        constexpr float RETRACT_DUR = 0.20f;
+        constexpr float RETRACT_DUR = 0.28f; // 0.28s 强力拖回核心
         float t = std::min(1.0f, hunt.timer / RETRACT_DUR);
         hunt.progress = 1.0f - t;
         hunt.tip_x = hunt.target_x + (hunt.start_x - hunt.target_x) * t;

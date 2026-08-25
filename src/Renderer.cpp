@@ -90,46 +90,6 @@ void Renderer::renderFieldAndVoronoi(const MetaballSystem &metaballs, const Voro
     }
 }
 
-void Renderer::renderMeniscusGlow(const MetaballSystem &metaballs) {
-    const uint8_t *field = metaballs.getFieldBuffer();
-
-    int bottom_gy = GRID_H - 1;
-    int bottom_sy = SCREEN_H - 1;
-    for (int gx = 0; gx < GRID_W; ++gx) {
-        if (field[bottom_gy * GRID_W + gx] >= MetaballSystem::THRESHOLD) {
-            int sx = gx * GRID_SCALE;
-            canvas->drawFastHLine(sx, bottom_sy, GRID_SCALE, COLOR_GLOW_WHITE);
-            canvas->drawFastHLine(sx, bottom_sy - 1, GRID_SCALE, COLOR_GLOW_CYAN);
-        }
-    }
-
-    for (int gx = 0; gx < GRID_W; ++gx) {
-        if (field[0 * GRID_W + gx] >= MetaballSystem::THRESHOLD) {
-            int sx = gx * GRID_SCALE;
-            canvas->drawFastHLine(sx, 0, GRID_SCALE, COLOR_GLOW_WHITE);
-            canvas->drawFastHLine(sx, 1, GRID_SCALE, COLOR_GLOW_CYAN);
-        }
-    }
-
-    for (int gy = 0; gy < GRID_H; ++gy) {
-        if (field[gy * GRID_W + 0] >= MetaballSystem::THRESHOLD) {
-            int sy = gy * GRID_SCALE;
-            canvas->drawFastVLine(0, sy, GRID_SCALE, COLOR_GLOW_WHITE);
-            canvas->drawFastVLine(1, sy, GRID_SCALE, COLOR_GLOW_CYAN);
-        }
-    }
-
-    int right_gx = GRID_W - 1;
-    int right_sx = SCREEN_W - 1;
-    for (int gy = 0; gy < GRID_H; ++gy) {
-        if (field[gy * GRID_W + right_gx] >= MetaballSystem::THRESHOLD) {
-            int sy = gy * GRID_SCALE;
-            canvas->drawFastVLine(right_sx, sy, GRID_SCALE, COLOR_GLOW_WHITE);
-            canvas->drawFastVLine(right_sx - 1, sy, GRID_SCALE, COLOR_GLOW_CYAN);
-        }
-    }
-}
-
 void Renderer::triggerMindEcho(const char *custom_text) {
     if (custom_text && strlen(custom_text) > 0) {
         strncpy(current_echo_text, custom_text, sizeof(current_echo_text) - 1);
@@ -285,9 +245,6 @@ void Renderer::render(const SkeletonSystem &skeleton, const MetaballSystem &meta
 
     // 绘制标量场肉身与 Voronoi 细胞
     renderFieldAndVoronoi(metaballs, voronoi, physiology);
-
-    // 绘制贴墙荧光
-    renderMeniscusGlow(metaballs);
 
     // 绘制触手、捕食特效与眼睛
     tentacles.draw(*canvas);

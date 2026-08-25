@@ -64,7 +64,6 @@ private:
 
     uint16_t getBackgroundColor() const;
     void renderFieldAndVoronoi(const MetaballSystem &metaballs, const VoronoiSurface &voronoi, const PhysiologySystem &physiology);
-    void renderMeniscusGlow(const MetaballSystem &metaballs);
     void renderHUD(const CreatureAI &ai, const PhysiologySystem &physiology,
                    const RelationshipSystem &relationship, const ExpressionLayer &expression,
                    const ConsciousnessStateV3 &v3_state, float fps);

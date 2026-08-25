@@ -5,6 +5,9 @@ PredatorSystem::PredatorSystem() {
     hunt.active = false;
     hunt.action = HUNT_NONE;
     hunt.phase = PHASE_IDLE;
+    for (int i = 0; i < MAX_SPLAT_PARTICLES; ++i) {
+        splats[i].active = false;
+    }
 }
 
 void PredatorSystem::init() {
@@ -12,6 +15,47 @@ void PredatorSystem::init() {
     hunt.action = HUNT_NONE;
     hunt.phase = PHASE_IDLE;
     hunt_decision_cooldown = 0.5f;
+    for (int i = 0; i < MAX_SPLAT_PARTICLES; ++i) {
+        splats[i].active = false;
+    }
+}
+
+void PredatorSystem::spawnSplatBurst(float at_x, float at_y, int count, float speed_mult) {
+    int spawned = 0;
+    for (int i = 0; i < MAX_SPLAT_PARTICLES && spawned < count; ++i) {
+        if (!splats[i].active) {
+            SplatParticle &p = splats[i];
+            p.active = true;
+            p.x = at_x + ((rand() % 6) - 3);
+            p.y = at_y + ((rand() % 6) - 3);
+
+            float angle = (rand() % 360) * 0.017453f;
+            float spd = (25.0f + (rand() % 45)) * speed_mult;
+            p.vx = std::cos(angle) * spd;
+            p.vy = std::sin(angle) * spd;
+
+            p.radius = 1.4f + (rand() % 15) * 0.1f;
+            p.life = 1.0f;
+            spawned++;
+        }
+    }
+}
+
+void PredatorSystem::updateSplatParticles(float dt) {
+    for (int i = 0; i < MAX_SPLAT_PARTICLES; ++i) {
+        if (splats[i].active) {
+            SplatParticle &p = splats[i];
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.vx *= 0.88f;
+            p.vy *= 0.88f;
+            p.life -= dt * 1.6f;
+
+            if (p.life <= 0.0f) {
+                p.active = false;
+            }
+        }
+    }
 }
 
 bool PredatorSystem::tryTriggerHunt(PreyBugSystem &bugs, const SkeletonSystem &skeleton) {
@@ -42,6 +86,7 @@ bool PredatorSystem::tryTriggerHunt(PreyBugSystem &bugs, const SkeletonSystem &s
     hunt.tip_x = hx;
     hunt.tip_y = hy;
     hunt.progress = 0.0f;
+    hunt.trail_spawn_timer = 0.0f;
 
     // 动作决策权重分布
     int roll = rand() % 100;
@@ -51,12 +96,12 @@ bool PredatorSystem::tryTriggerHunt(PreyBugSystem &bugs, const SkeletonSystem &s
         } else if (roll < 80) {
             hunt.action = HUNT_TENTACLE;    // 暗黑触手抓取
         } else {
-            hunt.action = HUNT_MUCUS;       // 黏液定身爬行
+            hunt.action = HUNT_MUCUS;       // 黑色黏液定身爬行
         }
     } else {
-        if (roll < 50) {
-            hunt.action = HUNT_MUCUS;       // 远距离喷射黏液弹
-        } else if (roll < 75) {
+        if (roll < 55) {
+            hunt.action = HUNT_MUCUS;       // 远距离喷射黑色黏液弹
+        } else if (roll < 80) {
             hunt.action = HUNT_TONGUE;      // 极限长舌弹射
         } else {
             hunt.action = HUNT_TENTACLE;    // 远距触手
@@ -70,8 +115,11 @@ bool PredatorSystem::tryTriggerHunt(PreyBugSystem &bugs, const SkeletonSystem &s
         hunt.mucus_y = hy;
         float dir_x = dx / dist;
         float dir_y = dy / dist;
-        hunt.mucus_vx = dir_x * 165.0f;
-        hunt.mucus_vy = dir_y * 165.0f;
+        hunt.mucus_vx = dir_x * 175.0f;
+        hunt.mucus_vy = dir_y * 175.0f;
+
+        // 喷射瞬间枪口初速度溅射
+        spawnSplatBurst(hx, hy, 4, 0.6f);
     }
 
     return true;
@@ -190,16 +238,35 @@ void PredatorSystem::updateMucusSnare(float dt, PreyBugSystem &bugs, SkeletonSys
     hunt.start_y = hy;
 
     if (hunt.phase == PHASE_SHOOT) {
-        // 黏液弹飞行
+        // 纯黑黏液弹飞行
         hunt.mucus_x += hunt.mucus_vx * dt;
         hunt.mucus_y += hunt.mucus_vy * dt;
+
+        // 飞行后抛黑色尾迹液滴
+        hunt.trail_spawn_timer += dt;
+        if (hunt.trail_spawn_timer >= 0.035f) {
+            hunt.trail_spawn_timer = 0.0f;
+            for (int i = 0; i < MAX_SPLAT_PARTICLES; ++i) {
+                if (!splats[i].active) {
+                    splats[i].active = true;
+                    splats[i].x = hunt.mucus_x + ((rand() % 4) - 2);
+                    splats[i].y = hunt.mucus_y + ((rand() % 4) - 2);
+                    splats[i].vx = -hunt.mucus_vx * 0.12f + ((rand() % 20) - 10);
+                    splats[i].vy = -hunt.mucus_vy * 0.12f + ((rand() % 20) - 10);
+                    splats[i].radius = 1.2f;
+                    splats[i].life = 0.5f;
+                    break;
+                }
+            }
+        }
 
         float dx = hunt.target_x - hunt.mucus_x;
         float dy = hunt.target_y - hunt.mucus_y;
         float dist = std::sqrt(dx * dx + dy * dy);
 
         if (dist < 8.0f || hunt.timer > 0.45f) {
-            // 命中虫子，形成定身网
+            // 命中虫子！爆浆溅射出 8 颗黑色黏液滴，将虫子死死定身！
+            spawnSplatBurst(hunt.target_x, hunt.target_y, 8, 1.2f);
             bugs.snareBug(hunt.target_bug_idx);
             hunt.phase = PHASE_CRAWL_ENGULF;
             hunt.timer = 0.0f;
@@ -225,6 +292,9 @@ void PredatorSystem::updateMucusSnare(float dt, PreyBugSystem &bugs, SkeletonSys
 
 void PredatorSystem::update(float dt, PreyBugSystem &bugs, SkeletonSystem &skeleton,
                             PhysiologySystem &physiology, MetaballSystem &metaballs) {
+    // 更新所有飞溅微粒物理
+    updateSplatParticles(dt);
+
     if (!hunt.active) {
         hunt_decision_cooldown -= dt;
         if (hunt_decision_cooldown <= 0.0f) {
@@ -260,7 +330,7 @@ void PredatorSystem::drawTongue(M5Canvas &canvas) const {
 
     // 1. 绘制猩红肉质舌身 (带粗细与高光)
     canvas.drawLine(sx, sy, tx, ty, 0xF800);     // 猩红
-    canvas.drawLine(sx + 1, sy, tx + 1, ty, 0xF9E7); // 肉粉色高光
+    canvas.drawLine(sx + 1, sy + 1, tx, ty, 0xF9E7); // 肉粉色高光
     canvas.drawLine(sx, sy + 1, tx, ty + 1, 0xF800);
 
     // 2. 绘制舌尖肉质吸盘圆垫
@@ -297,14 +367,33 @@ void PredatorSystem::drawGrabTentacle(M5Canvas &canvas) const {
 }
 
 void PredatorSystem::drawMucusShot(M5Canvas &canvas) const {
-    if (!hunt.active || hunt.action != HUNT_MUCUS) return;
+    // 1. 绘制所有飞行中的溅射黑色液滴
+    for (int i = 0; i < MAX_SPLAT_PARTICLES; ++i) {
+        if (splats[i].active) {
+            int px = (int)splats[i].x;
+            int py = (int)splats[i].y;
+            int r = (int)std::round(splats[i].radius);
+            canvas.fillCircle(px, py, r, COLOR_VENOM_CORE);
+            canvas.drawPixel(px, py, COLOR_DITHER_GRAY); // 沥青微高光
+        }
+    }
 
-    if (hunt.phase == PHASE_SHOOT) {
+    // 2. 绘制飞行中的纯黑黏液母弹
+    if (hunt.active && hunt.action == HUNT_MUCUS && hunt.phase == PHASE_SHOOT) {
         int mx = (int)hunt.mucus_x;
         int my = (int)hunt.mucus_y;
-        canvas.fillCircle(mx, my, 3, 0x07FF); // 亮青蓝黏液球
-        canvas.drawCircle(mx, my, 4, 0x07E0); // 荧光绿外圈
-        canvas.drawPixel(mx, my, 0xFFFF);
+
+        // 纯黑大液滴主体
+        canvas.fillCircle(mx, my, 4, COLOR_VENOM_CORE);
+        // 拉长形变拖尾黑滴
+        float dir_len = std::sqrt(hunt.mucus_vx * hunt.mucus_vx + hunt.mucus_vy * hunt.mucus_vy);
+        if (dir_len > 0.1f) {
+            float tail_off_x = (hunt.mucus_vx / dir_len) * 3.5f;
+            float tail_off_y = (hunt.mucus_vy / dir_len) * 3.5f;
+            canvas.fillCircle((int)(mx - tail_off_x), (int)(my - tail_off_y), 3, COLOR_VENOM_CORE);
+        }
+        // 表面沥青微高光
+        canvas.drawPixel(mx, my, COLOR_DITHER_GRAY);
     }
 }
 

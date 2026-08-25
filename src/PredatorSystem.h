@@ -22,6 +22,16 @@ enum HuntPhase {
     PHASE_DIGEST        // 吞噬消化反馈
 };
 
+struct SplatParticle {
+    bool active = false;
+    float x = 0.0f;
+    float y = 0.0f;
+    float vx = 0.0f;
+    float vy = 0.0f;
+    float radius = 1.8f;
+    float life = 1.0f;
+};
+
 struct HuntContext {
     bool active = false;
     HuntAction action = HUNT_NONE;
@@ -39,15 +49,18 @@ struct HuntContext {
     float tip_y = 100.0f;
     float progress = 0.0f;
 
-    // 黏液弹飞行
+    // 纯黑黏液弹飞行与拖尾
     float mucus_x = 0.0f;
     float mucus_y = 0.0f;
     float mucus_vx = 0.0f;
     float mucus_vy = 0.0f;
+    float trail_spawn_timer = 0.0f;
 };
 
 class PredatorSystem {
 public:
+    static constexpr int MAX_SPLAT_PARTICLES = 24;
+
     PredatorSystem();
 
     void init();
@@ -63,7 +76,11 @@ public:
 
 private:
     HuntContext hunt;
+    SplatParticle splats[MAX_SPLAT_PARTICLES];
     float hunt_decision_cooldown = 1.0f;
+
+    void spawnSplatBurst(float at_x, float at_y, int count, float speed_mult = 1.0f);
+    void updateSplatParticles(float dt);
 
     void updateTongueStrike(float dt, PreyBugSystem &bugs, SkeletonSystem &skeleton,
                             PhysiologySystem &physiology, MetaballSystem &metaballs);

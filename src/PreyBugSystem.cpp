@@ -256,10 +256,19 @@ void PreyBugSystem::drawCrawler(M5Canvas &canvas, const PreyBug &b) const {
     canvas.drawLine(ix, iy, (int)ant_x1, (int)ant_y1, 0xFFFF);
     canvas.drawLine(ix, iy, (int)ant_x2, (int)ant_y2, 0xFFFF);
 
-    // 4. 定身黏液网特效
+    // 4. 纯黑色黏液定身污渍与拉丝特效 (Black Slime Splat)
     if (b.state == BUG_SNARED) {
-        canvas.drawCircle(ix, iy, 5, 0x07FF); // Cyan 荧光黏液网
-        canvas.drawCircle(ix, iy, 7, 0x0410);
+        // 中心实心纯黑黏液池
+        canvas.fillCircle(ix, iy, 5, COLOR_VENOM_CORE);
+        // 向外延伸的 5 根黑色黏丝拉爪
+        for (int k = 0; k < 5; ++k) {
+            float s_angle = (float)k * 1.256f + b.glow_phase * 0.2f;
+            float leg_x = b.x + std::cos(s_angle) * 7.5f;
+            float leg_y = b.y + std::sin(s_angle) * 7.5f;
+            canvas.drawLine(ix, iy, (int)leg_x, (int)leg_y, COLOR_VENOM_CORE);
+            canvas.drawPixel((int)leg_x, (int)leg_y, COLOR_DITHER_GRAY);
+        }
+        canvas.drawPixel(ix + 1, iy + 1, COLOR_DITHER_GRAY);
     }
 }
 
@@ -296,10 +305,17 @@ void PreyBugSystem::drawFlyer(M5Canvas &canvas, const PreyBug &b) const {
     float eye_y = b.y + sin_a * 3.0f;
     canvas.drawPixel((int)eye_x, (int)eye_y, 0x07E0);
 
-    // 4. 定身黏液网特效
+    // 4. 纯黑色黏液定身污渍与拉丝特效 (Black Slime Splat)
     if (b.state == BUG_SNARED) {
-        canvas.drawCircle(ix, iy, 5, 0x07FF);
-        canvas.drawCircle(ix, iy, 8, 0x0410);
+        canvas.fillCircle(ix, iy, 5, COLOR_VENOM_CORE);
+        for (int k = 0; k < 5; ++k) {
+            float s_angle = (float)k * 1.256f + b.glow_phase * 0.2f;
+            float leg_x = b.x + std::cos(s_angle) * 7.5f;
+            float leg_y = b.y + std::sin(s_angle) * 7.5f;
+            canvas.drawLine(ix, iy, (int)leg_x, (int)leg_y, COLOR_VENOM_CORE);
+            canvas.drawPixel((int)leg_x, (int)leg_y, COLOR_DITHER_GRAY);
+        }
+        canvas.drawPixel(ix + 1, iy + 1, COLOR_DITHER_GRAY);
     }
 }
 

@@ -307,11 +307,11 @@ void MouthSystem::draw(M5Canvas &canvas, const SkeletonSystem &skeleton) const {
     float face_angle = (std::abs(dx) > 0.1f || std::abs(dy) > 0.1f) ? std::atan2(dy, dx) : 1.57f;
 
     // 嘴巴基准中心：位于头部中心前下方
-    float mx = hx + std::cos(face_angle) * 3.5f;
-    float my = hy + std::sin(face_angle) * 3.5f + 4.0f;
+    float mx = hx + std::cos(face_angle) * (head.radius_x * 0.18f);
+    float my = hy + std::sin(face_angle) * (head.radius_y * 0.18f) + 4.5f;
 
-    float mouth_w = 26.0f;
-    float mouth_h = 16.0f;
+    float mouth_w = head.radius_x * 1.08f;
+    float mouth_h = head.radius_y * 0.70f;
 
     // 1. 绘制暗红口腔与白色锯齿尖牙
     drawMouthCavityAndTeeth(canvas, mx, my, face_angle, mouth_w, mouth_h, open_amount);

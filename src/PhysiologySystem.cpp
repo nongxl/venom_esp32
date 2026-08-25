@@ -36,12 +36,6 @@ void PhysiologySystem::triggerShock(float amount) {
     neuro_tension = std::min(1.0f, neuro_tension + amount * 1.2f);
 }
 
-void PhysiologySystem::feedNutrition(float energy_amount, float comfort_amount) {
-    energy = std::min(1.0f, energy + energy_amount);
-    comfort = std::min(1.0f, comfort + comfort_amount);
-    stress = std::max(0.0f, stress - 0.15f);
-}
-
 void PhysiologySystem::updateInternalDynamics(float dt) {
     // 1. 音频能量的攻击与长释放包络（情绪惯性与残留）
     // 突发高频/大音量迅速抬升，而恢复过程缓慢衰减

@@ -15,8 +15,12 @@ public:
     // 触发外界直接刺激
     void triggerShock(float amount);
 
-    // 捕食小虫子进食营养与饱腹补充
-    void feedNutrition(float energy_amount = 0.25f, float comfort_amount = 0.20f);
+    // 捕食进食补充
+    void feed(float energy_amount = 0.25f) {
+        energy = std::min(1.0f, energy + energy_amount);
+        comfort = std::min(1.0f, comfort + 0.15f);
+        stress = std::max(0.0f, stress - 0.10f);
+    }
 
     // 获取五维生理心理参数
     float getEnergy()     const { return energy; }

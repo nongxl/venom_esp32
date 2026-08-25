@@ -18,7 +18,6 @@ const char* CreatureAI::getStateName() const {
         case STATE_JOLTING:    return "JOLT";
         case STATE_EXPRESSING: return "EXPRESS";
         case STATE_SWING:      return "SWING";
-        case STATE_HUNTING:    return "HUNT";
         default:               return "UNKNOWN";
     }
 }
@@ -352,7 +351,7 @@ void CreatureAI::update(float dt, SkeletonSystem &skeleton, MetaballSystem &meta
                         TentacleRenderer &tentacles, PhysiologySystem &physiology,
                         RelationshipSystem &relationship, ExpressionLayer &expression,
                         const ConsciousnessStateV3 &v3_state,
-                        BugSystem &bugs, MouthSystem &mouth) {
+                        const PreyBugSystem *bugs) {
     state_timer += dt;
 
     updateOrganicBreathing(dt, physiology, expression);
@@ -360,50 +359,6 @@ void CreatureAI::update(float dt, SkeletonSystem &skeleton, MetaballSystem &meta
 
     float hx, hy;
     skeleton.getHeadPos(hx, hy);
-
-    // 1. 【小虫子感知与捕食系统联动】
-    if (bugs.hasActiveBug()) {
-        float bug_x, bug_y;
-        bugs.getBugPos(bug_x, bug_y);
-
-        // 眼睛视线优先好奇锁定小虫子
-        target_look_x = bug_x;
-        target_look_y = bug_y;
-
-        // 若当前未在捕食中，计算捕食决策
-        if (!mouth.isHunting() && current_state != STATE_SWING &&
-            current_state != STATE_STARTLED && current_state != STATE_JOLTING) {
-            float dx = bug_x - hx;
-            float dy = bug_y - hy;
-            float dist = std::sqrt(dx * dx + dy * dy);
-
-            if (dist <= 85.0f) {
-                // 距离适中，发起捕食！
-                int mode_roll = rand() % 100;
-                if (mode_roll < 45) {
-                    // 模态 1: 变色龙闪电卷舌
-                    mouth.startPredation(FEED_TONGUE, bug_x, bug_y);
-                } else if (mode_roll < 75) {
-                    // 模态 2: 触手抓捕塞入嘴中
-                    tentacles.startGrappleCrawl(hx, hy, bug_x, bug_y);
-                    mouth.startPredation(FEED_TENTACLE, bug_x, bug_y);
-                } else {
-                    // 模态 3: 喷射黏液黏住爬近吞食
-                    mouth.startPredation(FEED_SLIME_STALK, bug_x, bug_y);
-                    crawl_target_x = bug_x;
-                    crawl_target_y = bug_y;
-                    if (current_state != STATE_CRAWL) {
-                        enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
-                    }
-                }
-            } else if (dist <= 150.0f && current_state != STATE_CRAWL) {
-                // 距离较远，主动爬向小虫子
-                crawl_target_x = bug_x;
-                crawl_target_y = bug_y;
-                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
-            }
-        }
-    }
 
     if (expression.getCurrentExpression() != EXPR_NONE &&
         current_state != STATE_STARTLED && current_state != STATE_JOLTING &&
@@ -421,5 +376,16 @@ void CreatureAI::update(float dt, SkeletonSystem &skeleton, MetaballSystem &meta
         case STATE_STARTLED:   updateStartled(dt, hx, hy, physiology); break;
         case STATE_JOLTING:    updateJolting(dt, hx, hy, physiology); break;
         case STATE_EXPRESSING: updateExpressing(dt, hx, hy, expression); break;
+    }
+
+    // 猎物感知与眼球注视锁定 (Stalking Focus)
+    if (bugs && current_state != STATE_SLEEP && current_state != STATE_STARTLED) {
+        float bx, by;
+        BugState b_state;
+        int bug_idx = bugs->getNearestBug(hx, hy, bx, by, b_state);
+        if (bug_idx >= 0 && b_state != BUG_DEAD) {
+            target_look_x = bx;
+            target_look_y = by;
+        }
     }
 }

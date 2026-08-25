@@ -1,0 +1,315 @@
+#include "PredatorSystem.h"
+#include <cmath>
+
+PredatorSystem::PredatorSystem() {
+    hunt.active = false;
+    hunt.action = HUNT_NONE;
+    hunt.phase = PHASE_IDLE;
+}
+
+void PredatorSystem::init() {
+    hunt.active = false;
+    hunt.action = HUNT_NONE;
+    hunt.phase = PHASE_IDLE;
+    hunt_decision_cooldown = 0.5f;
+}
+
+bool PredatorSystem::tryTriggerHunt(PreyBugSystem &bugs, const SkeletonSystem &skeleton) {
+    if (hunt.active) return false;
+
+    float hx, hy;
+    skeleton.getHeadPos(hx, hy);
+
+    float bx, by;
+    BugState state;
+    int bug_idx = bugs.getNearestBug(hx, hy, bx, by, state);
+    if (bug_idx < 0 || state == BUG_DEAD || state == BUG_CAUGHT) return false;
+
+    float dx = bx - hx;
+    float dy = by - hy;
+    float dist = std::sqrt(dx * dx + dy * dy);
+
+    // 捕食射程判断 (最大有效射程 95px)
+    if (dist > 95.0f || dist < 6.0f) return false;
+
+    hunt.active = true;
+    hunt.target_bug_idx = bug_idx;
+    hunt.timer = 0.0f;
+    hunt.start_x = hx;
+    hunt.start_y = hy;
+    hunt.target_x = bx;
+    hunt.target_y = by;
+    hunt.tip_x = hx;
+    hunt.tip_y = hy;
+    hunt.progress = 0.0f;
+
+    // 动作决策权重分布
+    int roll = rand() % 100;
+    if (dist < 60.0f) {
+        if (roll < 45) {
+            hunt.action = HUNT_TONGUE;      // 变色龙闪电弹舌
+        } else if (roll < 80) {
+            hunt.action = HUNT_TENTACLE;    // 暗黑触手抓取
+        } else {
+            hunt.action = HUNT_MUCUS;       // 黏液定身爬行
+        }
+    } else {
+        if (roll < 50) {
+            hunt.action = HUNT_MUCUS;       // 远距离喷射黏液弹
+        } else if (roll < 75) {
+            hunt.action = HUNT_TONGUE;      // 极限长舌弹射
+        } else {
+            hunt.action = HUNT_TENTACLE;    // 远距触手
+        }
+    }
+
+    hunt.phase = PHASE_SHOOT;
+
+    if (hunt.action == HUNT_MUCUS) {
+        hunt.mucus_x = hx;
+        hunt.mucus_y = hy;
+        float dir_x = dx / dist;
+        float dir_y = dy / dist;
+        hunt.mucus_vx = dir_x * 165.0f;
+        hunt.mucus_vy = dir_y * 165.0f;
+    }
+
+    return true;
+}
+
+void PredatorSystem::finishDigest(PreyBugSystem &bugs, PhysiologySystem &physiology, MetaballSystem &metaballs) {
+    if (hunt.target_bug_idx >= 0) {
+        bugs.killBug(hunt.target_bug_idx);
+    }
+
+    // 吞噬消化反馈：能量补充
+    physiology.feed(0.25f);
+
+    // 头部飞溅 3 颗兴奋微液滴
+    for (int k = 0; k < 3; ++k) {
+        float vx = ((rand() % 60) - 30) * 0.08f;
+        float vy = ((rand() % 60) - 30) * 0.08f;
+        metaballs.spawnDroplet(hunt.start_x + vx * 2.0f, hunt.start_y + vy * 2.0f, vx, vy, 2.2f, true);
+    }
+
+    hunt.active = false;
+    hunt.action = HUNT_NONE;
+    hunt.phase = PHASE_IDLE;
+    hunt_decision_cooldown = 1.8f;
+}
+
+void PredatorSystem::updateTongueStrike(float dt, PreyBugSystem &bugs, SkeletonSystem &skeleton,
+                                        PhysiologySystem &physiology, MetaballSystem &metaballs) {
+    hunt.timer += dt;
+    float hx, hy;
+    skeleton.getHeadPos(hx, hy);
+    hunt.start_x = hx;
+    hunt.start_y = hy;
+
+    const PreyBug &b = bugs.getBug(hunt.target_bug_idx);
+    if (b.active && b.state != BUG_DEAD && hunt.phase == PHASE_SHOOT) {
+        hunt.target_x = b.x;
+        hunt.target_y = b.y;
+    }
+
+    if (hunt.phase == PHASE_SHOOT) {
+        constexpr float SHOOT_DUR = 0.11f; // 0.11s 闪电射出
+        float t = std::min(1.0f, hunt.timer / SHOOT_DUR);
+        hunt.progress = t;
+        hunt.tip_x = hunt.start_x + (hunt.target_x - hunt.start_x) * t;
+        hunt.tip_y = hunt.start_y + (hunt.target_y - hunt.start_y) * t;
+
+        if (hunt.timer >= SHOOT_DUR) {
+            // 舌尖黏中虫子，进入卷回阶段
+            bugs.catchBug(hunt.target_bug_idx, hunt.tip_x, hunt.tip_y);
+            hunt.phase = PHASE_RETRACT;
+            hunt.timer = 0.0f;
+        }
+    } else if (hunt.phase == PHASE_RETRACT) {
+        constexpr float RETRACT_DUR = 0.13f; // 0.13s 极速卷回
+        float t = std::min(1.0f, hunt.timer / RETRACT_DUR);
+        hunt.progress = 1.0f - t;
+        hunt.tip_x = hunt.target_x + (hunt.start_x - hunt.target_x) * t;
+        hunt.tip_y = hunt.target_y + (hunt.start_y - hunt.target_y) * t;
+
+        bugs.catchBug(hunt.target_bug_idx, hunt.tip_x, hunt.tip_y);
+
+        if (hunt.timer >= RETRACT_DUR) {
+            finishDigest(bugs, physiology, metaballs);
+        }
+    }
+}
+
+void PredatorSystem::updateTentacleGrab(float dt, PreyBugSystem &bugs, SkeletonSystem &skeleton,
+                                        PhysiologySystem &physiology, MetaballSystem &metaballs) {
+    hunt.timer += dt;
+    float hx, hy;
+    skeleton.getHeadPos(hx, hy);
+    hunt.start_x = hx;
+    hunt.start_y = hy;
+
+    const PreyBug &b = bugs.getBug(hunt.target_bug_idx);
+    if (b.active && b.state != BUG_DEAD && hunt.phase == PHASE_SHOOT) {
+        hunt.target_x = b.x;
+        hunt.target_y = b.y;
+    }
+
+    if (hunt.phase == PHASE_SHOOT) {
+        constexpr float SHOOT_DUR = 0.18f;
+        float t = std::min(1.0f, hunt.timer / SHOOT_DUR);
+        hunt.progress = t;
+        hunt.tip_x = hunt.start_x + (hunt.target_x - hunt.start_x) * t;
+        hunt.tip_y = hunt.start_y + (hunt.target_y - hunt.start_y) * t;
+
+        if (hunt.timer >= SHOOT_DUR) {
+            bugs.catchBug(hunt.target_bug_idx, hunt.tip_x, hunt.tip_y);
+            hunt.phase = PHASE_RETRACT;
+            hunt.timer = 0.0f;
+        }
+    } else if (hunt.phase == PHASE_RETRACT) {
+        constexpr float RETRACT_DUR = 0.20f;
+        float t = std::min(1.0f, hunt.timer / RETRACT_DUR);
+        hunt.progress = 1.0f - t;
+        hunt.tip_x = hunt.target_x + (hunt.start_x - hunt.target_x) * t;
+        hunt.tip_y = hunt.target_y + (hunt.start_y - hunt.target_y) * t;
+
+        bugs.catchBug(hunt.target_bug_idx, hunt.tip_x, hunt.tip_y);
+
+        if (hunt.timer >= RETRACT_DUR) {
+            finishDigest(bugs, physiology, metaballs);
+        }
+    }
+}
+
+void PredatorSystem::updateMucusSnare(float dt, PreyBugSystem &bugs, SkeletonSystem &skeleton,
+                                      PhysiologySystem &physiology, MetaballSystem &metaballs) {
+    hunt.timer += dt;
+    float hx, hy;
+    skeleton.getHeadPos(hx, hy);
+    hunt.start_x = hx;
+    hunt.start_y = hy;
+
+    if (hunt.phase == PHASE_SHOOT) {
+        // 黏液弹飞行
+        hunt.mucus_x += hunt.mucus_vx * dt;
+        hunt.mucus_y += hunt.mucus_vy * dt;
+
+        float dx = hunt.target_x - hunt.mucus_x;
+        float dy = hunt.target_y - hunt.mucus_y;
+        float dist = std::sqrt(dx * dx + dy * dy);
+
+        if (dist < 8.0f || hunt.timer > 0.45f) {
+            // 命中虫子，形成定身网
+            bugs.snareBug(hunt.target_bug_idx);
+            hunt.phase = PHASE_CRAWL_ENGULF;
+            hunt.timer = 0.0f;
+        }
+    } else if (hunt.phase == PHASE_CRAWL_ENGULF) {
+        const PreyBug &b = bugs.getBug(hunt.target_bug_idx);
+        float target_pos_x = b.x;
+        float target_pos_y = b.y;
+
+        // 强力引导毒液头部向定身虫子爬去
+        float dx = target_pos_x - hx;
+        float dy = target_pos_y - hy;
+        float dist = std::sqrt(dx * dx + dy * dy);
+
+        skeleton.setPullTarget(target_pos_x, target_pos_y, 1.9f);
+
+        if (dist < 12.0f || hunt.timer > 2.5f) {
+            skeleton.clearPullTarget();
+            finishDigest(bugs, physiology, metaballs);
+        }
+    }
+}
+
+void PredatorSystem::update(float dt, PreyBugSystem &bugs, SkeletonSystem &skeleton,
+                            PhysiologySystem &physiology, MetaballSystem &metaballs) {
+    if (!hunt.active) {
+        hunt_decision_cooldown -= dt;
+        if (hunt_decision_cooldown <= 0.0f) {
+            hunt_decision_cooldown = 0.4f;
+            tryTriggerHunt(bugs, skeleton);
+        }
+        return;
+    }
+
+    switch (hunt.action) {
+        case HUNT_TONGUE:
+            updateTongueStrike(dt, bugs, skeleton, physiology, metaballs);
+            break;
+        case HUNT_TENTACLE:
+            updateTentacleGrab(dt, bugs, skeleton, physiology, metaballs);
+            break;
+        case HUNT_MUCUS:
+            updateMucusSnare(dt, bugs, skeleton, physiology, metaballs);
+            break;
+        default:
+            hunt.active = false;
+            break;
+    }
+}
+
+void PredatorSystem::drawTongue(M5Canvas &canvas) const {
+    if (!hunt.active || hunt.action != HUNT_TONGUE) return;
+
+    int sx = (int)hunt.start_x;
+    int sy = (int)hunt.start_y;
+    int tx = (int)hunt.tip_x;
+    int ty = (int)hunt.tip_y;
+
+    // 1. 绘制猩红肉质舌身 (带粗细与高光)
+    canvas.drawLine(sx, sy, tx, ty, 0xF800);     // 猩红
+    canvas.drawLine(sx + 1, sy, tx + 1, ty, 0xF9E7); // 肉粉色高光
+    canvas.drawLine(sx, sy + 1, tx, ty + 1, 0xF800);
+
+    // 2. 绘制舌尖肉质吸盘圆垫
+    canvas.fillCircle(tx, ty, 3, 0xF800);
+    canvas.drawCircle(tx, ty, 4, 0xF9E7);
+    canvas.drawPixel(tx, ty, 0xFFFF);
+}
+
+void PredatorSystem::drawGrabTentacle(M5Canvas &canvas) const {
+    if (!hunt.active || hunt.action != HUNT_TENTACLE) return;
+
+    int sx = (int)hunt.start_x;
+    int sy = (int)hunt.start_y;
+    int tx = (int)hunt.tip_x;
+    int ty = (int)hunt.tip_y;
+
+    // 粗壮黑色抓取触手
+    for (int off = -1; off <= 1; ++off) {
+        canvas.drawLine(sx + off, sy, tx + off, ty, COLOR_VENOM_CORE);
+        canvas.drawLine(sx, sy + off, tx, ty + off, COLOR_VENOM_CORE);
+    }
+
+    // 尖端三指爪盘抓牢
+    float dx = tx - sx;
+    float dy = ty - sy;
+    float main_angle = std::atan2(dy, dx);
+    for (int f = -1; f <= 1; ++f) {
+        float fa = main_angle + (float)f * 0.5f;
+        float fx = hunt.tip_x + std::cos(fa) * 5.0f;
+        float fy = hunt.tip_y + std::sin(fa) * 5.0f;
+        canvas.drawLine(tx, ty, (int)fx, (int)fy, COLOR_VENOM_CORE);
+        canvas.drawPixel((int)fx, (int)fy, COLOR_GLOW_CYAN);
+    }
+}
+
+void PredatorSystem::drawMucusShot(M5Canvas &canvas) const {
+    if (!hunt.active || hunt.action != HUNT_MUCUS) return;
+
+    if (hunt.phase == PHASE_SHOOT) {
+        int mx = (int)hunt.mucus_x;
+        int my = (int)hunt.mucus_y;
+        canvas.fillCircle(mx, my, 3, 0x07FF); // 亮青蓝黏液球
+        canvas.drawCircle(mx, my, 4, 0x07E0); // 荧光绿外圈
+        canvas.drawPixel(mx, my, 0xFFFF);
+    }
+}
+
+void PredatorSystem::draw(M5Canvas &canvas) const {
+    drawTongue(canvas);
+    drawGrabTentacle(canvas);
+    drawMucusShot(canvas);
+}

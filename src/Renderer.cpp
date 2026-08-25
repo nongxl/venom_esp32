@@ -263,35 +263,37 @@ void Renderer::renderHUD(const CreatureAI &ai, const PhysiologySystem &physiolog
 }
 
 void Renderer::render(const SkeletonSystem &skeleton, const MetaballSystem &metaballs,
-                      const EyeSystem &eye, const TentacleRenderer &tentacles,
-                      const MouthSystem &mouth, const BugSystem &bugs,
-                      const CreatureAI &ai, const PhysiologySystem &physiology,
-                      const VoronoiSurface &voronoi, const FluidSymbolSystem &fluid_symbols,
-                      const RelationshipSystem &relationship, const ExpressionLayer &expression,
-                      const ConsciousnessStateV3 &v3_state, float fps) {
+                    const EyeSystem &eye, const TentacleRenderer &tentacles,
+                    const CreatureAI &ai, const PhysiologySystem &physiology,
+                    const VoronoiSurface &voronoi, const FluidSymbolSystem &fluid_symbols,
+                    const RelationshipSystem &relationship, const ExpressionLayer &expression,
+                    const ConsciousnessStateV3 &v3_state, float fps,
+                    const PreyBugSystem *bugs,
+                    const PredatorSystem *predator) {
     if (!canvas) return;
 
     float dt = (fps > 5.0f) ? (1.0f / fps) : 0.033f;
     updateMindEchoLifecycle(dt, v3_state);
 
+    // 清屏与背景
     canvas->fillSprite(getBackgroundColor());
 
-    // 1. 绘制小虫子 (背景层爬行/飞行)
-    bugs.draw(*canvas);
+    // 绘制小虫子生态 (Prey Bugs)
+    if (bugs) {
+        bugs->draw(*canvas);
+    }
 
-    // 2. 绘制坚实饱满的黑色主体与表面沥青噪波
+    // 绘制标量场肉身与 Voronoi 细胞
     renderFieldAndVoronoi(metaballs, voronoi, physiology);
 
-    // 3. 绘制贴墙荧光
+    // 绘制贴墙荧光
     renderMeniscusGlow(metaballs);
 
-    // 4. 绘制触手
+    // 绘制触手、捕食特效与眼睛
     tentacles.draw(*canvas);
-
-    // 5. 绘制又凶又萌大嘴、白尖牙与变色龙长卷舌
-    mouth.draw(*canvas, skeleton);
-
-    // 6. 绘制灵动眼球与血丝微表情
+    if (predator) {
+        predator->draw(*canvas);
+    }
     eye.draw(*canvas, physiology);
 
     if (show_hud) {

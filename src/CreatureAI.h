@@ -8,8 +8,7 @@
 #include "TentacleRenderer.h"
 #include "ExpressionLayer.h"
 #include "LLMClient.h"
-#include "BugSystem.h"
-#include "MouthSystem.h"
+#include "PreyBugSystem.h"
 
 enum CreatureState {
     STATE_IDLE = 0,
@@ -20,8 +19,7 @@ enum CreatureState {
     STATE_HESITATING,
     STATE_JOLTING,
     STATE_EXPRESSING,
-    STATE_SWING,        // 高空蛛丝悬挂荡秋千状态
-    STATE_HUNTING       // 捕食小虫子锁定状态
+    STATE_SWING         // 高空蛛丝悬挂荡秋千状态
 };
 
 class CreatureAI {
@@ -33,7 +31,7 @@ public:
                 TentacleRenderer &tentacles, PhysiologySystem &physiology,
                 RelationshipSystem &relationship, ExpressionLayer &expression,
                 const ConsciousnessStateV3 &v3_state,
-                BugSystem &bugs, MouthSystem &mouth);
+                const PreyBugSystem *bugs = nullptr);
 
     CreatureState getState() const { return current_state; }
     const char* getStateName() const;

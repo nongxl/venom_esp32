@@ -13,8 +13,8 @@
 #include "RelationshipSystem.h"
 #include "ExpressionLayer.h"
 #include "LLMClient.h"
-#include "BugSystem.h"
-#include "MouthSystem.h"
+#include "PreyBugSystem.h"
+#include "PredatorSystem.h"
 
 enum MindEchoState {
     ECHO_IDLE = 0,
@@ -30,11 +30,12 @@ public:
     void init(M5Canvas *target_canvas);
     void render(const SkeletonSystem &skeleton, const MetaballSystem &metaballs,
                 const EyeSystem &eye, const TentacleRenderer &tentacles,
-                const MouthSystem &mouth, const BugSystem &bugs,
                 const CreatureAI &ai, const PhysiologySystem &physiology,
                 const VoronoiSurface &voronoi, const FluidSymbolSystem &fluid_symbols,
                 const RelationshipSystem &relationship, const ExpressionLayer &expression,
-                const ConsciousnessStateV3 &v3_state, float fps);
+                const ConsciousnessStateV3 &v3_state, float fps,
+                const PreyBugSystem *bugs = nullptr,
+                const PredatorSystem *predator = nullptr);
 
     void nextTheme();
     void setTheme(BackgroundTheme theme);

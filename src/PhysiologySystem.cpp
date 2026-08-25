@@ -77,18 +77,14 @@ void PhysiologySystem::updateInternalDynamics(float dt) {
         curiosity = std::max(0.1f, curiosity - dt * 0.15f);
     }
 
-    // 精力恢复维持在健康高位
-    if (comfort > 0.4f) {
-        energy = std::min(1.0f, energy + dt * 0.04f);
-    } else {
-        energy = std::max(0.40f, energy - dt * 0.02f);
-    }
+    // 基础代谢自然缓慢消耗能量 (每分钟消耗约 0.35)
+    energy = std::max(0.05f, energy - dt * 0.006f);
 }
 
 void PhysiologySystem::updateEmotionState() {
     // 综合判定主导情绪
-    if (energy < 0.15f) {
-        current_emotion = EMOTION_EXHAUSTED;
+    if (energy < 0.25f) {
+        current_emotion = EMOTION_EXHAUSTED; // 疲惫困倦
     } else if (stress > 0.65f) {
         if (smoothed_audio_high > 0.5f || neuro_tension > 0.75f) {
             current_emotion = EMOTION_ANGER; // 受强烈持续刺激时转为愤怒攻击形态

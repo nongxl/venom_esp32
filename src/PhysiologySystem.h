@@ -25,10 +25,18 @@ public:
     void triggerShock(float amount);
 
     // 捕食进食补充
-    void feed(float energy_amount = 0.25f) {
+    void feed(float energy_amount = 0.30f) {
         energy = std::min(1.0f, energy + energy_amount);
-        comfort = std::min(1.0f, comfort + 0.15f);
-        stress = std::max(0.0f, stress - 0.10f);
+        comfort = std::min(1.0f, comfort + 0.20f);
+        stress = std::max(0.0f, stress - 0.15f);
+    }
+
+    // 体力消耗与睡眠恢复
+    void consumeEnergy(float amount) {
+        energy = std::max(0.05f, energy - amount);
+    }
+    void recoverEnergy(float amount) {
+        energy = std::min(1.0f, energy + amount);
     }
 
     // 获取五维生理心理参数

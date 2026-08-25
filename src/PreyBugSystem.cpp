@@ -157,12 +157,12 @@ void PreyBugSystem::update(float dt, float venom_hx, float venom_hy) {
         }
     }
 
-    // 自动刷新机制：若场上无虫，则隔 3.5~6.5 秒诞生新虫子
+    // 自动刷新机制：稀疏自然生态，若场上无虫，则隔 28~55 秒偶尔诞生一只小虫
     if (!has_active) {
         spawn_cooldown -= dt;
         if (spawn_cooldown <= 0.0f) {
             spawnNewBug();
-            spawn_cooldown = 4.0f + (rand() % 35) * 0.1f;
+            spawn_cooldown = 28.0f + (rand() % 270) * 0.1f;
         }
     }
 }

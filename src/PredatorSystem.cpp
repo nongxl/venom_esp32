@@ -130,8 +130,8 @@ void PredatorSystem::finishDigest(PreyBugSystem &bugs, PhysiologySystem &physiol
         bugs.killBug(hunt.target_bug_idx);
     }
 
-    // 吞噬消化反馈：能量补充
-    physiology.feed(0.25f);
+    // 吞噬消化反馈：能量补充 (+0.30)
+    physiology.feed(0.30f);
 
     // 头部飞溅 3 颗兴奋微液滴
     for (int k = 0; k < 3; ++k) {
@@ -143,7 +143,8 @@ void PredatorSystem::finishDigest(PreyBugSystem &bugs, PhysiologySystem &physiol
     hunt.active = false;
     hunt.action = HUNT_NONE;
     hunt.phase = PHASE_IDLE;
-    hunt_decision_cooldown = 1.8f;
+    // 吞噬完成进入 22 ~ 40 秒饱腹期，不再连续抓虫！
+    hunt_decision_cooldown = 22.0f + (rand() % 180) * 0.1f;
 }
 
 void PredatorSystem::updateTongueStrike(float dt, PreyBugSystem &bugs, SkeletonSystem &skeleton,

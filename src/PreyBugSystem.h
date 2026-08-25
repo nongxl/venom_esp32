@@ -41,7 +41,7 @@ struct PreyBug {
 
 class PreyBugSystem {
 public:
-    static constexpr int MAX_BUGS = 2;
+    static constexpr int MAX_BUGS = 1;
 
     PreyBugSystem();
 

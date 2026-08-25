@@ -33,6 +33,7 @@ public:
     void sendScreenshotSerial();
     void toggleHUD();
     bool isHUDActive() const { return show_hud; }
+    M5Canvas* getCanvas() { return canvas; }
 
 private:
     M5Canvas *canvas = nullptr;

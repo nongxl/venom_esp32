@@ -2,6 +2,7 @@
 .pio/
 .vscode/
 compile_commands.json
+*.bin
 # Prompt & Requirement Documents
 prompt/
 doc/

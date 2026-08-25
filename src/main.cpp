@@ -14,6 +14,8 @@
 #include "TentacleRenderer.h"
 #include "CreatureAI.h"
 #include "Renderer.h"
+#include "ConfigManager.h"
+#include "WebConfigPortal.h"
 
 // ─────────────────────────────────────────────────────────────
 //  系统全局实例
@@ -32,6 +34,7 @@ static EyeSystem          eye;
 static TentacleRenderer   tentacles;
 static CreatureAI         ai;
 static Renderer           renderer;
+static WebConfigPortal    portal;
 
 // IMU 低通滤波值
 static float imu_lpf_x = 0.0f;
@@ -122,6 +125,8 @@ void setup() {
     ledcAttachPin(VIBR_PIN, VIBR_PWM_CHANNEL);
     ledcWrite(VIBR_PWM_CHANNEL, 0);
 
+    ConfigManager::instance().init();
+
     physiology.init();
     relationship.init();
     fluid_symbols.init();
@@ -143,6 +148,18 @@ void setup() {
 
 void loop() {
     M5.update();
+
+    // 0. 配网热点模式接管
+    if (portal.isRunning()) {
+        portal.update();
+        if (M5.BtnA.wasPressed()) {
+            triggerVibration(40, 200);
+            portal.stop();
+            delay(100);
+            ESP.restart();
+        }
+        return;
+    }
 
     unsigned long now_micros = micros();
     float dt = (now_micros - prev_micros) * 0.000001f;
@@ -221,14 +238,20 @@ void loop() {
 
     // 3. 按键与交互
     bool btn_a_pressed = M5.BtnA.wasPressed();
-    bool btn_b_pressed = M5.BtnB.wasPressed();
+
+    // 长按 BtnB (1200ms) 触发开启 HTTP Web 配网热点
+    if (M5.BtnB.pressedFor(1200)) {
+        triggerVibration(120, 255);
+        portal.start(renderer.getCanvas());
+        return;
+    }
 
     if (btn_a_pressed) {
         ai.triggerJolt(skeleton, metaballs, 1.2f);
         triggerVibration(50, 220);
     }
 
-    if (btn_b_pressed) {
+    if (M5.BtnB.wasClicked()) {
         renderer.toggleHUD();
         triggerVibration(25, 150);
     }

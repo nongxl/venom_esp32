@@ -1,4 +1,5 @@
 #include "LLMClient.h"
+#include "ConfigManager.h"
 #include <ArduinoJson.h>
 
 static LLMClient *g_llm_instance = nullptr;
@@ -27,20 +28,29 @@ void LLMClient::taskEntry(void *param) {
 }
 
 void LLMClient::init() {
+    ConfigManager &cfg = ConfigManager::instance();
+    String ssid = cfg.getWifiSSID();
+    String pass = cfg.getWifiPass();
+
     WiFi.mode(WIFI_STA);
-    WiFi.begin(DEFAULT_SSID, DEFAULT_PASSWORD);
+    if (ssid.length() > 0) {
+        WiFi.begin(ssid.c_str(), pass.c_str());
+        Serial.printf(">>> [LLM] Connecting to WiFi: %s ...\n", ssid.c_str());
+    }
 
     // 创建 FreeRTOS 异步工作任务 (Core 0，优先级 1，栈 8192 字节)
     xTaskCreatePinnedToCore(taskEntry, "LLMTask", 8192, this, 1, &llm_task_handle, 0);
 }
 
 void LLMClient::runLLMTask() {
+    ConfigManager &cfg = ConfigManager::instance();
+
     while (true) {
         // 1. 检查 WiFi 状态
         if (WiFi.status() == WL_CONNECTED) {
             if (!wifi_connected) {
                 wifi_connected = true;
-                Serial.println(">>> [LLM Background] WiFi Connected successfully!");
+                Serial.printf(">>> [LLM Background] WiFi Connected successfully! IP: %s\n", WiFi.localIP().toString().c_str());
             }
         } else {
             wifi_connected = false;
@@ -59,12 +69,12 @@ void LLMClient::runLLMTask() {
         portEXIT_CRITICAL(&state_mutex);
 
         if (has_req) {
-            if (!wifi_connected) {
+            if (!wifi_connected || cfg.getLLMKey().length() == 0) {
                 runLocalHeuristicFallback(req.stress, req.curiosity, req.comfort, req.attachment);
             } else {
                 // 构建 JSON 请求
                 StaticJsonDocument<1536> doc;
-                doc["model"] = AI_MODEL;
+                doc["model"] = cfg.getLLMModel();
                 doc["temperature"] = 0.7;
                 doc["max_tokens"] = 280;
 
@@ -195,17 +205,25 @@ void LLMClient::parseV3Response(const String &response_text) {
 }
 
 bool LLMClient::sendHTTPRequest(const String &json_payload) {
+    ConfigManager &cfg = ConfigManager::instance();
+    String url = cfg.getLLMUrl();
+    String key = cfg.getLLMKey();
+
+    if (url.length() == 0 || key.length() == 0) {
+        return false;
+    }
+
     WiFiClientSecure client;
     client.setInsecure();
     HTTPClient http;
 
-    if (!http.begin(client, LLM_URL)) {
+    if (!http.begin(client, url)) {
         return false;
     }
 
     http.setTimeout(6000);
     http.addHeader("Content-Type", "application/json");
-    String auth = String("Bearer ") + DEFAULT_API_KEY;
+    String auth = String("Bearer ") + key;
     http.addHeader("Authorization", auth.c_str());
 
     int http_code = http.POST(json_payload);
@@ -216,7 +234,7 @@ bool LLMClient::sendHTTPRequest(const String &json_payload) {
         parseV3Response(response);
         success = true;
     } else {
-        Serial.printf(">>> [LLM] HTTP error: %d\n", http_code);
+        Serial.printf(">>> [LLM] HTTP error: %d (URL: %s)\n", http_code, url.c_str());
     }
 
     http.end();

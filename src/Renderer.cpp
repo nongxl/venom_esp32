@@ -152,18 +152,29 @@ void Renderer::updateMindEchoLifecycle(float dt, const ConsciousnessStateV3 &v3_
 void Renderer::renderMindEchoPanel() {
     if (echo_state == ECHO_IDLE || typed_char_count <= 0) return;
 
-    // 颜色随淡出阶段渐隐
+    int panel_x = 2;
+    int panel_y = 48;
+    int panel_w = SCREEN_W - 4;
+    int panel_h = 38;
+
+    // 像素级半透明毛玻璃压暗 (50% 透光)
+    for (int py = panel_y; py < panel_y + panel_h; ++py) {
+        for (int px = panel_x; px < panel_x + panel_w; ++px) {
+            uint16_t orig = canvas->readPixel(px, py);
+            uint16_t dim = ((orig >> 1) & 0x7BEF);
+            canvas->drawPixel(px, py, dim | 0x0821);
+        }
+    }
+
     uint16_t border_col = (echo_state == ECHO_FADING) ? 0x6000 : 0xF800; // 红色边框
     uint16_t title_col  = (echo_state == ECHO_FADING) ? 0x8800 : COLOR_GLOW_CYAN;
     uint16_t text_col   = (echo_state == ECHO_FADING) ? 0x7BEF : 0xFFFF;
-    uint16_t bg_col     = (echo_state == ECHO_FADING) ? 0x0000 : 0x0841;
 
-    canvas->fillRect(2, 43, SCREEN_W - 4, 38, bg_col);
-    canvas->drawRect(2, 43, SCREEN_W - 4, 38, border_col);
+    canvas->drawRect(panel_x, panel_y, panel_w, panel_h, border_col);
 
     canvas->setTextSize(1);
-    canvas->setTextColor(title_col, bg_col);
-    canvas->setCursor(6, 46);
+    canvas->setTextColor(title_col);
+    canvas->setCursor(6, 51);
     canvas->print("[TELEPATHY] 意识心流:");
 
     // 动态截取已打出的字符
@@ -189,12 +200,12 @@ void Renderer::renderMindEchoPanel() {
         if (show_cursor) strncat(line2, "_", 2);
     }
 
-    canvas->setTextColor(text_col, bg_col);
-    canvas->setCursor(6, 57);
+    canvas->setTextColor(text_col);
+    canvas->setCursor(6, 62);
     canvas->print(line1);
 
     if (line2[0] != '\0') {
-        canvas->setCursor(6, 68);
+        canvas->setCursor(6, 73);
         canvas->print(line2);
     }
 }
@@ -202,11 +213,24 @@ void Renderer::renderMindEchoPanel() {
 void Renderer::renderHUD(const CreatureAI &ai, const PhysiologySystem &physiology,
                          const RelationshipSystem &relationship, const ExpressionLayer &expression,
                          const ConsciousnessStateV3 &v3_state, float fps) {
-    canvas->setTextSize(1);
-    canvas->setTextColor(TFT_WHITE, 0x0841);
+    int panel_x = 2;
+    int panel_y = 2;
+    int panel_w = SCREEN_W - 4;
+    int panel_h = 44;
 
-    canvas->fillRect(2, 2, SCREEN_W - 4, 44, 0x0841);
-    canvas->drawRect(2, 2, SCREEN_W - 4, 44, COLOR_GLOW_CYAN);
+    // 1. 像素级深色半透明毛玻璃压暗 (50% 透光率，毒液与背景若隐若现)
+    for (int py = panel_y; py < panel_y + panel_h; ++py) {
+        for (int px = panel_x; px < panel_x + panel_w; ++px) {
+            uint16_t orig = canvas->readPixel(px, py);
+            uint16_t dim = ((orig >> 1) & 0x7BEF); // 压暗 50%
+            canvas->drawPixel(px, py, dim | 0x0821); // 叠加微弱科技暗青
+        }
+    }
+    canvas->drawRect(panel_x, panel_y, panel_w, panel_h, COLOR_GLOW_CYAN);
+
+    // 2. 文字采用无背景色透明绘制模式，自然悬浮于半透明毛玻璃之上
+    canvas->setTextSize(1);
+    canvas->setTextColor(TFT_WHITE);
 
     // 行 1 (Y=4): [AI 行为] | [EMO 情绪] | [FPS 帧率]
     canvas->setCursor(6, 4);

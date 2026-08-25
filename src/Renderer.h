@@ -14,6 +14,13 @@
 #include "ExpressionLayer.h"
 #include "LLMClient.h"
 
+enum MindEchoState {
+    ECHO_IDLE = 0,
+    ECHO_TYPING,
+    ECHO_SUSTAIN,
+    ECHO_FADING
+};
+
 class Renderer {
 public:
     Renderer();
@@ -35,13 +42,21 @@ public:
     bool isHUDActive() const { return show_hud; }
     M5Canvas* getCanvas() { return canvas; }
 
+    // 触发心声打字机涌现
+    void triggerMindEcho(const char *custom_text = nullptr);
+
 private:
     M5Canvas *canvas = nullptr;
     BackgroundTheme current_theme = THEME_DESIGN_BLUE;
     bool show_hud = false;
 
-    // 意识泄漏事件状态
-    bool consciousness_leak_active = false;
+    // 动态打字机心流状态
+    MindEchoState echo_state = ECHO_IDLE;
+    char current_echo_text[128] = "";
+    int typed_char_count = 0;
+    float char_timer = 0.0f;
+    float state_timer = 0.0f;
+    float auto_trigger_cooldown = 6.0f;
 
     uint16_t getBackgroundColor() const;
     void renderFieldAndVoronoi(const MetaballSystem &metaballs, const VoronoiSurface &voronoi, const PhysiologySystem &physiology);
@@ -49,4 +64,7 @@ private:
     void renderHUD(const CreatureAI &ai, const PhysiologySystem &physiology,
                    const RelationshipSystem &relationship, const ExpressionLayer &expression,
                    const ConsciousnessStateV3 &v3_state, float fps);
+
+    void updateMindEchoLifecycle(float dt, const ConsciousnessStateV3 &v3_state);
+    void renderMindEchoPanel();
 };

@@ -265,8 +265,8 @@ void loop() {
         } else if (cmd.equalsIgnoreCase("hud")) {
             renderer.toggleHUD();
         } else if (cmd.equalsIgnoreCase("leak")) {
-            renderer.toggleHUD();
-            Serial.printf(">>> [LEAK] Mind Echo: \"%s\"\n", llm.getLatestNotes());
+            renderer.triggerMindEcho(llm.getLatestNotes());
+            Serial.printf(">>> [LEAK] Mind Echo Triggered: \"%s\"\n", llm.getLatestNotes());
         } else if (cmd.startsWith("symbol")) {
             String sym = cmd.substring(6);
             sym.trim();

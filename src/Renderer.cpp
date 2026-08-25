@@ -19,7 +19,7 @@ void Renderer::nextTheme() {
 void Renderer::toggleHUD() {
     show_hud = !show_hud;
     if (show_hud) {
-        consciousness_leak_active = ((rand() % 100) < 5);
+        triggerMindEcho();
     }
 }
 
@@ -130,6 +130,115 @@ void Renderer::renderMeniscusGlow(const MetaballSystem &metaballs) {
     }
 }
 
+void Renderer::triggerMindEcho(const char *custom_text) {
+    if (custom_text && strlen(custom_text) > 0) {
+        strncpy(current_echo_text, custom_text, sizeof(current_echo_text) - 1);
+    }
+    echo_state = ECHO_TYPING;
+    typed_char_count = 0;
+    char_timer = 0.0f;
+    state_timer = 0.0f;
+}
+
+void Renderer::updateMindEchoLifecycle(float dt, const ConsciousnessStateV3 &v3_state) {
+    switch (echo_state) {
+        case ECHO_IDLE:
+            if (v3_state.has_new_update && strlen(v3_state.notes) > 0) {
+                triggerMindEcho(v3_state.notes);
+            } else {
+                auto_trigger_cooldown -= dt;
+                if (auto_trigger_cooldown <= 0.0f) {
+                    auto_trigger_cooldown = 12.0f + (rand() % 8);
+                    if (strlen(v3_state.notes) > 0) {
+                        triggerMindEcho(v3_state.notes);
+                    }
+                }
+            }
+            break;
+
+        case ECHO_TYPING: {
+            char_timer += dt;
+            int total_len = strlen(current_echo_text);
+            if (char_timer >= 0.045f) {
+                char_timer = 0.0f;
+                typed_char_count += 2; // 每次推进 2 字符以保证流畅感
+                if (typed_char_count >= total_len) {
+                    typed_char_count = total_len;
+                    echo_state = ECHO_SUSTAIN;
+                    state_timer = 0.0f;
+                }
+            }
+            break;
+        }
+
+        case ECHO_SUSTAIN:
+            state_timer += dt;
+            if (state_timer >= 2.6f) { // 停留 2.6 秒供观察者阅读
+                echo_state = ECHO_FADING;
+                state_timer = 0.0f;
+            }
+            break;
+
+        case ECHO_FADING:
+            state_timer += dt;
+            if (state_timer >= 0.7f) { // 0.7 秒淡出结束
+                echo_state = ECHO_IDLE;
+                state_timer = 0.0f;
+            }
+            break;
+    }
+}
+
+void Renderer::renderMindEchoPanel() {
+    if (echo_state == ECHO_IDLE || typed_char_count <= 0) return;
+
+    // 颜色随淡出阶段渐隐
+    uint16_t border_col = (echo_state == ECHO_FADING) ? 0x6000 : 0xF800; // 红色边框
+    uint16_t title_col  = (echo_state == ECHO_FADING) ? 0x8800 : COLOR_GLOW_CYAN;
+    uint16_t text_col   = (echo_state == ECHO_FADING) ? 0x7BEF : 0xFFFF;
+    uint16_t bg_col     = (echo_state == ECHO_FADING) ? 0x0000 : 0x0841;
+
+    canvas->fillRect(2, 43, SCREEN_W - 4, 38, bg_col);
+    canvas->drawRect(2, 43, SCREEN_W - 4, 38, border_col);
+
+    canvas->setTextSize(1);
+    canvas->setTextColor(title_col, bg_col);
+    canvas->setCursor(6, 46);
+    canvas->print("[TELEPATHY] 意识心流:");
+
+    // 动态截取已打出的字符
+    char display_buf[128];
+    strncpy(display_buf, current_echo_text, typed_char_count);
+    display_buf[typed_char_count] = '\0';
+
+    bool show_cursor = (echo_state == ECHO_TYPING) || ((echo_state == ECHO_SUSTAIN) && ((millis() / 250) % 2 == 0));
+
+    // 分行绘制
+    char line1[42] = "";
+    char line2[42] = "";
+
+    if (typed_char_count <= 36) {
+        strncpy(line1, display_buf, 36);
+        line1[36] = '\0';
+        if (show_cursor) strncat(line1, "_", 2);
+    } else {
+        strncpy(line1, display_buf, 36);
+        line1[36] = '\0';
+        strncpy(line2, display_buf + 36, 36);
+        line2[36] = '\0';
+        if (show_cursor) strncat(line2, "_", 2);
+    }
+
+    canvas->setTextColor(text_col, bg_col);
+    canvas->setCursor(6, 57);
+    canvas->print(line1);
+
+    if (line2[0] != '\0') {
+        canvas->setCursor(6, 68);
+        canvas->print(line2);
+    }
+}
+
 void Renderer::renderHUD(const CreatureAI &ai, const PhysiologySystem &physiology,
                          const RelationshipSystem &relationship, const ExpressionLayer &expression,
                          const ConsciousnessStateV3 &v3_state, float fps) {
@@ -149,29 +258,8 @@ void Renderer::renderHUD(const CreatureAI &ai, const PhysiologySystem &physiolog
     canvas->setCursor(6, 27);
     canvas->printf("Intent: %s | Social: %.2f", v3_state.emotional_shift, relationship.getSocialOpenness());
 
-    // 思维独白面板：常驻稳定显示，绝不闪烁
-    if (v3_state.notes[0] != '\0') {
-        canvas->fillRect(2, 43, SCREEN_W - 4, 38, 0x0841);
-        canvas->drawRect(2, 43, SCREEN_W - 4, 38, 0xF800); // 红色警示边框
-        canvas->setTextColor(0xF800, 0x0841);
-        canvas->setCursor(6, 46);
-        canvas->print("[MIND ECHO] 思维独白:");
-
-        canvas->setTextColor(0xFFFF, 0x0841);
-        canvas->setCursor(6, 57);
-        char line1[42];
-        strncpy(line1, v3_state.notes, 38);
-        line1[38] = '\0';
-        canvas->print(line1);
-
-        if (strlen(v3_state.notes) > 38) {
-            canvas->setCursor(6, 68);
-            char line2[42];
-            strncpy(line2, v3_state.notes + 38, 38);
-            line2[38] = '\0';
-            canvas->print(line2);
-        }
-    }
+    // 动态打字机心声涌现面板
+    renderMindEchoPanel();
 }
 
 void Renderer::render(const SkeletonSystem &skeleton, const MetaballSystem &metaballs,
@@ -181,6 +269,9 @@ void Renderer::render(const SkeletonSystem &skeleton, const MetaballSystem &meta
                       const RelationshipSystem &relationship, const ExpressionLayer &expression,
                       const ConsciousnessStateV3 &v3_state, float fps) {
     if (!canvas) return;
+
+    float dt = (fps > 5.0f) ? (1.0f / fps) : 0.033f;
+    updateMindEchoLifecycle(dt, v3_state);
 
     canvas->fillSprite(getBackgroundColor());
 

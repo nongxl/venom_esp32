@@ -149,18 +149,28 @@ void Renderer::renderHUD(const CreatureAI &ai, const PhysiologySystem &physiolog
     canvas->setCursor(6, 27);
     canvas->printf("Intent: %s | Social: %.2f", v3_state.emotional_shift, relationship.getSocialOpenness());
 
-    if (consciousness_leak_active || (v3_state.notes[0] != '\0' && (rand() % 100) < 5)) {
-        canvas->fillRect(2, 44, SCREEN_W - 4, 34, 0x0000);
-        canvas->drawRect(2, 44, SCREEN_W - 4, 34, 0xF800);
-        canvas->setTextColor(COLOR_GLOW_CYAN, 0x0000);
-        canvas->setCursor(6, 47);
-        canvas->print("[LEAK] Mind Echo:");
-        canvas->setTextColor(TFT_WHITE, 0x0000);
-        canvas->setCursor(6, 58);
-        char snippet[48];
-        strncpy(snippet, v3_state.notes, 44);
-        snippet[44] = '\0';
-        canvas->printf("\"%s...\"", snippet);
+    // 思维独白面板：常驻稳定显示，绝不闪烁
+    if (v3_state.notes[0] != '\0') {
+        canvas->fillRect(2, 43, SCREEN_W - 4, 38, 0x0841);
+        canvas->drawRect(2, 43, SCREEN_W - 4, 38, 0xF800); // 红色警示边框
+        canvas->setTextColor(0xF800, 0x0841);
+        canvas->setCursor(6, 46);
+        canvas->print("[MIND ECHO] 思维独白:");
+
+        canvas->setTextColor(0xFFFF, 0x0841);
+        canvas->setCursor(6, 57);
+        char line1[42];
+        strncpy(line1, v3_state.notes, 38);
+        line1[38] = '\0';
+        canvas->print(line1);
+
+        if (strlen(v3_state.notes) > 38) {
+            canvas->setCursor(6, 68);
+            char line2[42];
+            strncpy(line2, v3_state.notes + 38, 38);
+            line2[38] = '\0';
+            canvas->print(line2);
+        }
     }
 }
 

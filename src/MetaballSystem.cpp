@@ -1,6 +1,7 @@
 #include "MetaballSystem.h"
 #include <cstring>
 #include <cmath>
+#include <algorithm>
 
 MetaballSystem::MetaballSystem() {
     memset(field_buffer, 0, sizeof(field_buffer));
@@ -96,7 +97,7 @@ void MetaballSystem::updateDroplets(float dt, const SkeletonSystem &skeleton, fl
 }
 
 void MetaballSystem::update(float dt, const SkeletonSystem &skeleton, float gravity_x, float gravity_y, const PhysiologySystem &physiology) {
-    spike_time_phase += dt * (3.0f + physiology.getNeuroTension() * 6.0f);
+    spike_time_phase += dt * (3.5f + physiology.getNeuroTension() * 7.0f);
     updateDroplets(dt, skeleton, gravity_x, gravity_y, physiology);
 }
 
@@ -111,10 +112,12 @@ void MetaballSystem::addMetaballToField(float cx, float cy, float rx, float ry, 
     if (grx < 1.0f) grx = 1.0f;
     if (gry < 1.0f) gry = 1.0f;
 
-    int min_gx = std::max(0, (int)std::floor(gcx - grx * 1.85f));
-    int max_gx = std::min(GRID_W - 1, (int)std::ceil(gcx + grx * 1.85f));
-    int min_gy = std::max(0, (int)std::floor(gcy - gry * 1.85f));
-    int max_gy = std::min(GRID_H - 1, (int)std::ceil(gcy + gry * 1.85f));
+    // 考虑更长随机尖刺的外扩搜索盒
+    float search_margin = 2.1f + micro_spike_amp * 1.5f;
+    int min_gx = std::max(0, (int)std::floor(gcx - grx * search_margin));
+    int max_gx = std::min(GRID_W - 1, (int)std::ceil(gcx + grx * search_margin));
+    int min_gy = std::max(0, (int)std::floor(gcy - gry * search_margin));
+    int max_gy = std::min(GRID_H - 1, (int)std::ceil(gcy + gry * search_margin));
 
     for (int gy = min_gy; gy <= max_gy; ++gy) {
         float dy = (float)gy - gcy;
@@ -128,8 +131,23 @@ void MetaballSystem::addMetaballToField(float cx, float cy, float rx, float ry, 
 
             if (micro_spike_amp > 0.01f) {
                 float theta = std::atan2(dy, dx);
-                float spike_mod = 1.0f + micro_spike_amp * (0.60f * std::sin(16.0f * theta + spike_phase) +
-                                                            0.40f * std::cos(24.0f * theta - spike_phase * 1.3f));
+
+                // 1. 低频空间包络 (使表面不同区域产生不均匀的长短分布)
+                float env = 0.65f + 0.35f * std::sin(3.0f * theta + spike_phase * 0.4f) *
+                                           std::cos(5.0f * theta - spike_phase * 0.3f);
+
+                // 2. 多频谐波叠加 (7阶中频、13阶锐刺、21阶高频细刺、31阶超高频毛刺)
+                float h1 = std::sin(7.0f * theta + spike_phase);
+                float h2 = std::cos(13.0f * theta - spike_phase * 1.2f);
+                float h3 = std::sin(21.0f * theta + spike_phase * 0.8f);
+                float h4 = std::cos(31.0f * theta - spike_phase * 1.5f);
+
+                float raw_harmonic = 0.32f * h1 + 0.30f * h2 + 0.23f * h3 + 0.15f * h4;
+
+                // 3. 指数尖锐化 (让向外突出的尖刺呈现针刺状高耸突起，波谷更饱满)
+                float sharp_peak = (raw_harmonic > 0.0f) ? (raw_harmonic + raw_harmonic * raw_harmonic * 1.8f) : raw_harmonic;
+
+                float spike_mod = 1.0f + micro_spike_amp * env * sharp_peak;
                 cur_grx *= spike_mod;
                 cur_gry *= spike_mod;
             }
@@ -175,21 +193,28 @@ void MetaballSystem::computeField(const SkeletonSystem &skeleton, const Physiolo
     float spike_int = physiology.getSpikeIntensity();
     EmotionState emotion = physiology.getEmotion();
 
-    float micro_spike_amp = 0.04f + tension * 0.05f + spike_int * 0.06f;
+    float base_spike_amp = 0.08f + tension * 0.08f + spike_int * 0.12f;
     if (emotion == EMOTION_ANGER) {
-        micro_spike_amp += 0.04f;
+        base_spike_amp += 0.08f;
+    } else if (emotion == EMOTION_FEAR) {
+        base_spike_amp += 0.05f;
     }
 
     int node_count = skeleton.getNodeCount();
     for (int i = 0; i < node_count; ++i) {
         const SkeletonNode &n = skeleton.getNode(i);
         uint8_t strength = (i == 0) ? 190 : (i == node_count - 1 ? 145 : 170);
-        float node_phase = spike_time_phase + i * 0.7f;
+        float node_phase = spike_time_phase + i * 0.85f;
+
+        // 背部 (Node 1, 2) 与尾部 (Node 3, 4) 拥有更宽广的随机长短尖刺范围
+        float node_amp = base_spike_amp;
+        if (i == 1 || i == 2) node_amp *= 1.35f;
+        else if (i == 3 || i == 4) node_amp *= 1.50f;
 
         addMetaballToField(n.x + n.bleb_offset_x, n.y + n.bleb_offset_y,
                            n.radius_x, n.radius_y, strength,
                            n.contact_bottom, n.contact_top, n.contact_left, n.contact_right,
-                           micro_spike_amp, node_phase);
+                           node_amp, node_phase);
     }
 
     // 2. 飞溅微球累加
@@ -199,7 +224,7 @@ void MetaballSystem::computeField(const SkeletonSystem &skeleton, const Physiolo
         }
     }
 
-    // 3. 符号粒子流体势能注入（余弦紧支撑核 + 重力拉伸 + 核心防空心偏置）
+    // 3. 符号粒子流体势能注入
     int symCount = fluid_symbols.getPointCount();
     if (symCount > 0) {
         float gMag = std::sqrt(gx * gx + gy * gy);

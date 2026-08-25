@@ -17,6 +17,7 @@ const char* CreatureAI::getStateName() const {
         case STATE_HESITATING: return "HESITATE";
         case STATE_JOLTING:    return "JOLT";
         case STATE_EXPRESSING: return "EXPRESS";
+        case STATE_SWING:      return "SWING";
         default:               return "UNKNOWN";
     }
 }
@@ -29,7 +30,7 @@ void CreatureAI::enterHesitation(CreatureState target_state, float delay_sec) {
     crawl_force_y *= 0.2f;
 }
 
-void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles, float hx, float hy) {
+void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles, SkeletonSystem *skeleton, float hx, float hy) {
     current_state = new_state;
     state_timer = 0.0f;
 
@@ -46,20 +47,20 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
 
             // 基于原生好奇心与全景空间探索模型选择目标
             int roll = rand() % 100;
-            if (roll < 55) {
-                // 55% 目标直指屏幕中央观察窗口腹地 (Center Stage)
+            if (roll < 50) {
+                // 50% 目标直指屏幕中央观察窗口腹地 (Center Stage)
                 crawl_target_x = 60.0f + (rand() % (SCREEN_W - 120));
                 crawl_target_y = 35.0f + (rand() % (SCREEN_H - 70));
-            } else if (roll < 82) {
-                // 27% 目标指向天花板高处悬吊与俯瞰 (Top Ceiling)
+            } else if (roll < 78) {
+                // 28% 目标指向天花板高处悬吊与俯瞰 (Top Ceiling)
                 crawl_target_x = 35.0f + (rand() % (SCREEN_W - 70));
                 crawl_target_y = 16.0f;
-            } else if (roll < 91) {
-                // 9% 探索左壁中高段
+            } else if (roll < 89) {
+                // 11% 探索左壁中高段
                 crawl_target_x = 16.0f;
                 crawl_target_y = 25.0f + (rand() % (SCREEN_H - 50));
             } else {
-                // 9% 探索右壁中高段
+                // 11% 探索右壁中高段
                 crawl_target_x = SCREEN_W - 16.0f;
                 crawl_target_y = 25.0f + (rand() % (SCREEN_H - 50));
             }
@@ -69,6 +70,26 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
 
             if (tentacles) {
                 tentacles->startGrappleCrawl(hx, hy, crawl_target_x, crawl_target_y);
+            }
+            break;
+        }
+
+        case STATE_SWING: {
+            // 【高空蛛丝悬挂荡秋千模式】
+            state_duration = 6.0f + (rand() % 35) * 0.1f; // 持续 6.0 ~ 9.5 秒
+            crawl_force_x = 0.0f;
+            crawl_force_y = 0.0f;
+
+            // 选取正上方天花板锚点
+            float anchor_x = std::max(24.0f, std::min(SCREEN_W - 24.0f, hx + (rand() % 50 - 25)));
+            float anchor_y = 6.0f;
+            float rope_len = SWING_ROPE_LENGTH;
+
+            if (skeleton) {
+                skeleton->setHangingAnchor(anchor_x, anchor_y, rope_len);
+            }
+            if (tentacles) {
+                tentacles->startCeilingSwing(hx, hy, anchor_x, anchor_y, rope_len);
             }
             break;
         }
@@ -209,24 +230,26 @@ void CreatureAI::updateHesitating(float dt, float hx, float hy, const Expression
     }
 }
 
-void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem &physiology, const RelationshipSystem &relationship, TentacleRenderer &tentacles) {
+void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem &physiology, const RelationshipSystem &relationship, TentacleRenderer &tentacles, SkeletonSystem &skeleton) {
     target_look_x = hx + std::cos(respiration_phase * 0.5f) * 45.0f;
     target_look_y = hy + std::sin(respiration_phase * 0.7f) * 25.0f - 12.0f;
 
     if (state_timer >= state_duration) {
         int r = rand() % 100;
-        // 高好奇心驱动：62% 爬行探索，34% 观察，4% 短时原地
-        if (r < 62) {
-            enterState(STATE_CRAWL, &tentacles, hx, hy);
-        } else if (r < 96) {
-            enterState(STATE_OBSERVE);
+        // 若毒液处于上半区 (hy < 65)，有 25% 概率直接挂上天花板荡秋千！
+        if (hy < 65.0f && r < 25) {
+            enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
+        } else if (r < 65) {
+            enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
+        } else if (r < 94) {
+            enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
         } else {
-            enterState(STATE_IDLE);
+            enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
         }
     }
 }
 
-void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles) {
+void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles, SkeletonSystem &skeleton) {
     target_look_x = crawl_target_x;
     target_look_y = crawl_target_y;
 
@@ -243,19 +266,39 @@ void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySyste
         }
     }
 
-    if (dist <= 10.0f || (state_timer >= state_duration && !tentacles.isGrappling())) {
-        enterState(STATE_OBSERVE);
+    // 若目的地在天花板 (crawl_target_y < 25) 且已接近 (dist <= 14px)，45% 概率转入高空荡秋千玩耍！
+    if (dist <= 12.0f || (state_timer >= state_duration && !tentacles.isGrappling())) {
+        if (crawl_target_y < 25.0f && (rand() % 100) < 45) {
+            enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
+        } else {
+            enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
+        }
     }
 }
 
-void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles) {
+void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles, SkeletonSystem &skeleton) {
     if (state_timer >= state_duration) {
-        // 观察完毕后 75% 概率向注视点射出触手爬行
-        if ((rand() % 100) < 75) {
-            enterState(STATE_CRAWL, &tentacles, hx, hy);
+        int roll = rand() % 100;
+        if (hy < 65.0f && roll < 22) {
+            enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
+        } else if (roll < 78) {
+            enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
         } else {
-            enterState(STATE_IDLE);
+            enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
         }
+    }
+}
+
+void CreatureAI::updateSwing(float dt, float hx, float hy, SkeletonSystem &skeleton, TentacleRenderer &tentacles) {
+    // 眼睛注视点：好奇地注视正下方屏幕或观察者
+    target_look_x = hx + std::sin(state_timer * 2.0f) * 30.0f;
+    target_look_y = hy + 45.0f;
+
+    // 荡秋千时间结束，或身体受到剧烈激惹时，平稳落地
+    if (state_timer >= state_duration || !skeleton.isHanging()) {
+        skeleton.clearHangingAnchor();
+        tentacles.endCeilingSwing();
+        enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
     }
 }
 
@@ -299,15 +342,16 @@ void CreatureAI::update(float dt, SkeletonSystem &skeleton, MetaballSystem &meta
 
     if (expression.getCurrentExpression() != EXPR_NONE &&
         current_state != STATE_STARTLED && current_state != STATE_JOLTING &&
-        current_state != STATE_HESITATING) {
+        current_state != STATE_HESITATING && current_state != STATE_SWING) {
         current_state = STATE_EXPRESSING;
     }
 
     switch (current_state) {
         case STATE_HESITATING: updateHesitating(dt, hx, hy, expression); break;
-        case STATE_IDLE:       updateIdle(dt, hx, hy, physiology, relationship, tentacles); break;
-        case STATE_CRAWL:      updateCrawl(dt, hx, hy, physiology, tentacles); break;
-        case STATE_OBSERVE:    updateObserve(dt, hx, hy, physiology, tentacles); break;
+        case STATE_IDLE:       updateIdle(dt, hx, hy, physiology, relationship, tentacles, skeleton); break;
+        case STATE_CRAWL:      updateCrawl(dt, hx, hy, physiology, tentacles, skeleton); break;
+        case STATE_OBSERVE:    updateObserve(dt, hx, hy, physiology, tentacles, skeleton); break;
+        case STATE_SWING:      updateSwing(dt, hx, hy, skeleton, tentacles); break;
         case STATE_SLEEP:      updateSleep(dt, hx, hy, physiology); break;
         case STATE_STARTLED:   updateStartled(dt, hx, hy, physiology); break;
         case STATE_JOLTING:    updateJolting(dt, hx, hy, physiology); break;

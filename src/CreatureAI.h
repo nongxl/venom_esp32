@@ -17,7 +17,8 @@ enum CreatureState {
     STATE_STARTLED,
     STATE_HESITATING,
     STATE_JOLTING,
-    STATE_EXPRESSING
+    STATE_EXPRESSING,
+    STATE_SWING         // 高空蛛丝悬挂荡秋千状态
 };
 
 class CreatureAI {
@@ -71,17 +72,18 @@ private:
 
     float startle_energy = 0.0f;
 
-    void enterState(CreatureState new_state, TentacleRenderer *tentacles = nullptr, float hx = 120.0f, float hy = 100.0f);
+    void enterState(CreatureState new_state, TentacleRenderer *tentacles = nullptr, SkeletonSystem *skeleton = nullptr, float hx = 120.0f, float hy = 100.0f);
     void enterHesitation(CreatureState target_state, float delay_sec);
     void updateOrganicBreathing(float dt, const PhysiologySystem &physiology, const ExpressionLayer &expression);
     void updateMicroBehaviors(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology);
 
-    void updateIdle(float dt, float hx, float hy, const PhysiologySystem &physiology, const RelationshipSystem &relationship, TentacleRenderer &tentacles);
-    void updateCrawl(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles);
-    void updateObserve(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles);
+    void updateIdle(float dt, float hx, float hy, const PhysiologySystem &physiology, const RelationshipSystem &relationship, TentacleRenderer &tentacles, SkeletonSystem &skeleton);
+    void updateCrawl(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles, SkeletonSystem &skeleton);
+    void updateObserve(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles, SkeletonSystem &skeleton);
     void updateSleep(float dt, float hx, float hy, const PhysiologySystem &physiology);
     void updateStartled(float dt, float hx, float hy, const PhysiologySystem &physiology);
     void updateHesitating(float dt, float hx, float hy, const ExpressionLayer &expression);
     void updateJolting(float dt, float hx, float hy, const PhysiologySystem &physiology);
     void updateExpressing(float dt, float hx, float hy, const ExpressionLayer &expression);
+    void updateSwing(float dt, float hx, float hy, SkeletonSystem &skeleton, TentacleRenderer &tentacles);
 };

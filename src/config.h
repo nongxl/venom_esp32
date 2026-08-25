@@ -33,6 +33,8 @@ static constexpr float SPRING_DAMPING    = 0.72f;
 static constexpr float WALL_STICK_FORCE  = 0.60f;
 static constexpr float WALL_STICK_DIST   = 18.0f; // 像素吸附距离
 static constexpr float WALL_FLATTEN_RATE = 0.55f; // 贴壁压扁形变率
+static constexpr float SWING_ROPE_LENGTH = 52.0f; // 悬挂蛛丝单摆绳长
+static constexpr float SWING_PUMP_FREQ   = 3.2f;  // 自主蹬腿摆动频率
 
 // 情绪状态枚举
 enum EmotionState {

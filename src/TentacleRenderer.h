@@ -5,13 +5,14 @@
 #include "SkeletonSystem.h"
 #include "PhysiologySystem.h"
 
-// 爬行抓取触手阶段
+// 爬行抓取与悬挂触手阶段
 enum GrappleStage {
     GRAPPLE_INACTIVE = 0,
     GRAPPLE_SHOOT,      // 触手高速射出 (0.2s)
     GRAPPLE_ANCHOR,     // 掌心爪盘拍击目的地并抓牢展开 (0.15s)
     GRAPPLE_PULL,       // 强力收缩触手拉动身体质心 (0.5s)
-    GRAPPLE_FUSE        // 头部抵达掌心，融回重吸收 (0.2s)
+    GRAPPLE_FUSE,       // 头部抵达掌心，融回重吸收 (0.2s)
+    GRAPPLE_SWING       // 高空悬挂荡秋千阶段 (持续单摆摇荡)
 };
 
 struct GrappleTendril {
@@ -32,6 +33,7 @@ struct GrappleTendril {
     float palm_spread = 0.0f; // 掌心爪盘张开度
     float ctrl_offset_x = 0.0f;
     float ctrl_offset_y = 0.0f;
+    float rope_length = SWING_ROPE_LENGTH;
 };
 
 struct Tentacle {
@@ -64,6 +66,11 @@ public:
 
     // 启动触手射出爬行抓取
     void startGrappleCrawl(float from_x, float from_y, float to_x, float to_y);
+
+    // 启动天花板高空悬挂荡秋千
+    void startCeilingSwing(float from_x, float from_y, float anchor_x, float anchor_y, float rope_length = SWING_ROPE_LENGTH);
+    void endCeilingSwing();
+
     bool isGrappling() const { return grapple.active; }
     GrappleStage getGrappleStage() const { return grapple.stage; }
 

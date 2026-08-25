@@ -41,6 +41,13 @@ public:
     void setPullTarget(float tx, float ty, float force);
     void clearPullTarget();
 
+    // 蛛丝悬挂荡秋千接口
+    void setHangingAnchor(float ax, float ay, float rope_length = SWING_ROPE_LENGTH);
+    void clearHangingAnchor();
+    bool isHanging() const { return is_hanging; }
+    void getHangingAnchor(float &ax, float &ay) const { ax = anchor_x; ay = anchor_y; }
+    float getHangingRopeLength() const { return rope_len; }
+
     const SkeletonNode& getNode(int idx) const { return nodes[idx]; }
     int getNodeCount() const { return SKELETON_NODE_COUNT; }
 
@@ -74,6 +81,13 @@ private:
     float pull_target_y = 100.0f;
     float pull_strength = 0.0f;
 
+    // 蛛丝高空悬挂荡秋千参数
+    bool is_hanging = false;
+    float anchor_x = 120.0f;
+    float anchor_y = 8.0f;
+    float rope_len = SWING_ROPE_LENGTH;
+    float swing_phase = 0.0f;
+
     // 高速飞行抛体与黏性吸附状态
     float flying_timer = 0.0f;
     float sticky_clog_timer = 0.0f;
@@ -85,4 +99,5 @@ private:
     void applyWallAdhesion(int i);
     void updateNodePhysics(int i, float dt, float gx, float gy, float cfx, float cfy, float tension, bool is_upside_down);
     void solveSpringConstraints(float tension);
+    void solveHangingConstraint(float dt);
 };

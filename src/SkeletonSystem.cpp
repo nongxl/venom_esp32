@@ -58,6 +58,20 @@ void SkeletonSystem::clearPullTarget() {
     pull_strength = 0.0f;
 }
 
+void SkeletonSystem::setHangingAnchor(float ax, float ay, float rope_length) {
+    if (flying_timer > 0.0f) return;
+    is_hanging = true;
+    anchor_x = ax;
+    anchor_y = ay;
+    rope_len = rope_length;
+    swing_phase = 0.0f;
+    clearPullTarget();
+}
+
+void SkeletonSystem::clearHangingAnchor() {
+    is_hanging = false;
+}
+
 void SkeletonSystem::applyImpulse(float ix, float iy) {
     for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
         nodes[i].vx += ix / nodes[i].mass;
@@ -69,6 +83,7 @@ void SkeletonSystem::applyImpulse(float ix, float iy) {
 void SkeletonSystem::triggerSlingThrow(float dir_x, float dir_y, float speed) {
     flying_timer = 0.50f; // 0.5s 高速无阻尼飞行冲刺
     clearPullTarget();    // 立即解除任何正在进行的触手牵引！
+    clearHangingAnchor(); // 立即打断蛛丝悬挂！
     sticky_clog_timer = 0.0f;
 
     for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
@@ -277,6 +292,49 @@ void SkeletonSystem::solveSpringConstraints(float tension) {
     }
 }
 
+void SkeletonSystem::solveHangingConstraint(float dt) {
+    if (!is_hanging) return;
+
+    SkeletonNode &head = nodes[0];
+    float dx = head.x - anchor_x;
+    float dy = head.y - anchor_y;
+    float dist = std::sqrt(dx * dx + dy * dy);
+
+    if (dist > 0.01f) {
+        float nx = dx / dist;
+        float ny = dy / dist;
+
+        // 1. 蛛丝单摆绳索距离弹性拉扯
+        if (dist > rope_len) {
+            float delta = dist - rope_len;
+            float spring_pull = delta * 1.8f;
+            head.vx -= nx * spring_pull;
+            head.vy -= ny * spring_pull;
+
+            // 抑制向外拉断绳索的离心径向速度
+            float radial_v = head.vx * nx + head.vy * ny;
+            if (radial_v > 0.0f) {
+                head.vx -= nx * radial_v * 0.85f;
+                head.vy -= ny * radial_v * 0.85f;
+            }
+
+            // 硬位置钳位保护
+            if (dist > rope_len * 1.35f) {
+                head.x = anchor_x + nx * (rope_len * 1.35f);
+                head.y = anchor_y + ny * (rope_len * 1.35f);
+            }
+        }
+
+        // 2. 毒液自主正弦蹬腿摆动 (Autonomous Pumping Swing Dynamics)
+        swing_phase += dt * SWING_PUMP_FREQ;
+        float tx = -ny; // 切线方向 X
+        float ty = nx;  // 切线方向 Y
+        float pump_acc = std::sin(swing_phase) * 2.2f;
+        head.vx += tx * pump_acc;
+        head.vy += ty * pump_acc;
+    }
+}
+
 void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
                             float crawl_force_x, float crawl_force_y,
                             float neuro_tension, float spike_intensity,
@@ -297,6 +355,9 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
 
     solveSpringConstraints(neuro_tension);
     solveSpringConstraints(neuro_tension);
+
+    // 单摆悬挂绳索约束与自主蹬秋千
+    solveHangingConstraint(dt);
 
     // 【黏性玩具极端贴边拍扁形变算法】
     float stick_boost = (sticky_clog_timer > 0.0f) ? (1.0f + (sticky_clog_timer / 1.0f) * 1.8f) : 1.0f;

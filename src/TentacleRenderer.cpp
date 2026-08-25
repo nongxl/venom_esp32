@@ -36,6 +36,32 @@ void TentacleRenderer::startGrappleCrawl(float from_x, float from_y, float to_x,
     grapple.ctrl_offset_y = dx * 0.15f;
 }
 
+void TentacleRenderer::startCeilingSwing(float from_x, float from_y, float anchor_x, float anchor_y, float rope_length) {
+    grapple.active = true;
+    grapple.stage = GRAPPLE_SWING;
+    grapple.timer = 0.0f;
+
+    grapple.start_x = from_x;
+    grapple.start_y = from_y;
+    grapple.target_x = anchor_x;
+    grapple.target_y = anchor_y;
+
+    grapple.hand_x = anchor_x;
+    grapple.hand_y = anchor_y;
+    grapple.palm_spread = 1.0f;
+    grapple.rope_length = rope_length;
+
+    grapple.ctrl_offset_x = 0.0f;
+    grapple.ctrl_offset_y = 0.0f;
+}
+
+void TentacleRenderer::endCeilingSwing() {
+    if (grapple.stage == GRAPPLE_SWING) {
+        grapple.stage = GRAPPLE_FUSE;
+        grapple.timer = 0.0f;
+    }
+}
+
 void TentacleRenderer::updateGrappleCrawl(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology) {
     if (!grapple.active) return;
 
@@ -97,6 +123,21 @@ void TentacleRenderer::updateGrappleCrawl(float dt, SkeletonSystem &skeleton, co
                 grapple.stage = GRAPPLE_FUSE;
                 grapple.timer = 0.0f;
                 skeleton.clearPullTarget();
+            }
+            break;
+        }
+
+        case GRAPPLE_SWING: {
+            // 高空秋千悬挂状态：掌心死死锚定在天花板
+            grapple.hand_x = grapple.target_x;
+            grapple.hand_y = grapple.target_y;
+            grapple.palm_spread = 1.0f;
+
+            // 头部位置随摆动自然游动，触手紧绷连接
+            if (!skeleton.isHanging()) {
+                // 若骨架系统脱离悬挂，触手自然融回收起
+                grapple.stage = GRAPPLE_FUSE;
+                grapple.timer = 0.0f;
             }
             break;
         }

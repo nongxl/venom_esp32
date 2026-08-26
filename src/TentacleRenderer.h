@@ -58,8 +58,23 @@ struct Tentacle {
     bool is_clinging = false;
 };
 
+struct MicroPodia {
+    int node_idx = 0;        // 依附骨架节点 (0~4)
+    float offset_x = 0.0f;   // 沿节点横向偏移
+    float offset_y = 0.0f;   // 沿节点纵向偏移
+    float phase = 0.0f;      // 异相划动波相位
+    float leg_len = 5.5f;    // 小触手伸展长度 (4.5~6.5px)
+    float base_x = 0.0f;     // 根部世界坐标
+    float base_y = 0.0f;
+    float cur_tip_x = 0.0f;  // 尖端世界坐标
+    float cur_tip_y = 0.0f;
+    bool is_planted = false; // 是否踩在地面/墙面
+};
+
 class TentacleRenderer {
 public:
+    static constexpr int MAX_MICRO_PODIA = 8; // 8 根沿接触腹面生长的微小活体小触手
+
     TentacleRenderer();
 
     void init();
@@ -88,6 +103,16 @@ private:
     Tentacle tentacles[MAX_TENTACLES];
     GrappleTendril grapple;
     float auto_spawn_timer = 0.0f;
+
+    // 皮肤表面小触手群系统 (Micro-Tendril Podia Peristalsis)
+    MicroPodia podia[MAX_MICRO_PODIA];
+    float podia_wave_phase = 0.0f;
+    float creep_dir = 1.0f; // 蠕动方向 (+1.0 向右 / -1.0 向左)
+    float creep_switch_timer = 0.0f;
+
+    void initMicroPodia();
+    void updateMicroPodia(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology);
+    void drawMicroPodia(M5Canvas &canvas) const;
 
     void updateTentacle(int idx, float dt, const SkeletonSystem &skeleton, const PhysiologySystem &physiology);
     void updateGrappleCrawl(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology);

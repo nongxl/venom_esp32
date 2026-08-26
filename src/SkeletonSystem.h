@@ -35,6 +35,7 @@ public:
                 float audio_low = 0.0f);
 
     void applyImpulse(float ix, float iy);
+    void applyCreepMotion(float c_vx, float c_vy);
     void triggerSlingThrow(float dir_x, float dir_y, float speed);
     void triggerLocalBleb(int node_index, float intensity = 1.0f);
 

@@ -81,6 +81,16 @@ void SkeletonSystem::applyImpulse(float ix, float iy) {
     }
 }
 
+void SkeletonSystem::applyCreepMotion(float c_vx, float c_vy) {
+    // 平滑温和的表面小触手蠕动推移 (限制最大蠕动冲量，保持极其自然细腻的流体漫步)
+    float clamped_vx = std::max(-0.65f, std::min(0.65f, c_vx));
+    float clamped_vy = std::max(-0.65f, std::min(0.65f, c_vy));
+    for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
+        nodes[i].vx += clamped_vx / nodes[i].mass;
+        nodes[i].vy += clamped_vy / nodes[i].mass;
+    }
+}
+
 // 激发干脆利落的极速甩飞抛体运动
 void SkeletonSystem::triggerSlingThrow(float dir_x, float dir_y, float speed) {
     flying_timer = 0.50f; // 0.5s 高速无阻尼飞行冲刺

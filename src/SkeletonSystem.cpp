@@ -131,9 +131,9 @@ void SkeletonSystem::applyWallAdhesion(int i) {
     n.contact_left = 0.0f;
     n.contact_right = 0.0f;
 
-    // 1. 底部地面撞击与软体流体下沉贴地 (有效支撑高度降为 0.58r，使身体深度下沉贴紧底框)
+    // 1. 底部地面撞击与贴地 (支撑高度为 0.80r，底部紧贴底框同时保持饱满水滴隆起)
     float dist_b = (SCREEN_H - 1) - n.y;
-    float soft_r_b = r * 0.58f;
+    float soft_r_b = r * 0.80f;
     if (dist_b < soft_r_b) {
         float penetration = soft_r_b - dist_b;
         n.y -= penetration * 0.90f;
@@ -156,10 +156,10 @@ void SkeletonSystem::applyWallAdhesion(int i) {
 
     // 2. 顶部天花板撞击与贴附
     float dist_t = n.y - 1;
-    float soft_r_t = r * 0.65f;
+    float soft_r_t = r * 0.80f;
     if (dist_t < soft_r_t) {
         float penetration = soft_r_t - dist_t;
-        n.y += penetration * 0.90f;
+        n.y -= penetration * 0.90f;
 
         if ((flying_timer > 0.0f && std::abs(n.vy) > 10.0f) || n.vy < -28.0f) {
             impact_occurred = true;
@@ -179,7 +179,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
 
     // 3. 左壁撞击与贴附
     float dist_l = n.x - 1;
-    float soft_r_l = r * 0.65f;
+    float soft_r_l = r * 0.80f;
     if (dist_l < soft_r_l) {
         float penetration = soft_r_l - dist_l;
         n.x += penetration * 0.90f;
@@ -202,7 +202,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
 
     // 4. 右壁撞击与贴附
     float dist_r = (SCREEN_W - 1) - n.x;
-    float soft_r_r = r * 0.65f;
+    float soft_r_r = r * 0.80f;
     if (dist_r < soft_r_r) {
         float penetration = soft_r_r - dist_r;
         n.x -= penetration * 0.90f;
@@ -307,8 +307,6 @@ void SkeletonSystem::solveSpringConstraints(float tension) {
         float rest = rest_lengths[i - 1];
         if (has_pull_target || flying_timer > 0.0f) {
             rest *= 1.45f; // 高速飞行时受离心力拉长身躯
-        } else if (prev.contact_bottom > 0.35f && curr.contact_bottom > 0.35f && !is_hanging) {
-            rest *= 1.35f; // 贴地静止时受重力压迫横向流体自然舒展铺展
         }
 
         if (dist > 0.01f) {
@@ -426,20 +424,20 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         float flat_x = 1.0f;
         float flat_y = 1.0f;
 
-        // 贴边流体滩地形变 (底边/壁面流体滩开：纵向高度压扁，横向向两侧自然流淌铺展)
+        // 贴边适度有机形变 (既呈现贴地的流体粘附感，又维持饱满水滴肉质隆起)
         if (n.contact_bottom > 0.05f) {
             float eff = std::min(1.0f, n.contact_bottom);
-            flat_y -= eff * 0.48f; // 高度明显压缩压扁 48% (压至 0.52r 扁平流体)
-            flat_x += eff * 0.85f; // 宽度向两侧大幅流淌扩展 85% (扩展至 1.85r 宽滩)
+            flat_y -= eff * 0.28f; // 适度压扁 28% (高度维持在 0.72r 饱满厚实水滴)
+            flat_x += eff * 0.38f; // 适度宽展 38% (宽度维持在 1.38r 有机贴地)
         } else if (n.contact_top > 0.05f) {
             float eff = std::min(1.0f, n.contact_top);
-            flat_y -= eff * 0.40f;
-            flat_x += eff * 0.70f;
+            flat_y -= eff * 0.25f;
+            flat_x += eff * 0.30f;
         }
         if (contact_x > 0.05f) {
             float eff = std::min(1.0f, contact_x);
-            flat_x -= eff * 0.40f; // 贴侧壁横向压缩
-            flat_y += eff * 0.70f; // 纵向顺着重力和墙面流淌拉长
+            flat_x -= eff * 0.25f;
+            flat_y += eff * 0.30f;
         }
 
         // 速度形变：基于速度主方向自然拉长成细线 (液态共生体拉丝行为)

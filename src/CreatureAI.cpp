@@ -56,7 +56,7 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
             // 【表皮小触手近距离缓慢蠕动漫步模式】
             state_duration = 3.5f + (rand() % 25) * 0.1f; // 3.5 ~ 6.0s 表皮小触手缓慢蠕动
             float angle = (float)(rand() % 360) * 0.017453f;
-            float step_dist = 22.0f + (float)(rand() % 25);
+            float step_dist = 28.0f + (float)(rand() % 25);
             crawl_target_x = std::max(25.0f, std::min(SCREEN_W - 25.0f, hx + std::cos(angle) * step_dist));
             crawl_target_y = std::max(25.0f, std::min(SCREEN_H - 25.0f, hy + std::sin(angle) * step_dist));
 
@@ -66,6 +66,7 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
             // 关键：起步前先原地对齐头部朝向，头部在最前端领路，杜绝倒退！
             if (skeleton) {
                 skeleton->alignHeadingToTarget(crawl_target_x, crawl_target_y);
+                skeleton->setPullTarget(crawl_target_x, crawl_target_y, 0.95f);
             }
             if (tentacles) {
                 tentacles->setCreepMode(true, 1.0f);
@@ -340,16 +341,16 @@ void CreatureAI::updateCreep(float dt, float hx, float hy, const PhysiologySyste
     float dy = crawl_target_y - hy;
     float dist = std::sqrt(dx * dx + dy * dy);
 
-    // 确保触手处于活跃蠕动模式
+    // 确保触手处于活跃蠕动划步模式
     tentacles.setCreepMode(true, 1.0f);
-
-    // 推动表皮小触手和身体以平稳步速 (约 16px/s) 优雅滑移蠕动前进
-    skeleton.applyCreepingMotion(dx, dy, 1.0f, dt);
+    // 持续施加平稳牵引力拉动毒液整体向前滑移
+    skeleton.setPullTarget(crawl_target_x, crawl_target_y, 0.95f);
 
     const_cast<PhysiologySystem&>(physiology).consumeEnergy(dt * 0.006f); // 蠕动能耗极低
 
     // 蠕动到达目标或超时，转入从容观察发呆
-    if (dist <= 12.0f || state_timer >= state_duration) {
+    if (dist <= 14.0f || state_timer >= state_duration) {
+        skeleton.clearPullTarget();
         tentacles.setCreepMode(false);
         enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
     }

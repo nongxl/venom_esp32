@@ -71,7 +71,7 @@ struct MicroTentacle {
 
 class TentacleRenderer {
 public:
-    static constexpr int MAX_MICRO_TENTACLES = 14;
+    static constexpr int MAX_MICRO_TENTACLES = 6; // 精简为 3 对流体黑色肉足，彻底消除密恐
 
     TentacleRenderer();
 

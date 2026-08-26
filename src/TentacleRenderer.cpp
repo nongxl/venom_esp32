@@ -17,17 +17,16 @@ void TentacleRenderer::init() {
 }
 
 void TentacleRenderer::initMicroTentacles() {
-    // 均匀分布 14 根表皮细小腹足触手 (覆盖 Node 0..4 两侧腹部)
+    // 精简为 6 根流体黑色附肢 (依附于 Node 1, 2, 3 两侧腹部，彻底消除密恐)
     int idx = 0;
-    for (int n = 0; n < SKELETON_NODE_COUNT; ++n) {
-        int count_for_node = (n == 0) ? 2 : 3;
-        for (int c = 0; c < count_for_node && idx < MAX_MICRO_TENTACLES; ++c) {
+    for (int n = 1; n <= 3 && idx < MAX_MICRO_TENTACLES; ++n) {
+        for (int side = 0; side < 2 && idx < MAX_MICRO_TENTACLES; ++side) {
             micro_tentacles[idx].node_idx = n;
-            micro_tentacles[idx].side_sign = (c % 2 == 0) ? 1.0f : -1.0f;
-            micro_tentacles[idx].offset_angle = (float)c * 0.55f - 0.45f;
-            micro_tentacles[idx].current_len = 3.5f; // 常态下保持 3.5px 轻微探出待命
-            micro_tentacles[idx].max_len = 13.0f + (float)(rand() % 35) * 0.1f; // 蠕动时伸长至 13~16.5px 超显眼
-            micro_tentacles[idx].phase_offset = (float)idx * 0.60f;
+            micro_tentacles[idx].side_sign = (side == 0) ? 1.0f : -1.0f;
+            micro_tentacles[idx].offset_angle = (side == 0) ? 0.25f : -0.25f;
+            micro_tentacles[idx].current_len = 0.0f; // 平时完全隐入体内，保持浑然一体
+            micro_tentacles[idx].max_len = 11.5f + (float)(rand() % 20) * 0.1f;
+            micro_tentacles[idx].phase_offset = (float)idx * 0.85f;
             idx++;
         }
     }
@@ -39,34 +38,33 @@ void TentacleRenderer::setCreepMode(bool active, float speed_factor) {
 }
 
 void TentacleRenderer::updateMicroTentacles(float dt, const SkeletonSystem &skeleton) {
-    // 蠕动时快速波浪划动 (12 rad/s)；常态时轻柔有机探动 (3.5 rad/s)
-    float wave_rate = is_creeping ? (creep_speed * 12.5f) : 3.5f;
-    creep_wave_phase += dt * wave_rate;
+    if (is_creeping) {
+        creep_wave_phase += dt * creep_speed * 11.0f;
+    }
 
-    float head_angle = skeleton.getHeadingAngle(); // 身体主轴朝向角
-    float norm_angle = head_angle + 1.5708f;       // 法线角
+    float head_angle = skeleton.getHeadingAngle();
+    float norm_angle = head_angle + 1.5708f;
 
     for (int i = 0; i < MAX_MICRO_TENTACLES; ++i) {
         MicroTentacle &mt = micro_tentacles[i];
         const SkeletonNode &node = skeleton.getNode(mt.node_idx);
 
-        // 目标生长长度：蠕动时迅速伸长至 13~16.5px，非蠕动时保持 3.5px 活体微探触
-        float target_len = is_creeping ? mt.max_len : 3.5f;
-        mt.current_len += (target_len - mt.current_len) * (dt * 9.0f);
+        // 仅在 is_creeping 时优雅伸长划地，移动结束立即平滑融回体内
+        float target_len = is_creeping ? mt.max_len : 0.0f;
+        mt.current_len += (target_len - mt.current_len) * (dt * 10.0f);
 
         if (mt.current_len < 0.5f) continue;
 
-        // 计算表皮根部锚点 (位于身体真实外缘表面)
+        // 计算表皮根部锚点
         float base_ang = norm_angle * mt.side_sign + mt.offset_angle;
-        float bx = node.x + std::cos(base_ang) * (node.radius_x * 0.96f);
-        float by = node.y + std::sin(base_ang) * (node.radius_y * 0.96f);
+        float bx = node.x + std::cos(base_ang) * (node.radius_x * 0.90f);
+        float by = node.y + std::sin(base_ang) * (node.radius_y * 0.90f);
 
-        // 小触手步态波浪 (Metachronal Wave):
-        // 蠕动时：大幅度向后推地、向前抬起回移
+        // 自然划步推地：撑地向后划动 -> 抬腿向前复位
         float leg_phase = creep_wave_phase + mt.phase_offset;
-        float stroke_forward = -std::cos(head_angle) * (std::sin(leg_phase) * mt.current_len * 0.85f);
-        float stroke_lateral = std::cos(base_ang) * (mt.current_len * (0.8f + 0.35f * std::cos(leg_phase)));
-        float stroke_vertical = std::sin(base_ang) * (mt.current_len * (0.8f + 0.35f * std::cos(leg_phase)));
+        float stroke_forward = -std::cos(head_angle) * (std::sin(leg_phase) * mt.current_len * 0.90f);
+        float stroke_lateral = std::cos(base_ang) * (mt.current_len * (0.75f + 0.30f * std::cos(leg_phase)));
+        float stroke_vertical = std::sin(base_ang) * (mt.current_len * (0.75f + 0.30f * std::cos(leg_phase)));
 
         mt.tip_x = bx + stroke_forward + stroke_lateral;
         mt.tip_y = by + stroke_vertical;
@@ -82,23 +80,20 @@ void TentacleRenderer::drawMicroTentacles(M5Canvas &canvas, const SkeletonSystem
         float head_angle = skeleton.getHeadingAngle();
         float norm_angle = head_angle + 1.5708f;
         float base_ang = norm_angle * mt.side_sign + mt.offset_angle;
-        float bx = node.x + std::cos(base_ang) * (node.radius_x * 0.92f);
-        float by = node.y + std::sin(base_ang) * (node.radius_y * 0.92f);
+        float bx = node.x + std::cos(base_ang) * (node.radius_x * 0.88f);
+        float by = node.y + std::sin(base_ang) * (node.radius_y * 0.88f);
 
         int ibx = (int)std::round(bx);
         int iby = (int)std::round(by);
         int itx = (int)std::round(mt.tip_x);
         int ity = (int)std::round(mt.tip_y);
 
-        // 绘制 3px 宽饱满纯黑肉质细小足肢 (带外缘)
+        // 绘制纯黑锥形流体肉足 (根部 3px 渐变收细至尖端，无任何发光圆点，完全消除密恐)
         for (int off = -1; off <= 1; ++off) {
-            canvas.drawLine(ibx + off, iby, itx + off, ity, COLOR_VENOM_CORE);
-            canvas.drawLine(ibx, iby + off, itx, ity + off, COLOR_VENOM_CORE);
+            canvas.drawLine(ibx + off, iby, itx, ity, COLOR_VENOM_CORE);
+            canvas.drawLine(ibx, iby + off, itx, ity, COLOR_VENOM_CORE);
         }
-
-        // 爪尖绘制 2.5px 鲜明饱满的共生体青绿荧光微吸盘圆垫 (绝不淹没在黑肉中)
-        canvas.fillCircle(itx, ity, 2, COLOR_GLOW_CYAN);
-        canvas.drawPixel(itx, ity, 0xFFFF); // 吸盘湿润晶莹高光白点
+        canvas.drawPixel((ibx + itx) / 2, (iby + ity) / 2, COLOR_DITHER_GRAY); // 柔和微反光线
     }
 }
 

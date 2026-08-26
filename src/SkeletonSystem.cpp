@@ -127,7 +127,8 @@ void SkeletonSystem::applyWallAdhesion(int i) {
         float penetration = r - dist_b;
         n.y -= penetration * 0.90f;
 
-        if (n.vy > 1.2f || flying_timer > 0.0f) {
+        // 仅在真实高速抛掷撞击 (flying_timer > 0 或 猛烈摔打冲击 > 25.0px/s) 时才触发拍扁撞击事件
+        if ((flying_timer > 0.0f && std::abs(n.vy) > 10.0f) || n.vy > 28.0f) {
             impact_occurred = true;
             last_impact_speed = std::max(last_impact_speed, n.vy);
             impact_hit_x = n.x;
@@ -147,7 +148,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
         float penetration = r - dist_t;
         n.y += penetration * 0.90f;
 
-        if (n.vy < -1.2f || flying_timer > 0.0f) {
+        if ((flying_timer > 0.0f && std::abs(n.vy) > 10.0f) || n.vy < -28.0f) {
             impact_occurred = true;
             last_impact_speed = std::max(last_impact_speed, -n.vy);
             impact_hit_x = n.x;
@@ -167,7 +168,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
         float penetration = r - dist_l;
         n.x += penetration * 0.90f;
 
-        if (n.vx < -1.2f || flying_timer > 0.0f) {
+        if ((flying_timer > 0.0f && std::abs(n.vx) > 10.0f) || n.vx < -28.0f) {
             impact_occurred = true;
             last_impact_speed = std::max(last_impact_speed, -n.vx);
             impact_hit_x = n.x;
@@ -187,7 +188,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
         float penetration = r - dist_r;
         n.x -= penetration * 0.90f;
 
-        if (n.vx > 1.2f || flying_timer > 0.0f) {
+        if ((flying_timer > 0.0f && std::abs(n.vx) > 10.0f) || n.vx > 28.0f) {
             impact_occurred = true;
             last_impact_speed = std::max(last_impact_speed, n.vx);
             impact_hit_x = n.x;
@@ -402,6 +403,10 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
 
     for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
         SkeletonNode &n = nodes[i];
+        // 鼓包平滑指数衰减回位 (平稳柔和，杜绝瞬移抽搐)
+        n.bleb_offset_x *= 0.85f;
+        n.bleb_offset_y *= 0.85f;
+
         float r = (n.base_radius + bass_expansion) * (1.0f + respiration * 0.15f);
 
         if (has_pull_target || flying_timer > 0.0f) {

@@ -114,26 +114,25 @@ void MetaballSystem::updateSpikes(float dt, const PhysiologySystem &physiology) 
         }
     }
 
-    // 2. 自主突发尖刺与【音乐重音铁磁流体律动 (Ferrofluid Beat Spikes)】
-    spike_spawn_timer += dt;
+    // 2. 尖刺激发条件严格收敛：仅在真正的愤怒形态 (ANGER) 或 音乐强重音时激发，常态下 100% 保持光洁流体
+    EmotionState emo = physiology.getEmotion();
     float tension = physiology.getNeuroTension();
-    float sound_ex = physiology.getSoundExcitation();
     float raw_low  = physiology.getRawAudioLow();
-    float raw_high = physiology.getRawAudioHigh();
 
-    // 音乐低频重音/鼓点瞬间，触发如同铁磁流体般的短促微尖刺舞动
-    if (raw_low > 0.42f && (rand() % 100) < 55) {
+    // 音乐低频大重音瞬间：触发短促微尖刺律动 (45% 概率)
+    if (raw_low > 0.48f && (rand() % 100) < 45) {
         spawnRandomSpike(physiology);
     }
 
-    float trigger_interval = 0.14f / (1.0f + tension * 1.5f + sound_ex * 2.8f + raw_low * 3.2f);
-
-    if (spike_spawn_timer >= trigger_interval) {
-        spike_spawn_timer = 0.0f;
-        spawnRandomSpike(physiology);
-        if ((tension > 0.4f || raw_low > 0.35f || sound_ex > 0.35f) && (rand() % 100) < 60) {
+    // 仅在愤怒形态且神经张力极高时自主长刺防御
+    if (emo == EMOTION_ANGER && tension > 0.55f) {
+        spike_spawn_timer += dt;
+        if (spike_spawn_timer >= 0.40f) {
+            spike_spawn_timer = 0.0f;
             spawnRandomSpike(physiology);
         }
+    } else {
+        spike_spawn_timer = 0.0f;
     }
 }
 

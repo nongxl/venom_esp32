@@ -232,11 +232,12 @@ void CreatureAI::updateOrganicBreathing(float dt, const PhysiologySystem &physio
 
 void CreatureAI::updateMicroBehaviors(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology) {
     micro_behavior_timer += dt;
-    if (micro_behavior_timer > 1.2f) {
+    if (micro_behavior_timer > 4.5f) {
         micro_behavior_timer = 0.0f;
-        if ((rand() % 100) < 70) {
-            int node = rand() % SKELETON_NODE_COUNT;
-            skeleton.triggerLocalBleb(node, 0.35f + physiology.getNeuroTension() * 0.5f);
+        // 仅在有明显神经张力时才偶尔触发轻微局部隆起 (30% 概率)
+        if (physiology.getNeuroTension() > 0.35f && (rand() % 100) < 30) {
+            int node = 1 + (rand() % 3);
+            skeleton.triggerLocalBleb(node, 0.4f * physiology.getNeuroTension());
         }
     }
 }

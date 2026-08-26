@@ -81,34 +81,53 @@ void PhysiologySystem::updateInternalDynamics(float dt) {
     energy = std::max(0.05f, energy - dt * 0.006f);
 }
 
-void PhysiologySystem::updateEmotionState(float dt) {
-    emotion_dwell_timer += dt;
+void PhysiologySystem::updateEmotionState() {
+    // 基于宽区间滞后门限 (Hysteresis) 的纯自然生物情绪演化 (彻底无需硬编码时间)
+    switch (current_emotion) {
+        case EMOTION_CALM:
+            if (energy < 0.20f) {
+                current_emotion = EMOTION_EXHAUSTED;
+            } else if (stress > 0.45f) {
+                current_emotion = (smoothed_audio_high > 0.6f || neuro_tension > 0.7f) ? EMOTION_ANGER : EMOTION_STRESS;
+            } else if (curiosity > 0.65f && comfort > 0.45f) {
+                current_emotion = EMOTION_CURIOSITY;
+            }
+            break;
 
-    EmotionState target_emotion = current_emotion;
+        case EMOTION_CURIOSITY:
+            if (energy < 0.20f) {
+                current_emotion = EMOTION_EXHAUSTED;
+            } else if (stress > 0.45f) {
+                current_emotion = EMOTION_STRESS;
+            } else if (curiosity < 0.35f || comfort < 0.30f) {
+                // 好奇心随时间自然降温，平缓回归平静
+                current_emotion = EMOTION_CALM;
+            }
+            break;
 
-    // 综合判定目标主导情绪 (带滞后区间保护，彻底避免频繁跳跃)
-    if (energy < 0.20f) {
-        target_emotion = EMOTION_EXHAUSTED; // 疲惫困倦
-    } else if (stress > 0.65f) {
-        if (smoothed_audio_high > 0.5f || neuro_tension > 0.75f) {
-            target_emotion = EMOTION_ANGER; // 受强烈持续刺激时转为愤怒攻击形态
-        } else {
-            target_emotion = EMOTION_FEAR;  // 剧烈恐惧收缩
-        }
-    } else if (stress > 0.35f) {
-        target_emotion = EMOTION_STRESS;    // 紧张不安
-    } else if (curiosity > 0.55f && comfort > 0.45f) {
-        target_emotion = EMOTION_CURIOSITY; // 好奇探究
-    } else if (stress < 0.25f) {
-        target_emotion = EMOTION_CALM;      // 平静舒缓
-    }
+        case EMOTION_STRESS:
+            if (energy < 0.15f) {
+                current_emotion = EMOTION_EXHAUSTED;
+            } else if (stress > 0.70f) {
+                current_emotion = (smoothed_audio_high > 0.6f || neuro_tension > 0.75f) ? EMOTION_ANGER : EMOTION_FEAR;
+            } else if (stress < 0.20f) {
+                // 压力完全释放，平稳回归平静
+                current_emotion = EMOTION_CALM;
+            }
+            break;
 
-    // 最小情绪停留时间 2.0 秒（强力惊吓除外），使情绪连贯沉稳
-    if (target_emotion != current_emotion) {
-        if (emotion_dwell_timer >= 2.0f || target_emotion == EMOTION_ANGER || target_emotion == EMOTION_FEAR) {
-            current_emotion = target_emotion;
-            emotion_dwell_timer = 0.0f;
-        }
+        case EMOTION_FEAR:
+        case EMOTION_ANGER:
+            if (stress < 0.35f) {
+                current_emotion = EMOTION_STRESS; // 暴躁/恐惧渐进式降温回落
+            }
+            break;
+
+        case EMOTION_EXHAUSTED:
+            if (energy > 0.40f) {
+                current_emotion = EMOTION_CALM; // 体力充分恢复后苏醒
+            }
+            break;
     }
 }
 
@@ -127,7 +146,7 @@ void PhysiologySystem::update(float dt, float imu_shake, bool is_upside_down, bo
     }
 
     updateInternalDynamics(dt);
-    updateEmotionState(dt);
+    updateEmotionState();
 }
 
 float PhysiologySystem::getSpikeIntensity() const {

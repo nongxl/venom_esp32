@@ -90,8 +90,7 @@ private:
     float neuro_wave_phase = 0.0f;
 
     EmotionState current_emotion = EMOTION_CALM;
-    float emotion_dwell_timer = 0.0f;
 
     void updateInternalDynamics(float dt);
-    void updateEmotionState(float dt);
+    void updateEmotionState();
 };

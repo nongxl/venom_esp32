@@ -246,12 +246,12 @@ void TentacleRenderer::update(float dt, SkeletonSystem &skeleton, const Physiolo
     updateGrappleCrawl(dt, skeleton, physiology);
 
     // 荡秋千状态下彻底清空并禁用杂乱环境触手，保持纯净牛顿摆形态
-    if (grapple.stage == GRAPPLE_SWING) {
-        for (int i = 0; i < MAX_TENTACLES; ++i) {
-            tentacles[i].active = false;
-        }
-        return;
-    }
+    //if (grapple.stage == GRAPPLE_SWING) {
+    //    for (int i = 0; i < MAX_TENTACLES; ++i) {
+    //        tentacles[i].active = false;
+    //    }
+    //    return;
+    //}
 
     // 2. 全天候多触手高频自发摸索生长 (Ambient Spawning)
     auto_spawn_timer += dt;

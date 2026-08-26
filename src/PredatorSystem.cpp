@@ -366,17 +366,18 @@ void PredatorSystem::updateMucusSnare(float dt, PreyBugSystem &bugs, SkeletonSys
     } else if (hunt.phase == PHASE_CRAWL_ENGULF) {
         // 【从容爬行包覆吞噬阶段】
         const PreyBug &b = bugs.getBug(hunt.target_bug_idx);
-        float target_pos_x = b.x;
-        float target_pos_y = b.y;
+        // 确保进食目标点严格内收在屏幕安全舒适区 (至少距边界 20px)
+        float target_pos_x = std::max(20.0f, std::min((float)SCREEN_W - 20.0f, b.x));
+        float target_pos_y = std::max(20.0f, std::min((float)SCREEN_H - 20.0f, b.y));
 
-        // 强力引导毒液头部向定身虫子爬去
         float dx = target_pos_x - hx;
         float dy = target_pos_y - hy;
         float dist = std::sqrt(dx * dx + dy * dy);
 
-        skeleton.setPullTarget(target_pos_x, target_pos_y, 2.0f);
+        skeleton.setPullTarget(target_pos_x, target_pos_y, 1.85f);
 
-        if (dist < 12.0f || hunt.timer > 2.5f) {
+        // 头部靠近 26px (此时巨大黑色标量场肉身已完全将虫子包覆) 或 1.8s 超时看门狗触发立即吞噬完成
+        if (dist < 26.0f || hunt.timer > 1.8f) {
             skeleton.clearPullTarget();
             finishDigest(bugs, physiology, metaballs);
         }

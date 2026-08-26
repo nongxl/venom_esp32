@@ -24,12 +24,12 @@ void PreyBugSystem::spawnNewBug() {
             b.state = BUG_FREE;
             b.type = (rand() % 2 == 0) ? BUG_CRAWLER : BUG_FLYER;
 
-            // 随机从屏幕四周边缘诞生
+            // 随机从屏幕安全视窗边缘诞生 (内收 18px，保证毒液进食时绝不出屏)
             int side = rand() % 4;
-            if (side == 0) { b.x = 10.0f + (rand() % (SCREEN_W - 20)); b.y = 8.0f; b.angle = 1.57f; }
-            else if (side == 1) { b.x = SCREEN_W - 8.0f; b.y = 10.0f + (rand() % (SCREEN_H - 20)); b.angle = 3.14f; }
-            else if (side == 2) { b.x = 10.0f + (rand() % (SCREEN_W - 20)); b.y = SCREEN_H - 8.0f; b.angle = -1.57f; }
-            else { b.x = 8.0f; b.y = 10.0f + (rand() % (SCREEN_H - 20)); b.angle = 0.0f; }
+            if (side == 0) { b.x = 20.0f + (rand() % (SCREEN_W - 40)); b.y = 18.0f; b.angle = 1.57f; }
+            else if (side == 1) { b.x = SCREEN_W - 18.0f; b.y = 20.0f + (rand() % (SCREEN_H - 40)); b.angle = 3.14f; }
+            else if (side == 2) { b.x = 20.0f + (rand() % (SCREEN_W - 40)); b.y = SCREEN_H - 18.0f; b.angle = -1.57f; }
+            else { b.x = 18.0f; b.y = 20.0f + (rand() % (SCREEN_H - 40)); b.angle = 0.0f; }
 
             b.base_speed = (b.type == BUG_CRAWLER) ? (14.0f + (rand() % 10)) : (22.0f + (rand() % 16));
             b.current_speed = b.base_speed;
@@ -91,11 +91,12 @@ void PreyBugSystem::updateCrawler(PreyBug &b, float dt, float v_hx, float v_hy) 
     b.x += b.vx * dt;
     b.y += b.vy * dt;
 
-    // 4. 边界碰撞掉头
-    if (b.x < 8.0f) { b.x = 8.0f; b.angle = 3.14159f - b.angle; }
-    if (b.x > SCREEN_W - 8.0f) { b.x = SCREEN_W - 8.0f; b.angle = 3.14159f - b.angle; }
-    if (b.y < 8.0f) { b.y = 8.0f; b.angle = -b.angle; }
-    if (b.y > SCREEN_H - 8.0f) { b.y = SCREEN_H - 8.0f; b.angle = -b.angle; }
+    // 4. 边界碰撞掉头 (内收 18px 安全边界)
+    constexpr float MARGIN = 18.0f;
+    if (b.x < MARGIN) { b.x = MARGIN; b.angle = 3.14159f - b.angle; }
+    if (b.x > SCREEN_W - MARGIN) { b.x = SCREEN_W - MARGIN; b.angle = 3.14159f - b.angle; }
+    if (b.y < MARGIN) { b.y = MARGIN; b.angle = -b.angle; }
+    if (b.y > SCREEN_H - MARGIN) { b.y = SCREEN_H - MARGIN; b.angle = -b.angle; }
 }
 
 void PreyBugSystem::updateFlyer(PreyBug &b, float dt, float v_hx, float v_hy) {
@@ -138,10 +139,11 @@ void PreyBugSystem::updateFlyer(PreyBug &b, float dt, float v_hx, float v_hy) {
     b.x += b.vx * dt;
     b.y += b.vy * dt;
 
-    if (b.x < 8.0f) { b.x = 8.0f; b.angle = 3.14159f - b.angle; }
-    if (b.x > SCREEN_W - 8.0f) { b.x = SCREEN_W - 8.0f; b.angle = 3.14159f - b.angle; }
-    if (b.y < 8.0f) { b.y = 8.0f; b.angle = -b.angle; }
-    if (b.y > SCREEN_H - 8.0f) { b.y = SCREEN_H - 8.0f; b.angle = -b.angle; }
+    constexpr float MARGIN = 18.0f;
+    if (b.x < MARGIN) { b.x = MARGIN; b.angle = 3.14159f - b.angle; }
+    if (b.x > SCREEN_W - MARGIN) { b.x = SCREEN_W - MARGIN; b.angle = 3.14159f - b.angle; }
+    if (b.y < MARGIN) { b.y = MARGIN; b.angle = -b.angle; }
+    if (b.y > SCREEN_H - MARGIN) { b.y = SCREEN_H - MARGIN; b.angle = -b.angle; }
 }
 
 void PreyBugSystem::update(float dt, float venom_hx, float venom_hy) {

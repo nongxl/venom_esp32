@@ -46,10 +46,10 @@ void SkeletonSystem::init() {
 }
 
 void SkeletonSystem::setPullTarget(float tx, float ty, float force) {
-    if (flying_timer > 0.0f) return; // 飞行期间拒绝爬行拉力干扰
     has_pull_target = true;
-    pull_target_x = tx;
-    pull_target_y = ty;
+    // 强制将牵引目标点内收到屏幕安全区域内 (距边界至少 14px)
+    pull_target_x = std::max(14.0f, std::min((float)SCREEN_W - 14.0f, tx));
+    pull_target_y = std::max(14.0f, std::min((float)SCREEN_H - 14.0f, ty));
     pull_strength = force;
     pull_timeout_timer = 0.0f;
 }
@@ -434,6 +434,20 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
 
         n.radius_x = std::max(2.5f, r * flat_x);
         n.radius_y = std::max(2.5f, r * flat_y);
+
+        // 强制全骨架节点 100% 屏幕内绝对硬安全钳位与防丢失救生圈
+        if (std::isnan(n.x) || std::isnan(n.y) || std::isnan(n.vx) || std::isnan(n.vy)) {
+            n.x = 120.0f + (float)i * 3.0f;
+            n.y = 70.0f;
+            n.vx = 0.0f;
+            n.vy = 0.0f;
+        }
+
+        float margin = 6.0f;
+        if (n.x < margin) { n.x = margin; n.vx = std::max(0.0f, n.vx); }
+        if (n.x > (float)SCREEN_W - margin) { n.x = (float)SCREEN_W - margin; n.vx = std::min(0.0f, n.vx); }
+        if (n.y < margin) { n.y = margin; n.vy = std::max(0.0f, n.vy); }
+        if (n.y > (float)SCREEN_H - margin) { n.y = (float)SCREEN_H - margin; n.vy = std::min(0.0f, n.vy); }
     }
 }
 

@@ -205,29 +205,26 @@ void CreatureAI::updateSensors(float imu_gx, float imu_gy, float imu_gz, const P
 }
 
 void CreatureAI::updateOrganicBreathing(float dt, const PhysiologySystem &physiology, const ExpressionLayer &expression) {
-    float base_speed = (physiology.getEmotion() == EMOTION_STRESS || physiology.getEmotion() == EMOTION_FEAR) ? 4.5f : 2.0f;
-    float audio_low_boost = physiology.getAudioLow() * 3.5f;
+    // 自然深沉共生体生命呼吸律动 (一次完整呼吸 6.5 ~ 9.0 秒，极其平缓悠长舒展)
+    float base_speed = 0.90f; // 0.9 rad/s 对应周期约 7.0 秒
+    if (current_state == STATE_SLEEP) {
+        base_speed = 0.55f;   // 睡眠时深长呼吸 (周期约 11.4 秒)
+    } else if (physiology.getEmotion() == EMOTION_STRESS || physiology.getEmotion() == EMOTION_FEAR) {
+        base_speed = 1.80f;   // 惊恐时呼吸加快 (周期约 3.5 秒)
+    }
 
     if (expression.getCurrentExpression() == EXPR_OBSERVE || expression.getCurrentExpression() == EXPR_SILENT_OBSERVATION) {
-        base_speed *= 0.65f;
+        base_speed *= 0.75f;  // 屏息凝神观察
     }
 
-    respiration_phase += dt * (base_speed + audio_low_boost);
+    respiration_phase += dt * base_speed;
 
     float s = std::sin(respiration_phase);
-    float raw_resp = (s > 0) ? std::pow(s, 0.75f) : -std::pow(-s, 1.2f);
+    // 柔和平滑的自然非线性吸气-呼气曲线 (吸气慢舒张，呼气微停留)
+    float raw_resp = (s > 0) ? std::pow(s, 0.85f) : -std::pow(-s, 1.15f);
 
-    twitch_timer += dt;
-    if (twitch_timer > 1.8f) {
-        twitch_timer = 0.0f;
-        if ((rand() % 100) < 40) {
-            twitch_offset = ((rand() % 40) - 20) * 0.002f;
-        } else {
-            twitch_offset = 0.0f;
-        }
-    }
-
-    respiration_factor = raw_resp * (0.04f + physiology.getAudioLow() * 0.03f) + twitch_offset;
+    // 呼吸起伏幅度温和深沉 (0.065)，视觉上极其平缓悠远，绝无急促抽动
+    respiration_factor = raw_resp * 0.065f;
 }
 
 void CreatureAI::updateMicroBehaviors(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology) {

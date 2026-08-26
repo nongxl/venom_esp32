@@ -384,12 +384,6 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
     // 单摆悬挂绳索约束与自主蹬秋千
     solveHangingConstraint(dt);
 
-    // 音乐低频重音激发局部肉感大鼓包 (Beat Blebs)
-    if (audio_low > 0.35f && (rand() % 100) < 60) {
-        int node = 1 + (rand() % 3); // 主要是背部与腰部节点
-        triggerLocalBleb(node, audio_low * 1.6f);
-    }
-
     // 增加 pull_target 超时保护 (1.6秒看门狗自动释放，防止死锁)
     if (has_pull_target) {
         pull_timeout_timer += dt;
@@ -398,8 +392,8 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         }
     }
 
-    // 低音鼓点重低音膨胀脉动 (Bass Thump: 0 ~ 3.5px 随节拍强劲律动)
-    float bass_expansion = audio_low * 3.5f;
+    // 低音重拍大鼓点脉动 (仅在超强低音 > 0.45 时产生微弱平滑膨胀，常态下严格为 0)
+    float bass_expansion = (audio_low > 0.45f) ? ((audio_low - 0.45f) * 2.2f) : 0.0f;
 
     for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
         SkeletonNode &n = nodes[i];
@@ -407,7 +401,8 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         n.bleb_offset_x *= 0.85f;
         n.bleb_offset_y *= 0.85f;
 
-        float r = (n.base_radius + bass_expansion) * (1.0f + respiration * 0.15f);
+        // 极其平缓自然的深沉生命呼吸 (7.0秒悠长呼吸周期，起伏柔和平顺)
+        float r = (n.base_radius + bass_expansion) * (1.0f + respiration);
 
         if (has_pull_target || flying_timer > 0.0f) {
             r *= 0.90f;

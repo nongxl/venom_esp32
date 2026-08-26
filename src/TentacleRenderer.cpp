@@ -242,8 +242,16 @@ void TentacleRenderer::updateTentacle(int idx, float dt, const SkeletonSystem &s
 }
 
 void TentacleRenderer::update(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology, bool is_upside_down) {
-    // 1. 爬行抓取触手更新
+    // 1. 爬行与秋千抓取触手更新
     updateGrappleCrawl(dt, skeleton, physiology);
+
+    // 荡秋千状态下彻底清空并禁用杂乱环境触手，保持纯净牛顿摆形态
+    if (grapple.stage == GRAPPLE_SWING) {
+        for (int i = 0; i < MAX_TENTACLES; ++i) {
+            tentacles[i].active = false;
+        }
+        return;
+    }
 
     // 2. 全天候多触手高频自发摸索生长 (Ambient Spawning)
     auto_spawn_timer += dt;
@@ -268,13 +276,39 @@ void TentacleRenderer::drawGrappleTendril(M5Canvas &canvas) const {
     float hx = grapple.hand_x;
     float hy = grapple.hand_y;
 
+    // 【1. 荡秋千专用：牛顿摆紧绷吊索与天花板强力吸附大爪掌】
+    if (grapple.stage == GRAPPLE_SWING) {
+        // 1.1 绘制紧绷单摆共生体吊索 (从天花板直通毒液球心)
+        for (int off = -1; off <= 1; ++off) {
+            canvas.drawLine((int)hx + off, (int)hy, (int)sx + off, (int)sy, COLOR_VENOM_CORE);
+        }
+        canvas.drawLine((int)hx, (int)hy, (int)sx, (int)sy, COLOR_DITHER_GRAY); // 核心高光拉丝
+
+        // 1.2 绘制天花板强力吸附大肉掌 (牢固抓住天花板顶框)
+        canvas.fillEllipse((int)hx, (int)hy + 1, 9, 5, COLOR_VENOM_CORE);
+        canvas.fillCircle((int)hx, (int)hy, 5, COLOR_VENOM_CORE);
+
+        // 1.3 绘制 4 根锋利张开抠住天花板的共生体利爪
+        float claw_angles[4] = { -2.4f, -1.8f, -1.3f, -0.7f };
+        for (int c = 0; c < 4; ++c) {
+            float ca = claw_angles[c];
+            float fx = hx + std::cos(ca) * 11.0f;
+            float fy = hy + std::abs(std::sin(ca)) * 7.5f;
+
+            canvas.drawLine((int)hx, (int)hy, (int)fx, (int)fy, COLOR_VENOM_CORE);
+            canvas.drawLine((int)hx + 1, (int)hy, (int)fx + 1, (int)fy, COLOR_VENOM_CORE);
+            canvas.drawPixel((int)fx, (int)fy, COLOR_GLOW_CYAN); // 爪尖共生体微光
+        }
+        return;
+    }
+
+    // 【2. 常规爬行射出触手与目的地掌心爪盘】
     float cx = (sx + hx) * 0.5f + grapple.ctrl_offset_x * (1.0f - grapple.pull_progress);
     float cy = (sy + hy) * 0.5f + grapple.ctrl_offset_y * (1.0f - grapple.pull_progress);
 
     constexpr int SEGMENTS = 10;
     float prev_x = sx, prev_y = sy;
 
-    // 1. 绘制加粗一倍的实心纯黑贝塞尔大肉柱触手 (根部 11px -> 前端 6.5px)
     for (int step = 1; step <= SEGMENTS; ++step) {
         float s = (float)step / (float)SEGMENTS;
         float one_minus_s = 1.0f - s;
@@ -292,20 +326,15 @@ void TentacleRenderer::drawGrappleTendril(M5Canvas &canvas) const {
             canvas.drawLine((int)prev_x, (int)prev_y + off, (int)cur_x, (int)cur_y + off, COLOR_VENOM_CORE);
         }
 
-        // 荡秋千状态下在触手核心绘制一条紧绷的高光拉丝微光
-        if (grapple.stage == GRAPPLE_SWING && step % 2 == 0) {
-            canvas.drawPixel((int)cur_x, (int)cur_y, COLOR_DITHER_GRAY);
-        }
-
         prev_x = cur_x;
         prev_y = cur_y;
     }
 
-    // 2. 绘制加粗一倍的目的地掌心（Palm Hand）肉垫 (半径 6.0px ~ 11.5px)
+    // 绘制目的地掌心肉垫
     int palm_r = (int)std::round(6.0f + grapple.palm_spread * 2.5f);
     canvas.fillCircle((int)hx, (int)hy, palm_r, COLOR_VENOM_CORE);
 
-    // 3. 绘制掌心抓附粗微指（3 根粗壮张开吸附在目的地的利爪）
+    // 绘制目的地 3 根张开的利爪
     if (grapple.palm_spread > 0.05f) {
         float dx = hx - sx;
         float dy = hy - sy;

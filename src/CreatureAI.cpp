@@ -86,14 +86,14 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
         }
 
         case STATE_SWING: {
-            // 【高空蛛丝悬挂荡秋千模式】
+            // 【高空蛛丝悬挂荡秋千模式 (牛顿摆物理)】
             state_duration = 9.0f + (rand() % 70) * 0.1f; // 持续 9.0 ~ 16.0 秒舒适悬挂
             crawl_force_x = 0.0f;
             crawl_force_y = 0.0f;
 
-            // 选取正上方安全天花板锚点 (y=16 绝不挤压到顶部死角)
-            float anchor_x = std::max(30.0f, std::min(SCREEN_W - 30.0f, hx + (rand() % 40 - 20)));
-            float anchor_y = 16.0f;
+            // 选取正上方天花板锚点 (y=2 紧紧吸附在屏幕顶边)
+            float anchor_x = std::max(50.0f, std::min(SCREEN_W - 50.0f, hx + (rand() % 40 - 20)));
+            float anchor_y = 2.0f;
             float rope_len = SWING_ROPE_LENGTH;
 
             if (skeleton) {

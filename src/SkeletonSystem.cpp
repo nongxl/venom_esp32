@@ -217,7 +217,9 @@ void SkeletonSystem::updateNodePhysics(int i, float dt, float gx, float gy, floa
     if (is_upside_down && i == 0) {
         muscle_resistance = std::max(muscle_resistance, 0.65f);
     }
-    if (i >= 2) {
+    if (is_hanging) {
+        muscle_resistance = 0.95f; // 荡秋千时整体强力聚拢为牛顿摆球
+    } else if (i >= 2) {
         // 尾部肌肉抗力大幅降低，让尾巴沉实下垂拖拽！
         muscle_resistance = std::min(muscle_resistance, 0.18f);
     }
@@ -313,49 +315,36 @@ void SkeletonSystem::solveSpringConstraints(float tension) {
 void SkeletonSystem::solveHangingConstraint(float dt) {
     if (!is_hanging) return;
 
+    // 【牛顿摆谐波物理单摆运动 (Newton's Cradle Pendulum Kinematics)】
+    swing_phase += dt * SWING_PUMP_FREQ;
+    float max_theta = 0.52f; // 最大摆角约 30 度 (大幅度优雅牛顿单摆)
+    float theta = max_theta * std::sin(swing_phase);
+
+    // 计算单摆球心目标位置
+    float bob_x = anchor_x + std::sin(theta) * rope_len;
+    float bob_y = anchor_y + std::cos(theta) * rope_len;
+
+    // 头部平滑精准跟随单摆轨迹
     SkeletonNode &head = nodes[0];
-    float dx = head.x - anchor_x;
-    float dy = head.y - anchor_y;
-    float dist = std::sqrt(dx * dx + dy * dy);
+    float h_dx = bob_x - head.x;
+    float h_dy = bob_y - head.y;
+    head.x += h_dx * 0.85f;
+    head.y += h_dy * 0.85f;
+    head.vx = std::cos(theta) * max_theta * SWING_PUMP_FREQ * rope_len * std::cos(swing_phase);
+    head.vy = -std::sin(theta) * max_theta * SWING_PUMP_FREQ * rope_len * std::cos(swing_phase);
 
-    if (dist > 0.01f) {
-        float nx = dx / dist;
-        float ny = dy / dist;
+    // 【关键】：将后续 4 节骨架节点紧紧抱团聚拢在头部中心 (间距仅 2.5px)，形成浑圆的牛顿摆球！
+    // 彻底杜绝重力下拉散开形成的倒梯形斗篷！
+    for (int k = 1; k < SKELETON_NODE_COUNT; ++k) {
+        float angle_k = (float)k * 1.256f + swing_phase * 0.5f;
+        float radius_k = 2.5f + (float)k * 0.8f;
+        float target_k_x = head.x + std::cos(angle_k) * radius_k;
+        float target_k_y = head.y + std::sin(angle_k) * radius_k + 1.5f;
 
-        // 1. 蛛丝单摆绳索距离弹性拉扯
-        if (dist > rope_len) {
-            float delta = dist - rope_len;
-            float spring_pull = delta * 2.6f;
-            head.vx -= nx * spring_pull;
-            head.vy -= ny * spring_pull;
-
-            // 抑制向外拉断绳索的离心径向速度
-            float radial_v = head.vx * nx + head.vy * ny;
-            if (radial_v > 0.0f) {
-                head.vx -= nx * radial_v * 0.90f;
-                head.vy -= ny * radial_v * 0.90f;
-            }
-
-            // 硬位置钳位保护
-            if (dist > rope_len * 1.25f) {
-                head.x = anchor_x + nx * (rope_len * 1.25f);
-                head.y = anchor_y + ny * (rope_len * 1.25f);
-            }
-        }
-
-        // 2. 毒液自主正弦蹬腿摆动 (Autonomous Pumping Swing Dynamics)
-        swing_phase += dt * SWING_PUMP_FREQ;
-        float tx = -ny; // 切线方向 X
-        float ty = nx;  // 切线方向 Y
-        float pump_acc = std::sin(swing_phase) * 3.4f;
-        head.vx += tx * pump_acc;
-        head.vy += ty * pump_acc;
-
-        // 3. 将切向摆动惯性自然传导至身体后续 4 节骨架，形成大摆幅活体链条
-        for (int k = 1; k < SKELETON_NODE_COUNT; ++k) {
-            nodes[k].vx += tx * (pump_acc * 0.65f);
-            nodes[k].vy += ty * (pump_acc * 0.65f);
-        }
+        nodes[k].x += (target_k_x - nodes[k].x) * 0.80f;
+        nodes[k].y += (target_k_y - nodes[k].y) * 0.80f;
+        nodes[k].vx = head.vx;
+        nodes[k].vy = head.vy;
     }
 }
 

@@ -361,7 +361,8 @@ void SkeletonSystem::solveHangingConstraint(float dt) {
 void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
                             float crawl_force_x, float crawl_force_y,
                             float neuro_tension, float spike_intensity,
-                            float respiration, bool is_upside_down) {
+                            float respiration, bool is_upside_down,
+                            float audio_low) {
     if (flying_timer > 0.0f) {
         flying_timer -= dt;
         if (flying_timer < 0.0f) flying_timer = 0.0f;
@@ -382,6 +383,12 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
     // 单摆悬挂绳索约束与自主蹬秋千
     solveHangingConstraint(dt);
 
+    // 音乐低频重音激发局部肉感大鼓包 (Beat Blebs)
+    if (audio_low > 0.35f && (rand() % 100) < 60) {
+        int node = 1 + (rand() % 3); // 主要是背部与腰部节点
+        triggerLocalBleb(node, audio_low * 1.6f);
+    }
+
     // 增加 pull_target 超时保护 (1.6秒看门狗自动释放，防止死锁)
     if (has_pull_target) {
         pull_timeout_timer += dt;
@@ -390,9 +397,12 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         }
     }
 
+    // 低音鼓点重低音膨胀脉动 (Bass Thump: 0 ~ 3.5px 随节拍强劲律动)
+    float bass_expansion = audio_low * 3.5f;
+
     for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
         SkeletonNode &n = nodes[i];
-        float r = n.base_radius * (1.0f + respiration * 0.15f);
+        float r = (n.base_radius + bass_expansion) * (1.0f + respiration * 0.15f);
 
         if (has_pull_target || flying_timer > 0.0f) {
             r *= 0.90f;

@@ -197,7 +197,8 @@ void CreatureAI::updateSensors(float imu_gx, float imu_gy, float imu_gz, const P
         return;
     }
 
-    if (physiology.getAudioHigh() > 0.70f && current_state != STATE_STARTLED && current_state != STATE_JOLTING) {
+    if (physiology.getAudioHigh() > 0.85f && physiology.getMicDecibels() > 82.0f &&
+        current_state != STATE_STARTLED && current_state != STATE_JOLTING) {
         triggerStartle(0.9f);
         return;
     }

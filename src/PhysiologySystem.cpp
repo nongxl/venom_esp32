@@ -38,22 +38,22 @@ void PhysiologySystem::triggerShock(float amount) {
 
 void PhysiologySystem::updateInternalDynamics(float dt) {
     // 1. 音频能量的攻击与长释放包络（情绪惯性与残留）
-    // 突发高频/大音量迅速抬升，而恢复过程缓慢衰减
-    smoothed_audio_low  = smoothed_audio_low  * 0.80f + raw_audio_low  * 0.20f;
-    smoothed_audio_mid  = smoothed_audio_mid  * 0.85f + raw_audio_mid  * 0.15f;
-    smoothed_audio_high = smoothed_audio_high * 0.90f + raw_audio_high * 0.10f;
+    smoothed_audio_low  = smoothed_audio_low  * 0.70f + raw_audio_low  * 0.30f;
+    smoothed_audio_mid  = smoothed_audio_mid  * 0.75f + raw_audio_mid  * 0.25f;
+    smoothed_audio_high = smoothed_audio_high * 0.85f + raw_audio_high * 0.15f;
 
-    // 高频声音直接激发 stress，中低频适度刺激 curiosity 或脉动
-    if (raw_audio_high > 0.4f) {
-        stress = std::min(1.0f, stress + raw_audio_high * dt * 0.8f);
+    // 极高频突发巨响/尖锐冲击激发 stress，音乐旋律与低频重音激发好奇探究 (CURIOSITY)
+    if (raw_audio_high > 0.65f) {
+        stress = std::min(1.0f, stress + raw_audio_high * dt * 0.6f);
     }
-    if (raw_audio_low > 0.2f && stress < 0.3f) {
-        curiosity = std::min(1.0f, curiosity + raw_audio_low * dt * 0.3f);
+    if ((raw_audio_low > 0.15f || raw_audio_mid > 0.20f) && stress < 0.35f) {
+        curiosity = std::min(1.0f, curiosity + (raw_audio_low + raw_audio_mid) * dt * 0.25f);
+        comfort = std::min(1.0f, comfort + raw_audio_low * dt * 0.10f);
     }
 
-    // 2. 神经张力演化
-    float target_tension = stress * 0.7f + smoothed_audio_high * 0.5f;
-    neuro_tension = neuro_tension * 0.92f + target_tension * 0.08f;
+    // 2. 神经张力演化 (主要受压力驱动，低频音乐产生柔和律动波)
+    float target_tension = stress * 0.7f + smoothed_audio_high * 0.35f + smoothed_audio_low * 0.25f;
+    neuro_tension = neuro_tension * 0.90f + target_tension * 0.10f;
 
     // 3. 神经波扩散相位递增
     float wave_speed = 3.0f + neuro_tension * 8.0f;

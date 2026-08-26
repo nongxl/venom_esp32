@@ -24,25 +24,27 @@ void VoronoiSurface::init() {
 void VoronoiSurface::updateSeedDynamics(float dt, const SkeletonSystem &skeleton, const PhysiologySystem &physiology, float look_x, float look_y) {
     EmotionState emotion = physiology.getEmotion();
     float tension = physiology.getNeuroTension();
-    float audio_mid = physiology.getAudioMid();
-    float audio_high = physiology.getAudioHigh();
+    float raw_low  = physiology.getRawAudioLow();
+    float raw_mid  = physiology.getRawAudioMid();
+    float raw_high = physiology.getRawAudioHigh();
+    float sound_ex = physiology.getSoundExcitation();
 
-    // 情绪影响抖动能量与细胞壁厚度
+    // 情绪基础抖动能量与细胞壁厚度
     switch (emotion) {
         case EMOTION_CALM:
             jitter_energy = 0.05f;
             current_membrane_threshold = 1.0f;
             break;
         case EMOTION_STRESS:
-            jitter_energy = 0.40f + audio_high * 0.3f;
+            jitter_energy = 0.35f + raw_high * 0.3f;
             current_membrane_threshold = 1.8f; // 细碎裂变
             break;
         case EMOTION_FEAR:
-            jitter_energy = 0.65f;
+            jitter_energy = 0.50f;
             current_membrane_threshold = 0.8f; // 紧缩硬化
             break;
         case EMOTION_ANGER:
-            jitter_energy = 0.80f + audio_high * 0.4f;
+            jitter_energy = 0.70f + raw_high * 0.4f;
             current_membrane_threshold = 2.4f; // 放射状明显裂纹
             break;
         case EMOTION_CURIOSITY:
@@ -55,9 +57,11 @@ void VoronoiSurface::updateSeedDynamics(float dt, const SkeletonSystem &skeleton
             break;
     }
 
-    // 叠加麦克风实时环境音量分贝驱动的表面高频翻滚噪波
-    float sound_ex = physiology.getSoundExcitation();
-    jitter_energy += sound_ex * 0.85f;
+    // 【音乐频谱物理律动注入 (Audio Visualizer EQ Ripple)】
+    // 综合低频鼓点、中频旋律、高频镲片能量，直接驱动表面细胞噪波像音乐播放器频谱一样跳动！
+    float music_spectrum = raw_low * 0.75f + raw_mid * 0.55f + raw_high * 0.40f;
+    jitter_energy += music_spectrum * 1.35f + sound_ex * 0.40f;
+    current_membrane_threshold += music_spectrum * 0.90f; // 音乐大声/重拍时表面高光反光裂变跳跃
 
     for (int i = 0; i < VORONOI_SEEDS; ++i) {
         VoronoiSeed &seed = seeds[i];
@@ -67,9 +71,8 @@ void VoronoiSurface::updateSeedDynamics(float dt, const SkeletonSystem &skeleton
         float target_x = node.x + seed.offset_x;
         float target_y = node.y + seed.offset_y;
 
-        // 情绪驱动的偏移扰动
+        // 情绪驱动的偏移流动
         if (emotion == EMOTION_CURIOSITY) {
-            // 好奇时向注视方向偏移流动
             float ldx = look_x - node.x;
             float ldy = look_y - node.y;
             float ldist = std::sqrt(ldx * ldx + ldy * ldy);
@@ -78,21 +81,25 @@ void VoronoiSurface::updateSeedDynamics(float dt, const SkeletonSystem &skeleton
                 target_y += (ldy / ldist) * 6.0f;
             }
         } else if (emotion == EMOTION_FEAR) {
-            // 恐惧向骨架中心收缩塌陷
             target_x = node.x + seed.offset_x * 0.45f;
             target_y = node.y + seed.offset_y * 0.45f;
         } else if (emotion == EMOTION_ANGER) {
-            // 愤怒向外辐射突刺
             target_x = node.x + seed.offset_x * 1.45f;
             target_y = node.y + seed.offset_y * 1.45f;
         }
 
-        // 叠加神经中频与高频微抖
+        // 音乐频谱高频波浪与有机微抖跳跃 (像音乐均衡器律动)
         if (jitter_energy > 0.05f) {
-            float jx = ((rand() % 100) - 50) * 0.08f * jitter_energy;
-            float jy = ((rand() % 100) - 50) * 0.08f * jitter_energy;
-            target_x += jx;
-            target_y += jy;
+            float freq = 6.0f + music_spectrum * 18.0f;
+            float phase = (float)millis() * 0.001f * freq + (float)i * 1.256f;
+            float wave_x = std::sin(phase) * (2.8f * jitter_energy);
+            float wave_y = std::cos(phase) * (2.8f * jitter_energy);
+
+            float jx = ((rand() % 100) - 50) * 0.06f * jitter_energy;
+            float jy = ((rand() % 100) - 50) * 0.06f * jitter_energy;
+
+            target_x += wave_x + jx;
+            target_y += wave_y + jy;
         }
 
         // 弹簧阻尼跟随

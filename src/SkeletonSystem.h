@@ -31,7 +31,8 @@ public:
     void update(float dt, float gravity_x, float gravity_y,
                 float crawl_force_x, float crawl_force_y,
                 float neuro_tension, float spike_intensity,
-                float respiration, bool is_upside_down);
+                float respiration, bool is_upside_down,
+                float audio_low = 0.0f);
 
     void applyImpulse(float ix, float iy);
     void triggerSlingThrow(float dir_x, float dir_y, float speed);

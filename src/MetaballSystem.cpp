@@ -114,16 +114,24 @@ void MetaballSystem::updateSpikes(float dt, const PhysiologySystem &physiology) 
         }
     }
 
-    // 2. 自主突发尖刺激发计时器 (受张力与环境声音分贝强烈驱动)
+    // 2. 自主突发尖刺与【音乐重音铁磁流体律动 (Ferrofluid Beat Spikes)】
     spike_spawn_timer += dt;
     float tension = physiology.getNeuroTension();
     float sound_ex = physiology.getSoundExcitation();
-    float trigger_interval = 0.12f / (1.0f + tension * 1.8f + sound_ex * 3.8f);
+    float raw_low  = physiology.getRawAudioLow();
+    float raw_high = physiology.getRawAudioHigh();
+
+    // 音乐低频重音/鼓点瞬间，触发如同铁磁流体般的短促微尖刺舞动
+    if (raw_low > 0.42f && (rand() % 100) < 55) {
+        spawnRandomSpike(physiology);
+    }
+
+    float trigger_interval = 0.14f / (1.0f + tension * 1.5f + sound_ex * 2.8f + raw_low * 3.2f);
 
     if (spike_spawn_timer >= trigger_interval) {
         spike_spawn_timer = 0.0f;
         spawnRandomSpike(physiology);
-        if ((tension > 0.4f || sound_ex > 0.35f) && (rand() % 100) < 65) {
+        if ((tension > 0.4f || raw_low > 0.35f || sound_ex > 0.35f) && (rand() % 100) < 60) {
             spawnRandomSpike(physiology);
         }
     }

@@ -55,6 +55,11 @@ public:
     float getAudioMid()  const { return smoothed_audio_mid; }
     float getAudioHigh() const { return smoothed_audio_high; }
 
+    // 获取音频瞬时实时能量 (供表面流体噪波/鼓包零延迟频谱律动)
+    float getRawAudioLow()  const { return raw_audio_low; }
+    float getRawAudioMid()  const { return raw_audio_mid; }
+    float getRawAudioHigh() const { return raw_audio_high; }
+
     // 神经张力与情绪波扩散
     float getNeuroTension() const { return neuro_tension; }
     float getNeuroWavePhase() const { return neuro_wave_phase; }

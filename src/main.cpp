@@ -182,9 +182,9 @@ static void processAudioBands() {
             float peak_to_peak = (float)(max_v - min_v);
 
             float ac_sum_sq = 0.0f;
-            float low_energy = 0.0f;
-            float mid_energy = 0.0f;
-            float high_energy = 0.0f;
+            float low_accum = 0.0f;
+            float mid_accum = 0.0f;
+            float high_accum = 0.0f;
             int zero_crossings = 0;
             float prev_sample = 0.0f;
 
@@ -197,42 +197,34 @@ static void processAudioBands() {
                     zero_crossings++;
                 }
 
-                if (i % 4 == 0) low_energy += abs_ac;
-                if (i % 2 == 0) mid_energy += abs_ac;
-                high_energy += abs_ac;
+                // 低频（低过零率/大振幅重低音）、中频（旋律）、高频（高过零率/镲片）
+                low_accum += abs_ac;
+                if (i % 2 == 0) mid_accum += abs_ac;
+                high_accum += abs_ac;
 
                 prev_sample = ac_sample;
             }
 
-            // 2. 交流 RMS 均方根与吹气气流冲击能量 (Blast Airflow Detection)
+            // 2. 交流 RMS 均方根与气流冲击能量 (Blast Airflow Detection)
             float ac_rms = std::sqrt(ac_sum_sq / 128.0f);
             float p2p_ratio = peak_to_peak / 32768.0f;
 
-            float raw_db = 32.0f;
-            // 3. 底噪门限与真实声学分贝映射 (安静: 30~36dB, 说话: 48~65dB, 吹气/拍手: 75~95dB)
-            if (ac_rms < 0.005f && p2p_ratio < 0.18f) {
-                // 环境底噪：稳定在 30 ~ 35dB
-                raw_db = 30.0f + (p2p_ratio / 0.18f) * 5.0f;
-            } else if (p2p_ratio > 0.40f || ac_rms > 0.08f) {
-                // 吹气气流或大声冲击：瞬间飙升至 75 ~ 95dB！
-                float blast_intensity = std::min(1.0f, (p2p_ratio - 0.40f) / 0.50f + (ac_rms / 0.25f));
-                raw_db = 75.0f + blast_intensity * 20.0f;
-            } else {
-                // 正常说话与环境音：45 ~ 68dB
-                float voice_intensity = std::min(1.0f, (ac_rms - 0.005f) / 0.075f);
-                raw_db = 45.0f + voice_intensity * 23.0f;
-            }
+            // 3. 连续平滑真实声学分贝映射 (无阶梯断层: 安静 30~36dB, 说话 48~60dB, 音乐 62~78dB, 吹气 80~95dB)
+            float base_energy = ac_rms * 1.8f + p2p_ratio * 0.35f;
+            float raw_db = 20.0f * std::log10(std::max(0.0006f, base_energy)) + 93.0f;
+            raw_db = std::max(30.0f, std::min(96.0f, raw_db));
 
-            // 4. 快攻慢释 (Attack-Release) 包络滤波：吹气瞬间冲上，随后迅速平稳回落
+            // 4. 快攻慢释 (Attack-Release) 包络滤波
             if (raw_db > smoothed_mic_db) {
-                smoothed_mic_db = smoothed_mic_db * 0.40f + raw_db * 0.60f; // 吹气快速响应
+                smoothed_mic_db = smoothed_mic_db * 0.45f + raw_db * 0.55f; // 快速感知音乐节拍与吹气
             } else {
-                smoothed_mic_db = smoothed_mic_db * 0.75f + raw_db * 0.25f; // 平稳迅速回落
+                smoothed_mic_db = smoothed_mic_db * 0.70f + raw_db * 0.30f; // 随节拍平稳起伏
             }
 
-            low_energy  = (raw_db > 50.0f) ? std::min(1.0f, (low_energy / 32.0f) * 2.2f) : 0.0f;
-            mid_energy  = (raw_db > 50.0f) ? std::min(1.0f, (mid_energy / 64.0f) * 2.5f) : 0.0f;
-            high_energy = (raw_db > 68.0f) ? std::min(1.0f, (high_energy / 128.0f) * 3.0f + (raw_db - 68.0f) * 0.03f) : 0.0f;
+            // 5. 真实三频段动态归一化 (保留连续音乐律动，杜绝硬切断)
+            float low_energy = std::max(0.0f, std::min(1.0f, (ac_rms - 0.003f) * 16.0f + (zero_crossings < 18 ? 0.35f * ac_rms * 20.0f : 0.0f)));
+            float mid_energy = std::max(0.0f, std::min(1.0f, (ac_rms - 0.004f) * 14.0f));
+            float high_energy = std::max(0.0f, std::min(1.0f, (p2p_ratio > 0.35f ? (p2p_ratio - 0.35f) * 2.2f : 0.0f) + (zero_crossings > 30 ? 0.3f : 0.0f)));
 
             physiology.feedAudioBands(low_energy, mid_energy, high_energy);
             physiology.feedMicDecibels(smoothed_mic_db);
@@ -447,12 +439,13 @@ void loop() {
     ai.updateSensors(raw_ax, raw_ay, raw_az, physiology, btn_a_pressed);
     ai.update(dt, skeleton, metaballs, tentacles, physiology, relationship, expression, v3_state, &prey_bugs);
 
-    // 10. 骨架动力学更新
+    // 10. 骨架动力学更新 (注入低频重音脉动与节拍鼓包)
     float crawl_bx, crawl_by;
     ai.getCrawlBias(crawl_bx, crawl_by);
     skeleton.update(dt, gx, gy, crawl_bx, crawl_by,
                     physiology.getNeuroTension(), physiology.getSpikeIntensity(),
-                    ai.getRespiration(), is_upside_down);
+                    ai.getRespiration(), is_upside_down,
+                    physiology.getRawAudioLow());
 
     // 10.1 撞击“啪嗒”事件检测与触觉/飞溅联动 (Sticky Splat Feedback)
     float imp_spd, hit_x, hit_y;

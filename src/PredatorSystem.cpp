@@ -361,15 +361,19 @@ void PredatorSystem::drawTongue(M5Canvas &canvas) const {
     int tx = (int)hunt.tip_x;
     int ty = (int)hunt.tip_y;
 
-    // 1. 绘制猩红肉质舌身 (带粗细与高光)
-    canvas.drawLine(sx, sy, tx, ty, 0xF800);     // 猩红
-    canvas.drawLine(sx + 1, sy + 1, tx, ty, 0xF9E7); // 肉粉色高光
-    canvas.drawLine(sx, sy + 1, tx, ty + 1, 0xF800);
+    // 1. 绘制加粗一倍的猩红肉质舌身 (5~6px 粗实心肉带)
+    for (int off = -2; off <= 2; ++off) {
+        canvas.drawLine(sx + off, sy, tx + off, ty, 0xF800);     // 猩红
+        canvas.drawLine(sx, sy + off, tx, ty + off, 0xF800);
+    }
+    // 中脊加粗肉粉色高光拉丝
+    canvas.drawLine(sx, sy, tx, ty, 0xF9E7);
+    canvas.drawLine(sx + 1, sy, tx + 1, ty, 0xF9E7);
 
-    // 2. 绘制舌尖肉质吸盘圆垫
-    canvas.fillCircle(tx, ty, 3, 0xF800);
-    canvas.drawCircle(tx, ty, 4, 0xF9E7);
-    canvas.drawPixel(tx, ty, 0xFFFF);
+    // 2. 绘制加粗一倍的舌尖肉质吸盘圆垫 (半径 6px / 7px 饱满吸盘)
+    canvas.fillCircle(tx, ty, 6, 0xF800);
+    canvas.drawCircle(tx, ty, 7, 0xF9E7);
+    canvas.fillCircle(tx, ty, 2, 0xFFFF);
 }
 
 void PredatorSystem::drawGrabTentacle(M5Canvas &canvas) const {
@@ -380,22 +384,25 @@ void PredatorSystem::drawGrabTentacle(M5Canvas &canvas) const {
     int tx = (int)hunt.tip_x;
     int ty = (int)hunt.tip_y;
 
-    // 粗壮黑色抓取触手
-    for (int off = -1; off <= 1; ++off) {
+    // 加粗一倍的粗壮黑色抓取触手 (7px 宽粗壮肉柱)
+    for (int off = -3; off <= 3; ++off) {
         canvas.drawLine(sx + off, sy, tx + off, ty, COLOR_VENOM_CORE);
         canvas.drawLine(sx, sy + off, tx, ty + off, COLOR_VENOM_CORE);
     }
 
-    // 尖端三指爪盘抓牢
+    // 尖端加粗加长的强力三指爪盘
     float dx = tx - sx;
     float dy = ty - sy;
     float main_angle = std::atan2(dy, dx);
     for (int f = -1; f <= 1; ++f) {
-        float fa = main_angle + (float)f * 0.5f;
-        float fx = hunt.tip_x + std::cos(fa) * 5.0f;
-        float fy = hunt.tip_y + std::sin(fa) * 5.0f;
-        canvas.drawLine(tx, ty, (int)fx, (int)fy, COLOR_VENOM_CORE);
-        canvas.drawPixel((int)fx, (int)fy, COLOR_GLOW_CYAN);
+        float fa = main_angle + (float)f * 0.48f;
+        float fx = hunt.tip_x + std::cos(fa) * 9.5f;
+        float fy = hunt.tip_y + std::sin(fa) * 9.5f;
+        for (int off = -1; off <= 1; ++off) {
+            canvas.drawLine(tx + off, ty, (int)fx + off, (int)fy, COLOR_VENOM_CORE);
+            canvas.drawLine(tx, ty + off, (int)fx, (int)fy + off, COLOR_VENOM_CORE);
+        }
+        canvas.fillCircle((int)fx, (int)fy, 1, COLOR_GLOW_CYAN);
     }
 }
 

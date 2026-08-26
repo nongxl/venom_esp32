@@ -203,7 +203,7 @@ void TentacleRenderer::spawnTentacle(const SkeletonSystem &skeleton, bool cling_
             t.length_progress = 0.0f;
             t.wave_phase = (rand() % 100) * 0.1f;
             t.life_timer = 0.0f;
-            t.base_thickness = 3.5f;
+            t.base_thickness = 7.0f; // 加粗一倍的自发探索触手
             break;
         }
     }
@@ -274,7 +274,7 @@ void TentacleRenderer::drawGrappleTendril(M5Canvas &canvas) const {
     constexpr int SEGMENTS = 10;
     float prev_x = sx, prev_y = sy;
 
-    // 1. 绘制实心纯黑贝塞尔肉柱触手
+    // 1. 绘制加粗一倍的实心纯黑贝塞尔大肉柱触手 (根部 11px -> 前端 6.5px)
     for (int step = 1; step <= SEGMENTS; ++step) {
         float s = (float)step / (float)SEGMENTS;
         float one_minus_s = 1.0f - s;
@@ -286,8 +286,7 @@ void TentacleRenderer::drawGrappleTendril(M5Canvas &canvas) const {
                       2.0f * one_minus_s * s * cy +
                       s * s * hy;
 
-        // 根部粗 (5.5px) -> 前端逐渐变细 (3.2px)
-        int thickness = (int)std::round(5.5f * (1.0f - s * 0.42f));
+        int thickness = (int)std::round(11.0f * (1.0f - s * 0.40f));
         for (int off = -thickness / 2; off <= thickness / 2; ++off) {
             canvas.drawLine((int)prev_x + off, (int)prev_y, (int)cur_x + off, (int)cur_y, COLOR_VENOM_CORE);
             canvas.drawLine((int)prev_x, (int)prev_y + off, (int)cur_x, (int)cur_y + off, COLOR_VENOM_CORE);
@@ -302,24 +301,26 @@ void TentacleRenderer::drawGrappleTendril(M5Canvas &canvas) const {
         prev_y = cur_y;
     }
 
-    // 2. 绘制目的地掌心（Palm Hand）肉垫
-    int palm_r = (int)std::round(4.0f + grapple.palm_spread * 1.8f);
+    // 2. 绘制加粗一倍的目的地掌心（Palm Hand）肉垫 (半径 8.0px ~ 11.5px)
+    int palm_r = (int)std::round(8.0f + grapple.palm_spread * 3.5f);
     canvas.fillCircle((int)hx, (int)hy, palm_r, COLOR_VENOM_CORE);
 
-    // 3. 绘制掌心抓附微指（3 根张开吸附在目的地的爪指）
+    // 3. 绘制掌心抓附粗微指（3 根粗壮张开吸附在目的地的利爪）
     if (grapple.palm_spread > 0.05f) {
         float dx = hx - sx;
         float dy = hy - sy;
         float main_angle = std::atan2(dy, dx);
-        float finger_len = 5.0f + grapple.palm_spread * 4.5f;
+        float finger_len = 9.5f + grapple.palm_spread * 7.5f;
 
         for (int f = -1; f <= 1; ++f) {
             float f_angle = main_angle + (float)f * 0.45f;
             float fx = hx + std::cos(f_angle) * finger_len;
             float fy = hy + std::sin(f_angle) * finger_len;
 
-            canvas.drawLine((int)hx, (int)hy, (int)fx, (int)fy, COLOR_VENOM_CORE);
-            canvas.drawLine((int)hx + 1, (int)hy, (int)fx + 1, (int)fy, COLOR_VENOM_CORE);
+            for (int off = -1; off <= 1; ++off) {
+                canvas.drawLine((int)hx + off, (int)hy, (int)fx + off, (int)fy, COLOR_VENOM_CORE);
+                canvas.drawLine((int)hx, (int)hy + off, (int)fx, (int)fy + off, COLOR_VENOM_CORE);
+            }
         }
     }
 }

@@ -48,6 +48,7 @@ void ExpressionLayer::evaluateAutonomousExpressions(float dt, const Consciousnes
     float stress = physiology.getStress();
     float curiosity = physiology.getCuriosity();
     float comfort = physiology.getComfort();
+    float energy = physiology.getEnergy();
     float trust = relationship.getTrust();
     float resentment = relationship.getResentment();
     float urge = v3_state.expression_urge;
@@ -55,33 +56,103 @@ void ExpressionLayer::evaluateAutonomousExpressions(float dt, const Consciousnes
     float hx, hy;
     skeleton.getHeadPos(hx, hy);
 
-    // 1. 极简七肢桶活体符号喷射（低频、神秘、有机）
-    if (!fluid_symbols.hasActiveSymbol()) {
-        // 倒置且严重不安 -> 叹号 "help" / "!"
-        if (is_upside_down && stress > 0.45f) {
-            fluid_symbols.trigger("help");
+    // 符号自然冷却倒计时 (避免频繁刷屏，维持外星语言神秘质感)
+    if (symbol_cooldown > 0.0f) {
+        symbol_cooldown -= dt;
+    }
+
+    // 动态选取远离毒液身体的开阔屏幕区域生成符号 (绝不再被头部覆盖擦除!)
+    float sym_cx = (hx < SCREEN_W * 0.5f) ? (SCREEN_W * 0.65f) : (SCREEN_W * 0.35f);
+    float sym_cy = (hy > SCREEN_H * 0.5f) ? 45.0f : 85.0f;
+
+    // 1. 七肢桶活体符号喷射（8大经典符号全面自主激活）
+    if (!fluid_symbols.hasActiveSymbol() && symbol_cooldown <= 0.0f) {
+        // [符号 1: 叹号 "help" / "!"] 倒置或突发剧烈惊恐
+        if (is_upside_down && stress > 0.40f) {
+            fluid_symbols.trigger("help", sym_cx, sym_cy);
             triggerExpression(EXPR_FEAR, 4.0f);
+            symbol_cooldown = 14.0f;
             return;
         }
 
-        // 高怨恨或持续强刺激 -> 拒止叉号 "no" / "x"
-        if (stress > 0.70f || resentment > 0.60f) {
-            if ((rand() % 100) < 55) {
-                fluid_symbols.trigger("no");
+        // [符号 2: 拒止叉号 "no" / "x"] 高怨恨或持续强刺激
+        if (resentment > 0.50f || stress > 0.65f) {
+            if ((rand() % 100) < 45) {
+                fluid_symbols.trigger("no", sym_cx, sym_cy);
                 triggerExpression(EXPR_DISCOMFORT, 3.8f);
+                symbol_cooldown = 15.0f;
                 return;
             }
         }
 
-        // 高好奇或 LLM 意图驱动 -> 问号 "question" 或 七肢桶环形圆圈 "eye"
-        if (urge > 0.65f) {
-            if (curiosity > 0.60f) {
-                fluid_symbols.trigger("question");
-                triggerExpression(EXPR_CURIOSITY, 3.5f);
+        // [符号 3: 液态爱心 "heart"] 极高信任与深沉依恋
+        if (trust > 0.60f && comfort > 0.55f && stress < 0.20f) {
+            if ((rand() % 100) < 35) {
+                fluid_symbols.trigger("heart", sym_cx, sym_cy);
+                triggerExpression(EXPR_TRUST, 4.5f);
+                symbol_cooldown = 20.0f;
                 return;
-            } else if (trust > 0.45f) {
-                fluid_symbols.trigger("eye");
+            }
+        }
+
+        // [符号 4: 友善水墨圆环 "o" / "agree"] 信任认可与舒适
+        if (trust > 0.40f && comfort > 0.60f && stress < 0.25f) {
+            if ((rand() % 100) < 30) {
+                fluid_symbols.trigger("o", sym_cx, sym_cy);
+                triggerExpression(EXPR_TRUST, 4.0f);
+                symbol_cooldown = 16.0f;
+                return;
+            }
+        }
+
+        // [符号 5: 好奇问号 "question" / "?"] 好奇探究新事物或声音
+        if (curiosity > 0.55f && stress < 0.30f) {
+            if ((rand() % 100) < 40) {
+                fluid_symbols.trigger("question", sym_cx, sym_cy);
+                triggerExpression(EXPR_CURIOSITY, 4.0f);
+                symbol_cooldown = 16.0f;
+                return;
+            }
+        }
+
+        // [符号 6: 七肢桶环形观察之眼 "eye" / "watch"] 深度注视观察者
+        if (comfort > 0.50f && stress < 0.20f && current_expression == EXPR_NONE) {
+            if ((rand() % 100) < 25) {
+                fluid_symbols.trigger("eye", sym_cx, sym_cy);
                 triggerExpression(EXPR_OBSERVE, 4.5f);
+                symbol_cooldown = 18.0f;
+                return;
+            }
+        }
+
+        // [符号 7: 泼墨图腾 "splash" / "doodle"] 精力充沛活泼玩闹
+        if (energy > 0.70f && comfort > 0.55f && stress < 0.20f) {
+            if ((rand() % 100) < 20) {
+                fluid_symbols.trigger("splash", sym_cx, sym_cy);
+                symbol_cooldown = 22.0f;
+                return;
+            }
+        }
+
+        // [符号 8: 放射警示 "warning"] 强刺激神经紧绷
+        if (stress > 0.75f) {
+            fluid_symbols.trigger("warning", sym_cx, sym_cy);
+            triggerExpression(EXPR_WARNING, 3.5f);
+            symbol_cooldown = 14.0f;
+            return;
+        }
+
+        // LLM 远程意图直通支持
+        if (urge > 0.60f) {
+            if (curiosity > 0.50f) {
+                fluid_symbols.trigger("question", sym_cx, sym_cy);
+                triggerExpression(EXPR_CURIOSITY, 3.5f);
+                symbol_cooldown = 15.0f;
+                return;
+            } else if (trust > 0.35f) {
+                fluid_symbols.trigger("eye", sym_cx, sym_cy);
+                triggerExpression(EXPR_OBSERVE, 4.5f);
+                symbol_cooldown = 15.0f;
                 return;
             }
         }

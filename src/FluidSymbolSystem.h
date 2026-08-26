@@ -19,7 +19,7 @@ public:
 
     void init();
     void update(float dt);
-    void trigger(const String &type);
+    void trigger(const String &type, float center_x = 120.0f, float center_y = 65.0f);
     void clear();
     void wipePoints(float screenX, float screenY, float radius);
 
@@ -36,13 +36,13 @@ private:
 
     void addPoint(float x, float y, float r = 4.0f);
 
-    // 8 大经典符号生成库
-    void genX();
-    void genO();
-    void genQUESTION();
-    void genEXCLAMATION();
-    void genEYE();
-    void genHEART();
-    void genWARNING();
-    void genSPLASH();
+    // 8 大经典流体墨迹符号生成器 (基于指定开阔中心点生成)
+    void genX(float cx, float cy);
+    void genO(float cx, float cy);
+    void genQUESTION(float cx, float cy);
+    void genEXCLAMATION(float cx, float cy);
+    void genEYE(float cx, float cy);
+    void genHEART(float cx, float cy);
+    void genWARNING(float cx, float cy);
+    void genSPLASH(float cx, float cy);
 };

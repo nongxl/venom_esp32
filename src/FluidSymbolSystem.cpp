@@ -47,18 +47,18 @@ void FluidSymbolSystem::update(float dt) {
     }
 }
 
-void FluidSymbolSystem::trigger(const String &type) {
+void FluidSymbolSystem::trigger(const String &type, float center_x, float center_y) {
     clear();
     currentType = type;
-    if (type == "no" || type == "stop" || type == "x") genX();
-    else if (type == "yes" || type == "agree" || type == "o") genO();
-    else if (type == "help" || type == "!" || type == "exclamation") genEXCLAMATION();
-    else if (type == "question" || type == "?") genQUESTION();
-    else if (type == "eye" || type == "watch") genEYE();
-    else if (type == "warning") genWARNING();
-    else if (type == "splash" || type == "doodle") genSPLASH();
-    else if (type == "heart") genHEART();
-    else genQUESTION();
+    if (type == "no" || type == "stop" || type == "x") genX(center_x, center_y);
+    else if (type == "yes" || type == "agree" || type == "o") genO(center_x, center_y);
+    else if (type == "help" || type == "!" || type == "exclamation") genEXCLAMATION(center_x, center_y);
+    else if (type == "question" || type == "?") genQUESTION(center_x, center_y);
+    else if (type == "eye" || type == "watch") genEYE(center_x, center_y);
+    else if (type == "warning") genWARNING(center_x, center_y);
+    else if (type == "splash" || type == "doodle") genSPLASH(center_x, center_y);
+    else if (type == "heart" || type == "love") genHEART(center_x, center_y);
+    else genQUESTION(center_x, center_y);
 }
 
 void FluidSymbolSystem::clear() {
@@ -66,78 +66,83 @@ void FluidSymbolSystem::clear() {
     currentType = "";
 }
 
-void FluidSymbolSystem::genX() {
-    for (float i = 0; i < 25; i += 3.5f) {
-        addPoint(105 + i, 52 + i, 4.2f); // \
-        addPoint(130 - i, 52 + i, 4.2f); // /
+void FluidSymbolSystem::genX(float cx, float cy) {
+    // 饱满对称工整的双向交叉 X 符号 (绝不再残缺为单斜杠 \)
+    for (float i = -12.0f; i <= 12.0f; i += 3.0f) {
+        addPoint(cx + i, cy + i, 4.2f); // \ 笔画
+        addPoint(cx + i, cy - i, 4.2f); // / 笔画
     }
 }
 
-void FluidSymbolSystem::genO() {
-    for (float a = 0; a < 6.28f; a += 0.35f) {
-        addPoint(120 + std::cos(a) * 18.0f, 65 + std::sin(a) * 18.0f, 4.0f);
+void FluidSymbolSystem::genO(float cx, float cy) {
+    // Arrival 风格圆润流畅的七肢桶水墨流体圆环
+    for (float a = 0; a < 6.28f; a += 0.28f) {
+        float r = 16.0f + std::sin(a * 3.0f) * 1.5f;
+        addPoint(cx + std::cos(a) * r, cy + std::sin(a) * r, 4.2f);
     }
 }
 
-void FluidSymbolSystem::genQUESTION() {
-    for (float a = -1.5f; a < 2.5f; a += 0.38f) {
-        addPoint(120 + std::cos(a) * 15.0f, 55 + std::sin(a) * 12.0f, 4.2f);
+void FluidSymbolSystem::genQUESTION(float cx, float cy) {
+    // 优美的弧形问号与下方墨点
+    for (float a = -1.6f; a < 2.3f; a += 0.35f) {
+        addPoint(cx + std::cos(a) * 13.0f, cy - 8.0f + std::sin(a) * 10.0f, 4.0f);
     }
-    addPoint(120, 75, 4.0f);
-    addPoint(120, 88, 5.5f); // 墨点
+    addPoint(cx, cy + 6.0f, 3.8f);
+    addPoint(cx, cy + 16.0f, 5.2f); // 下方独立大墨点
 }
 
-void FluidSymbolSystem::genEXCLAMATION() {
-    for (float y = 45; y < 75; y += 3.8f) {
-        addPoint(120, y, 4.2f);
+void FluidSymbolSystem::genEXCLAMATION(float cx, float cy) {
+    // 竖直挺拔感叹号与下方独立大墨点
+    for (float y = -16.0f; y <= 6.0f; y += 3.5f) {
+        addPoint(cx, cy + y, 4.2f);
     }
-    addPoint(120, 88, 5.5f); // 墨点
+    addPoint(cx, cy + 16.0f, 5.5f); // 独立墨点
 }
 
-void FluidSymbolSystem::genEYE() {
-    // 类似 Arrival 的圆环，带有一点瞳孔特征
-    for (float a = 0; a < 6.28f; a += 0.22f) {
-        float r = 24.0f + std::sin(a * 4.0f) * 3.5f;
-        addPoint(120 + std::cos(a) * r, 67 + std::sin(a) * r, 3.8f);
+void FluidSymbolSystem::genEYE(float cx, float cy) {
+    // 七肢桶环形观察之眼 (外圈多重有机涟漪圆环 + 中心凝视瞳孔)
+    for (float a = 0; a < 6.28f; a += 0.20f) {
+        float r = 18.0f + std::sin(a * 4.0f) * 2.5f;
+        addPoint(cx + std::cos(a) * r, cy + std::sin(a) * r, 3.8f);
     }
-    addPoint(120, 67, 6.5f); // 瞳孔
+    addPoint(cx, cy, 6.5f); // 中心大瞳孔
 }
 
-void FluidSymbolSystem::genHEART() {
-    for (float t = 0; t < 6.28f; t += 0.25f) {
+void FluidSymbolSystem::genHEART(float cx, float cy) {
+    // 七肢桶液态爱心图腾
+    for (float t = 0; t < 6.28f; t += 0.22f) {
         float s_t = std::sin(t);
-        float x = 15.0f * s_t * s_t * s_t;
-        float y = -(12.0f * std::cos(t) - 4.5f * std::cos(2.0f * t) - 1.8f * std::cos(3.0f * t) - std::cos(4.0f * t));
-        addPoint(120 + x * 1.8f, 65 + y * 1.8f, 3.8f);
+        float x = 12.0f * s_t * s_t * s_t;
+        float y = -(10.0f * std::cos(t) - 4.0f * std::cos(2.0f * t) - 1.5f * std::cos(3.0f * t) - std::cos(4.0f * t));
+        addPoint(cx + x * 1.35f, cy + y * 1.35f - 2.0f, 3.8f);
     }
 }
 
-void FluidSymbolSystem::genWARNING() {
-    float cx = 120, cy = 65;
-    for (float a = 0; a < 6.28f; a += 0.4f) {
-        addPoint(cx + std::cos(a) * 8.0f, cy + std::sin(a) * 8.0f, 5.0f);
+void FluidSymbolSystem::genWARNING(float cx, float cy) {
+    // 放射状警示刺印
+    for (float a = 0; a < 6.28f; a += 0.35f) {
+        addPoint(cx + std::cos(a) * 7.0f, cy + std::sin(a) * 7.0f, 4.5f);
     }
-    for (int i = 0; i < 12; i++) {
-        float angle = (float)i / 12.0f * 6.28f;
-        float len = 20.0f + (rand() % 25);
-        for (float d = 10; d < len; d += 4.5f) {
-            addPoint(cx + std::cos(angle) * d, cy + std::sin(angle) * d, 3.5f * (1.0f - d / len) + 1.2f);
+    for (int i = 0; i < 8; i++) {
+        float angle = (float)i / 8.0f * 6.28f;
+        for (float d = 8.0f; d < 18.0f; d += 3.5f) {
+            addPoint(cx + std::cos(angle) * d, cy + std::sin(angle) * d, 3.2f);
         }
     }
 }
 
-void FluidSymbolSystem::genSPLASH() {
-    float cx = 70 + (rand() % 100), cy = 45 + (rand() % 40);
-    for (int i = 0; i < 35; i++) {
-        float r = (float)(12 + (rand() % 18));
+void FluidSymbolSystem::genSPLASH(float cx, float cy) {
+    // 液态共生体泼墨图腾
+    for (int i = 0; i < 20; i++) {
+        float r = (float)(6 + (rand() % 14));
         float a = (float)(rand() % 360) * 0.017453f;
-        addPoint(cx + std::cos(a) * r * 0.6f, cy + std::sin(a) * r * 0.6f, 5.5f);
+        addPoint(cx + std::cos(a) * r, cy + std::sin(a) * r, 4.5f);
     }
-    for (int i = 0; i < 14; i++) {
+    for (int i = 0; i < 8; i++) {
         float a = (float)(rand() % 360) * 0.017453f;
-        float len = 25 + (rand() % 35);
-        for (float d = 15; d < len; d += 5.0f) {
-            addPoint(cx + std::cos(a) * d, cy + std::sin(a) * d, 4.0f * (1.0f - d / len) + 1.5f);
+        float len = 14 + (rand() % 18);
+        for (float d = 8; d < len; d += 4.0f) {
+            addPoint(cx + std::cos(a) * d, cy + std::sin(a) * d, 3.2f);
         }
     }
 }

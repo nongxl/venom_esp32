@@ -54,6 +54,7 @@ private:
     // 隔玻璃贴手
     float contact_target_x = SCREEN_W - 10.0f;
     float contact_target_y = SCREEN_H * 0.5f;
+    float symbol_cooldown = 8.0f; // 符号喷射自然冷却期
 
     // 语义倾向加权
     void analyzeNotesSemantics(const char *notes);

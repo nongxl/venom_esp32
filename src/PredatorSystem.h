@@ -32,6 +32,8 @@ struct SplatParticle {
     float vy = 0.0f;
     float radius = 1.8f;
     float life = 1.0f;
+    bool is_saliva = false; // 晶莹口水飞溅粒子
+    uint16_t color = 0xFFFF;
 };
 
 struct HuntContext {
@@ -58,11 +60,12 @@ struct HuntContext {
     float mucus_vx = 0.0f;
     float mucus_vy = 0.0f;
     float trail_spawn_timer = 0.0f;
+    float saliva_spray_timer = 0.0f;
 };
 
 class PredatorSystem {
 public:
-    static constexpr int MAX_SPLAT_PARTICLES = 24;
+    static constexpr int MAX_SPLAT_PARTICLES = 36;
 
     PredatorSystem();
 
@@ -86,6 +89,7 @@ private:
     HuntAction last_hunt_action = HUNT_NONE;
 
     void spawnSplatBurst(float at_x, float at_y, int count, float speed_mult = 1.0f);
+    void spawnSalivaSpray(float at_x, float at_y, float base_vx, float base_vy, int count);
     void updateSplatParticles(float dt);
 
     void updateTongueStrike(float dt, PreyBugSystem &bugs, SkeletonSystem &skeleton,

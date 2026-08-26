@@ -15,8 +15,8 @@ public:
     // 注入麦克风实时环境分贝数 (dB)
     void feedMicDecibels(float db) {
         current_mic_db = db;
-        // 声控激发强度 [0.0, 1.0] (45dB 起激发，78dB 达峰值)
-        sound_excitation = std::max(0.0f, std::min(1.0f, (db - 45.0f) / 33.0f));
+        // 声控激发强度 [0.0, 1.0] (从 58dB 开始微弱响应，85dB 达满载)
+        sound_excitation = std::max(0.0f, std::min(1.0f, (db - 58.0f) / 27.0f));
     }
     float getMicDecibels() const { return current_mic_db; }
     float getSoundExcitation() const { return sound_excitation; }

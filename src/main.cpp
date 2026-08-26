@@ -159,6 +159,7 @@ static unsigned long last_mic_sample_ms = 0;
 static unsigned long last_llm_request_ms = 0;
 
 static float smoothed_mic_db = 32.0f;
+static float adaptive_noise_floor = 0.030f; // 自适应环境本底底噪估计器
 
 static void processAudioBands() {
     if (!M5.Mic.isEnabled()) return;
@@ -182,26 +183,16 @@ static void processAudioBands() {
             float peak_to_peak = (float)(max_v - min_v);
 
             float ac_sum_sq = 0.0f;
-            float low_accum = 0.0f;
-            float mid_accum = 0.0f;
-            float high_accum = 0.0f;
             int zero_crossings = 0;
             float prev_sample = 0.0f;
 
             for (int i = 0; i < 128; ++i) {
                 float ac_sample = ((float)mic_raw_buffer[i] - dc_mean) / 32768.0f;
-                float abs_ac = std::abs(ac_sample);
                 ac_sum_sq += ac_sample * ac_sample;
 
-                if ((ac_sample > 0.001f && prev_sample < -0.001f) || (ac_sample < -0.001f && prev_sample > 0.001f)) {
+                if ((ac_sample > 0.002f && prev_sample < -0.002f) || (ac_sample < -0.002f && prev_sample > 0.002f)) {
                     zero_crossings++;
                 }
-
-                // 低频（低过零率/大振幅重低音）、中频（旋律）、高频（高过零率/镲片）
-                low_accum += abs_ac;
-                if (i % 2 == 0) mid_accum += abs_ac;
-                high_accum += abs_ac;
-
                 prev_sample = ac_sample;
             }
 
@@ -209,22 +200,67 @@ static void processAudioBands() {
             float ac_rms = std::sqrt(ac_sum_sq / 128.0f);
             float p2p_ratio = peak_to_peak / 32768.0f;
 
-            // 3. 连续平滑真实声学分贝映射 (无阶梯断层: 安静 30~36dB, 说话 48~60dB, 音乐 62~78dB, 吹气 80~95dB)
-            float base_energy = ac_rms * 1.8f + p2p_ratio * 0.35f;
-            float raw_db = 20.0f * std::log10(std::max(0.0006f, base_energy)) + 93.0f;
+            // 3. 极速/自适应底噪基线跟踪器 (追踪当前环境本底静音电平，消除办公室底噪偏置)
+            if (ac_rms < adaptive_noise_floor) {
+                adaptive_noise_floor = adaptive_noise_floor * 0.95f + ac_rms * 0.05f; // 快速下探
+            } else {
+                adaptive_noise_floor = adaptive_noise_floor * 0.998f + ac_rms * 0.002f; // 极慢上升
+            }
+            if (adaptive_noise_floor < 0.005f) adaptive_noise_floor = 0.005f;
+            if (adaptive_noise_floor > 0.080f) adaptive_noise_floor = 0.080f;
+
+            // 4. 计算纯净有效音频信号增量 (Effective Signal Above Floor)
+            float net_rms = std::max(0.0f, ac_rms - adaptive_noise_floor * 0.92f);
+
+            // 5. 精密真实物理分贝映射 (校准后: 安静办公室 31~36dB, 说话 48~60dB, 音乐 62~78dB, 吹气 85~95dB)
+            float raw_db = 32.0f;
+            if (p2p_ratio > 0.35f || net_rms > 0.12f) {
+                // 吹气气流或猛烈拍手/大喊冲击 (80 ~ 95dB)
+                float blast = std::min(1.0f, (p2p_ratio - 0.35f) / 0.55f + (net_rms / 0.25f));
+                raw_db = 80.0f + blast * 15.0f;
+            } else if (net_rms > 0.003f) {
+                // 正常说话与音乐播放 (40 ~ 78dB 连续对数响应)
+                float log_val = 20.0f * std::log10(net_rms / 0.003f); // 每倍增 6dB
+                raw_db = 38.0f + std::min(40.0f, log_val * 1.35f);
+            } else {
+                // 环境底噪轻微自然浮动 (31 ~ 35dB)
+                raw_db = 31.0f + (ac_rms / adaptive_noise_floor) * 4.0f;
+            }
             raw_db = std::max(30.0f, std::min(96.0f, raw_db));
 
-            // 4. 快攻慢释 (Attack-Release) 包络滤波
+            // 6. 快攻慢释 (Attack-Release) 包络滤波
             if (raw_db > smoothed_mic_db) {
-                smoothed_mic_db = smoothed_mic_db * 0.45f + raw_db * 0.55f; // 快速感知音乐节拍与吹气
+                smoothed_mic_db = smoothed_mic_db * 0.40f + raw_db * 0.60f; // 快速感知音乐节拍与吹气
             } else {
-                smoothed_mic_db = smoothed_mic_db * 0.70f + raw_db * 0.30f; // 随节拍平稳起伏
+                smoothed_mic_db = smoothed_mic_db * 0.75f + raw_db * 0.25f; // 平稳迅速回落
             }
 
-            // 5. 真实三频段动态归一化 (保留连续音乐律动，杜绝硬切断)
-            float low_energy = std::max(0.0f, std::min(1.0f, (ac_rms - 0.003f) * 16.0f + (zero_crossings < 18 ? 0.35f * ac_rms * 20.0f : 0.0f)));
-            float mid_energy = std::max(0.0f, std::min(1.0f, (ac_rms - 0.004f) * 14.0f));
-            float high_energy = std::max(0.0f, std::min(1.0f, (p2p_ratio > 0.35f ? (p2p_ratio - 0.35f) * 2.2f : 0.0f) + (zero_crossings > 30 ? 0.3f : 0.0f)));
+            // 7. 三频段纯净有效能量提取 (基于 net_rms，安静时全部归零 0.0)
+            float low_energy = 0.0f;
+            float mid_energy = 0.0f;
+            float high_energy = 0.0f;
+
+            if (net_rms > 0.005f) {
+                float intensity = std::min(1.0f, net_rms * 14.0f);
+                if (zero_crossings < 18) {
+                    low_energy = intensity * 1.3f;
+                    mid_energy = intensity * 0.6f;
+                } else if (zero_crossings < 32) {
+                    low_energy = intensity * 0.5f;
+                    mid_energy = intensity * 1.1f;
+                    high_energy = intensity * 0.4f;
+                } else {
+                    mid_energy = intensity * 0.5f;
+                    high_energy = intensity * 1.2f;
+                }
+                low_energy  = std::min(1.0f, low_energy);
+                mid_energy  = std::min(1.0f, mid_energy);
+                high_energy = std::min(1.0f, high_energy);
+            }
+
+            if (p2p_ratio > 0.35f) {
+                high_energy = std::min(1.0f, high_energy + (p2p_ratio - 0.35f) * 2.0f);
+            }
 
             physiology.feedAudioBands(low_energy, mid_energy, high_energy);
             physiology.feedMicDecibels(smoothed_mic_db);

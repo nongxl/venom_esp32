@@ -81,16 +81,6 @@ void SkeletonSystem::applyImpulse(float ix, float iy) {
     }
 }
 
-void SkeletonSystem::applyCreepMotion(float c_vx, float c_vy) {
-    // 平滑温和的表面小触手蠕动推移 (限制最大蠕动冲量，保持极其自然细腻的流体漫步)
-    float clamped_vx = std::max(-0.65f, std::min(0.65f, c_vx));
-    float clamped_vy = std::max(-0.65f, std::min(0.65f, c_vy));
-    for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
-        nodes[i].vx += clamped_vx / nodes[i].mass;
-        nodes[i].vy += clamped_vy / nodes[i].mass;
-    }
-}
-
 // 激发干脆利落的极速甩飞抛体运动
 void SkeletonSystem::triggerSlingThrow(float dir_x, float dir_y, float speed) {
     flying_timer = 0.50f; // 0.5s 高速无阻尼飞行冲刺
@@ -131,35 +121,32 @@ void SkeletonSystem::applyWallAdhesion(int i) {
     n.contact_left = 0.0f;
     n.contact_right = 0.0f;
 
-    // 1. 底部地面撞击与贴地 (支撑高度为 0.80r，底部紧贴底框同时保持饱满水滴隆起)
+    // 1. 底部地面撞击
     float dist_b = (SCREEN_H - 1) - n.y;
-    float soft_r_b = r * 0.80f;
-    if (dist_b < soft_r_b) {
-        float penetration = soft_r_b - dist_b;
+    if (dist_b < r) {
+        float penetration = r - dist_b;
         n.y -= penetration * 0.90f;
 
+        // 仅在真实高速抛掷撞击 (flying_timer > 0 或 猛烈摔打冲击 > 25.0px/s) 时才触发拍扁撞击事件
         if ((flying_timer > 0.0f && std::abs(n.vy) > 10.0f) || n.vy > 28.0f) {
             impact_occurred = true;
             last_impact_speed = std::max(last_impact_speed, n.vy);
             impact_hit_x = n.x;
             impact_hit_y = n.y;
-            sticky_clog_timer = 1.0f;
-            flying_timer = 0.0f;
+            sticky_clog_timer = 1.0f; // 激发 1.0s 黏性玩具吸附
+            flying_timer = 0.0f;      // 撞墙瞬间立即终止飞行
         }
 
         n.vy = 0.0f;
         n.vx *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
-        n.contact_bottom = 1.0f;
-    } else if (dist_b < r) {
-        n.contact_bottom = (r - dist_b) / (r - soft_r_b);
+        n.contact_bottom = std::min(1.0f, penetration / (r * 0.30f));
     }
 
-    // 2. 顶部天花板撞击与贴附
+    // 2. 顶部天花板撞击
     float dist_t = n.y - 1;
-    float soft_r_t = r * 0.80f;
-    if (dist_t < soft_r_t) {
-        float penetration = soft_r_t - dist_t;
-        n.y -= penetration * 0.90f;
+    if (dist_t < r) {
+        float penetration = r - dist_t;
+        n.y += penetration * 0.90f;
 
         if ((flying_timer > 0.0f && std::abs(n.vy) > 10.0f) || n.vy < -28.0f) {
             impact_occurred = true;
@@ -172,16 +159,13 @@ void SkeletonSystem::applyWallAdhesion(int i) {
 
         n.vy = 0.0f;
         n.vx *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
-        n.contact_top = 1.0f;
-    } else if (dist_t < r) {
-        n.contact_top = (r - dist_t) / (r - soft_r_t);
+        n.contact_top = std::min(1.0f, penetration / (r * 0.30f));
     }
 
-    // 3. 左壁撞击与贴附
+    // 3. 左壁撞击
     float dist_l = n.x - 1;
-    float soft_r_l = r * 0.80f;
-    if (dist_l < soft_r_l) {
-        float penetration = soft_r_l - dist_l;
+    if (dist_l < r) {
+        float penetration = r - dist_l;
         n.x += penetration * 0.90f;
 
         if ((flying_timer > 0.0f && std::abs(n.vx) > 10.0f) || n.vx < -28.0f) {
@@ -195,16 +179,13 @@ void SkeletonSystem::applyWallAdhesion(int i) {
 
         n.vx = 0.0f;
         n.vy *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
-        n.contact_left = 1.0f;
-    } else if (dist_l < r) {
-        n.contact_left = (r - dist_l) / (r - soft_r_l);
+        n.contact_left = std::min(1.0f, penetration / (r * 0.30f));
     }
 
-    // 4. 右壁撞击与贴附
+    // 4. 右壁撞击
     float dist_r = (SCREEN_W - 1) - n.x;
-    float soft_r_r = r * 0.80f;
-    if (dist_r < soft_r_r) {
-        float penetration = soft_r_r - dist_r;
+    if (dist_r < r) {
+        float penetration = r - dist_r;
         n.x -= penetration * 0.90f;
 
         if ((flying_timer > 0.0f && std::abs(n.vx) > 10.0f) || n.vx > 28.0f) {
@@ -218,9 +199,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
 
         n.vx = 0.0f;
         n.vy *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
-        n.contact_right = 1.0f;
-    } else if (dist_r < r) {
-        n.contact_right = (r - dist_r) / (r - soft_r_r);
+        n.contact_right = std::min(1.0f, penetration / (r * 0.30f));
     }
 }
 
@@ -424,20 +403,16 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         float flat_x = 1.0f;
         float flat_y = 1.0f;
 
-        // 贴边适度有机形变 (既呈现贴地的流体粘附感，又维持饱满水滴肉质隆起)
-        if (n.contact_bottom > 0.05f) {
-            float eff = std::min(1.0f, n.contact_bottom);
-            flat_y -= eff * 0.28f; // 适度压扁 28% (高度维持在 0.72r 饱满厚实水滴)
-            flat_x += eff * 0.38f; // 适度宽展 38% (宽度维持在 1.38r 有机贴地)
-        } else if (n.contact_top > 0.05f) {
-            float eff = std::min(1.0f, n.contact_top);
-            flat_y -= eff * 0.25f;
-            flat_x += eff * 0.30f;
+        // 贴边拍扁温和形变 (严格限制在安全区间，杜绝突变成方块横臂)
+        if (contact_y > 0.05f) {
+            float eff = std::min(1.0f, contact_y * 0.6f);
+            flat_y -= eff * 0.22f;
+            flat_x += eff * 0.25f;
         }
         if (contact_x > 0.05f) {
-            float eff = std::min(1.0f, contact_x);
-            flat_x -= eff * 0.25f;
-            flat_y += eff * 0.30f;
+            float eff = std::min(1.0f, contact_x * 0.6f);
+            flat_x -= eff * 0.22f;
+            flat_y += eff * 0.25f;
         }
 
         // 速度形变：基于速度主方向自然拉长成细线 (液态共生体拉丝行为)
@@ -459,5 +434,72 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
 
         n.radius_x = std::max(2.5f, r * flat_x);
         n.radius_y = std::max(2.5f, r * flat_y);
+    }
+}
+
+float SkeletonSystem::getHeadingAngle() const {
+    // 身体主轴向量：从尾部 (nodes[4]) 指向头部 (nodes[0])
+    float dx = nodes[0].x - nodes[4].x;
+    float dy = nodes[0].y - nodes[4].y;
+    return std::atan2(dy, dx);
+}
+
+void SkeletonSystem::alignHeadingToTarget(float target_x, float target_y) {
+    if (is_hanging || flying_timer > 0.0f) return;
+
+    float hx = nodes[0].x;
+    float hy = nodes[0].y;
+    float tx = nodes[4].x;
+    float ty = nodes[4].y;
+
+    float move_dx = target_x - hx;
+    float move_dy = target_y - hy;
+    float move_dist = std::sqrt(move_dx * move_dx + move_dy * move_dy);
+    if (move_dist < 4.0f) return;
+
+    // 身体向量 (尾 -> 头)
+    float body_dx = hx - tx;
+    float body_dy = hy - ty;
+    float body_len = std::sqrt(body_dx * body_dx + body_dy * body_dy);
+    if (body_len < 1.0f) return;
+
+    // 计算运动方向与身体朝向的点积
+    float dot = (move_dx * body_dx + move_dy * body_dy) / (move_dist * body_len);
+
+    // 如果 dot < -0.15f，说明目标在身躯后方，如果不调头就会“倒着走”！
+    if (dot < -0.15f) {
+        // 触发原地翻转掉头（Head Turnaround Flip）：
+        // 让头部沿弧线跃起跨过身体，来到最前侧！
+        float norm_move_x = move_dx / move_dist;
+        float norm_move_y = move_dy / move_dist;
+
+        // 头部施加前突跨越速度，迅速确立前进龙头
+        nodes[0].vx += norm_move_x * 9.5f;
+        nodes[0].vy -= 4.2f; // 向上拱起翻身
+
+        // 中间节点配合向上弯折形成拱桥流体翻身弧线
+        nodes[1].vy -= 2.8f;
+        nodes[2].vy -= 1.5f;
+    }
+}
+
+void SkeletonSystem::applyCreepingMotion(float dir_x, float dir_y, float speed, float dt) {
+    if (is_hanging || flying_timer > 0.0f) return;
+
+    float len = std::sqrt(dir_x * dir_x + dir_y * dir_y);
+    if (len < 0.01f) return;
+
+    float nx = dir_x / len;
+    float ny = dir_y / len;
+
+    // 头部作为牵引龙头向前滑移
+    nodes[0].vx += nx * speed * dt * 22.0f;
+    nodes[0].vy += ny * speed * dt * 22.0f;
+
+    // 后续节点依次顺向传导小触手推力
+    for (int i = 1; i < SKELETON_NODE_COUNT; ++i) {
+        float push = speed * (1.0f - (float)i * 0.14f);
+        nodes[i].vx += nx * push * dt * 14.0f;
+        nodes[i].vy += ny * push * dt * 14.0f;
     }
 }

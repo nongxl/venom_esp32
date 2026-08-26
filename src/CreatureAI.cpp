@@ -11,11 +11,12 @@ const char* CreatureAI::getStateName() const {
     switch (current_state) {
         case STATE_IDLE:       return "IDLE";
         case STATE_CRAWL:      return "CRAWL";
+        case STATE_CREEP:      return "CREEP";
         case STATE_OBSERVE:    return "OBSERVE";
         case STATE_SLEEP:      return "SLEEP";
         case STATE_STARTLED:   return "STARTLED";
         case STATE_HESITATING: return "HESITATE";
-        case STATE_JOLTING:    return "JOLT";
+        case STATE_JOLTING:    return "JOLTING";
         case STATE_EXPRESSING: return "EXPRESS";
         case STATE_SWING:      return "SWING";
         default:               return "UNKNOWN";
@@ -40,6 +41,10 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
         skeleton->clearPullTarget();
     }
 
+    if (tentacles && new_state != STATE_CREEP) {
+        tentacles->setCreepMode(false);
+    }
+
     switch (new_state) {
         case STATE_IDLE:
             state_duration = 8.0f + (rand() % 80) * 0.1f; // 8.0 ~ 16.0s 舒缓发呆生活与平稳呼吸
@@ -47,14 +52,35 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
             crawl_force_y = 0.0f;
             break;
 
+        case STATE_CREEP: {
+            // 【表皮小触手近距离缓慢蠕动漫步模式】
+            state_duration = 3.5f + (rand() % 25) * 0.1f; // 3.5 ~ 6.0s 表皮小触手缓慢蠕动
+            float angle = (float)(rand() % 360) * 0.017453f;
+            float step_dist = 22.0f + (float)(rand() % 25);
+            crawl_target_x = std::max(25.0f, std::min(SCREEN_W - 25.0f, hx + std::cos(angle) * step_dist));
+            crawl_target_y = std::max(25.0f, std::min(SCREEN_H - 25.0f, hy + std::sin(angle) * step_dist));
+
+            target_look_x = crawl_target_x;
+            target_look_y = crawl_target_y;
+
+            // 关键：起步前先原地对齐头部朝向，头部在最前端领路，杜绝倒退！
+            if (skeleton) {
+                skeleton->alignHeadingToTarget(crawl_target_x, crawl_target_y);
+            }
+            if (tentacles) {
+                tentacles->setCreepMode(true, 1.0f);
+            }
+            break;
+        }
+
         case STATE_CRAWL: {
+            // 【粗壮大触手远距离大步爬行攀爬模式】
             state_duration = 4.0f + (rand() % 25) * 0.1f; // 4.0 ~ 6.5s 探索爬行
             crawl_shoot_timer = 0.40f; // 刚进入爬行时先观察准备 0.4s 再迈出第一步
 
             // 基于原生好奇心与全景空间探索模型选择目标 (优先开阔腹地)
             int roll = rand() % 100;
             if (hx < 30.0f || hx > SCREEN_W - 30.0f || hy < 30.0f || hy > SCREEN_H - 30.0f) {
-                // 处于边缘区域时：85% 概率向屏幕中心腹地大步爬行脱离！
                 if (roll < 85) {
                     crawl_target_x = 70.0f + (rand() % (SCREEN_W - 140));
                     crawl_target_y = 40.0f + (rand() % (SCREEN_H - 80));
@@ -64,11 +90,9 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
                 }
             } else {
                 if (roll < 55) {
-                    // 55% 目标直指屏幕中央观察窗口腹地
                     crawl_target_x = 60.0f + (rand() % (SCREEN_W - 120));
                     crawl_target_y = 35.0f + (rand() % (SCREEN_H - 70));
                 } else if (roll < 80) {
-                    // 25% 目标指向天花板安全高度
                     crawl_target_x = 35.0f + (rand() % (SCREEN_W - 70));
                     crawl_target_y = 22.0f;
                 } else if (roll < 90) {
@@ -82,6 +106,11 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
 
             target_look_x = crawl_target_x;
             target_look_y = crawl_target_y;
+
+            // 关键：发射大触手前头部转向目标，杜绝倒退！
+            if (skeleton) {
+                skeleton->alignHeadingToTarget(crawl_target_x, crawl_target_y);
+            }
             break;
         }
 
@@ -276,8 +305,10 @@ void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem
         if (energy < 0.25f) {
             enterState(STATE_SLEEP, &tentacles, &skeleton, hx, hy);
         } else if (energy < 0.60f) {
-            // 中度疲惫：仅 8% 爬行探索, 52% 好奇观察, 40% 继续安详呼吸发呆
-            if (r < 8) {
+            // 中度疲惫：5% 小触手蠕动, 3% 大触手爬行, 52% 好奇观察, 40% 继续安详呼吸发呆
+            if (r < 5) {
+                enterState(STATE_CREEP, &tentacles, &skeleton, hx, hy);
+            } else if (r < 8) {
                 enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
             } else if (r < 60) {
                 enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
@@ -285,10 +316,12 @@ void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem
                 enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
             }
         } else {
-            // 精力充沛：15% 爬行探索, 15% 荡秋千, 40% 观察周围, 30% 安静发呆
+            // 精力充沛：15% 荡秋千, 12% 小触手缓慢蠕动, 8% 大触手攀爬, 35% 观察周围, 30% 安静发呆
             if (r < 15) {
                 enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
-            } else if (r < 30) {
+            } else if (r < 27) {
+                enterState(STATE_CREEP, &tentacles, &skeleton, hx, hy);
+            } else if (r < 35) {
                 enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
             } else if (r < 70) {
                 enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
@@ -299,6 +332,30 @@ void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem
     }
 }
 
+void CreatureAI::updateCreep(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles, SkeletonSystem &skeleton) {
+    target_look_x = crawl_target_x;
+    target_look_y = crawl_target_y;
+
+    float dx = crawl_target_x - hx;
+    float dy = crawl_target_y - hy;
+    float dist = std::sqrt(dx * dx + dy * dy);
+
+    // 确保头部始终朝向目标，绝不倒退走
+    skeleton.alignHeadingToTarget(crawl_target_x, crawl_target_y);
+
+    // 推动表皮小触手和身体以平稳步速缓慢蠕动前进 (每秒 5~8px)
+    float creep_speed = 0.45f;
+    skeleton.applyCreepingMotion(dx, dy, creep_speed, dt);
+
+    const_cast<PhysiologySystem&>(physiology).consumeEnergy(dt * 0.006f); // 蠕动能耗极低
+
+    // 蠕动到达目标或超时，转入从容观察发呆
+    if (dist <= 10.0f || state_timer >= state_duration) {
+        tentacles.setCreepMode(false);
+        enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
+    }
+}
+
 void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles, SkeletonSystem &skeleton) {
     target_look_x = crawl_target_x;
     target_look_y = crawl_target_y;
@@ -306,6 +363,9 @@ void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySyste
     float dx = crawl_target_x - hx;
     float dy = crawl_target_y - hy;
     float dist = std::sqrt(dx * dx + dy * dy);
+
+    // 确保头部朝向目标
+    skeleton.alignHeadingToTarget(crawl_target_x, crawl_target_y);
 
     // 【克服重力能耗倍率计算】：顺着重力下滑省力，逆着重力向上攀爬消耗成倍体力！
     float g_len = std::sqrt(last_imu_gx * last_imu_gx + last_imu_gy * last_imu_gy);
@@ -351,8 +411,10 @@ void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySys
         if (energy < 0.25f) {
             enterState(STATE_SLEEP, &tentacles, &skeleton, hx, hy);
         } else if (energy < 0.60f) {
-            // 中度疲惫：仅 8% 爬行探索, 52% 继续观察, 40% 安静发呆
-            if (roll < 8) {
+            // 中度疲惫：5% 小触手蠕动, 3% 大触手爬行, 52% 继续观察, 40% 安静发呆
+            if (roll < 5) {
+                enterState(STATE_CREEP, &tentacles, &skeleton, hx, hy);
+            } else if (roll < 8) {
                 enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
             } else if (roll < 60) {
                 enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
@@ -360,10 +422,12 @@ void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySys
                 enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
             }
         } else {
-            // 精力充沛：15% 爬行探索, 15% 荡秋千, 40% 安静发呆, 30% 观察周围
+            // 精力充沛：15% 荡秋千, 12% 小触手蠕动, 8% 大触手攀爬, 35% 观察周围, 30% 安静发呆
             if (roll < 15) {
                 enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
-            } else if (roll < 30) {
+            } else if (roll < 27) {
+                enterState(STATE_CREEP, &tentacles, &skeleton, hx, hy);
+            } else if (roll < 35) {
                 enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
             } else if (roll < 70) {
                 enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
@@ -443,6 +507,7 @@ void CreatureAI::update(float dt, SkeletonSystem &skeleton, MetaballSystem &meta
     switch (current_state) {
         case STATE_HESITATING: updateHesitating(dt, hx, hy, expression); break;
         case STATE_IDLE:       updateIdle(dt, hx, hy, physiology, relationship, tentacles, skeleton); break;
+        case STATE_CREEP:      updateCreep(dt, hx, hy, physiology, tentacles, skeleton); break;
         case STATE_CRAWL:      updateCrawl(dt, hx, hy, physiology, tentacles, skeleton); break;
         case STATE_OBSERVE:    updateObserve(dt, hx, hy, physiology, tentacles, skeleton); break;
         case STATE_SWING:      updateSwing(dt, hx, hy, skeleton, tentacles); break;

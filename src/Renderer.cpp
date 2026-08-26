@@ -312,7 +312,7 @@ void Renderer::render(const SkeletonSystem &skeleton, const MetaballSystem &meta
     renderFieldAndVoronoi(metaballs, voronoi, physiology);
 
     // 绘制触手、捕食特效与眼睛
-    tentacles.draw(*canvas);
+    tentacles.draw(*canvas, skeleton);
     if (predator) {
         predator->draw(*canvas);
     }

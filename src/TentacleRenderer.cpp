@@ -4,14 +4,38 @@
 TentacleRenderer::TentacleRenderer() {
     for (int i = 0; i < MAX_TENTACLES; ++i) tentacles[i].active = false;
     grapple.active = false;
-    initMicroPodia();
+    initMicroTentacles();
 }
 
 void TentacleRenderer::init() {
     for (int i = 0; i < MAX_TENTACLES; ++i) tentacles[i].active = false;
     grapple.active = false;
     auto_spawn_timer = 0.0f;
-    initMicroPodia();
+    is_creeping = false;
+    creep_wave_phase = 0.0f;
+    initMicroTentacles();
+}
+
+void TentacleRenderer::initMicroTentacles() {
+    // 均匀分布 14 根表皮细小腹足触手 (覆盖 Node 0..4 两侧腹部)
+    int idx = 0;
+    for (int n = 0; n < SKELETON_NODE_COUNT; ++n) {
+        int count_for_node = (n == 0) ? 2 : 3;
+        for (int c = 0; c < count_for_node && idx < MAX_MICRO_TENTACLES; ++c) {
+            micro_tentacles[idx].node_idx = n;
+            micro_tentacles[idx].side_sign = (c % 2 == 0) ? 1.0f : -1.0f;
+            micro_tentacles[idx].offset_angle = (float)c * 0.45f - 0.35f;
+            micro_tentacles[idx].current_len = 0.0f;
+            micro_tentacles[idx].max_len = 6.5f + (float)(rand() % 25) * 0.1f;
+            micro_tentacles[idx].phase_offset = (float)idx * 0.55f;
+            idx++;
+        }
+    }
+}
+
+void TentacleRenderer::setCreepMode(bool active, float speed_factor) {
+    is_creeping = active;
+    creep_speed = speed_factor;
 }
 
 void TentacleRenderer::startGrappleCrawl(float from_x, float from_y, float to_x, float to_y) {
@@ -243,138 +267,12 @@ void TentacleRenderer::updateTentacle(int idx, float dt, const SkeletonSystem &s
     t.end_y = t.start_y + (t.target_y - t.start_y) * t.length_progress;
 }
 
-void TentacleRenderer::initMicroPodia() {
-    podia_wave_phase = 0.0f;
-    creep_dir = 1.0f;
-    creep_switch_timer = 4.0f + (rand() % 60) * 0.1f;
-    for (int i = 0; i < MAX_MICRO_PODIA; ++i) {
-        podia[i].node_idx = (i * SKELETON_NODE_COUNT) / MAX_MICRO_PODIA;
-        podia[i].offset_x = ((float)(i % 2 == 0 ? -1 : 1)) * (3.0f + (float)i * 1.5f);
-        podia[i].offset_y = 0.0f;
-        podia[i].phase = (float)i * 0.785f; // 45 度相移纤毛波
-        podia[i].leg_len = 5.0f + (float)(rand() % 20) * 0.1f;
-        podia[i].is_planted = false;
-    }
-}
-
-void TentacleRenderer::updateMicroPodia(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology) {
-    if (grapple.stage == GRAPPLE_SWING) return;
-
-    // 定期随机微调漫步蠕动方向
-    creep_switch_timer -= dt;
-    if (creep_switch_timer <= 0.0f) {
-        creep_switch_timer = 5.0f + (rand() % 80) * 0.1f;
-        creep_dir = (rand() % 100 < 50) ? 1.0f : -1.0f;
-    }
-
-    // 异相波推进角速度 (慢速优雅 4.0 rad/s)
-    float wave_speed = 3.6f + physiology.getNeuroTension() * 2.5f;
-    podia_wave_phase += dt * wave_speed;
-
-    float total_creep_impulse_x = 0.0f;
-    float total_creep_impulse_y = 0.0f;
-    int planted_count = 0;
-
-    for (int i = 0; i < MAX_MICRO_PODIA; ++i) {
-        MicroPodia &p = podia[i];
-        const SkeletonNode &node = skeleton.getNode(p.node_idx);
-
-        bool on_bottom = (node.contact_bottom > 0.05f);
-        bool on_top = (node.contact_top > 0.05f);
-        bool on_left = (node.contact_left > 0.05f);
-        bool on_right = (node.contact_right > 0.05f);
-
-        // 依附在身体边缘腹部
-        if (on_bottom) {
-            p.base_x = node.x + p.offset_x;
-            p.base_y = node.y + node.radius_y * 0.75f;
-        } else if (on_top) {
-            p.base_x = node.x + p.offset_x;
-            p.base_y = node.y - node.radius_y * 0.75f;
-        } else if (on_left) {
-            p.base_x = node.x - node.radius_x * 0.75f;
-            p.base_y = node.y + p.offset_x;
-        } else if (on_right) {
-            p.base_x = node.x + node.radius_x * 0.75f;
-            p.base_y = node.y + p.offset_x;
-        } else {
-            p.base_x = node.x + p.offset_x;
-            p.base_y = node.y + node.radius_y * 0.65f;
-        }
-
-        // 计算该小触手的当前蠕动步态相位
-        float cur_phase = podia_wave_phase + p.phase;
-        float cycle_s = std::sin(cur_phase);
-        float cycle_c = std::cos(cur_phase);
-
-        if (on_bottom) {
-            // 地面水平漫步蠕动
-            float step_x = cycle_c * 4.5f * creep_dir;
-            float step_y = (cycle_s > 0.0f) ? (cycle_s * -2.5f) : 1.5f;
-
-            p.cur_tip_x = p.base_x + step_x;
-            p.cur_tip_y = std::min((float)(SCREEN_H - 1), p.base_y + p.leg_len + step_y);
-            p.is_planted = (cycle_s <= 0.0f);
-
-            if (p.is_planted) {
-                total_creep_impulse_x += creep_dir * 0.035f;
-                planted_count++;
-            }
-        } else if (on_left || on_right) {
-            // 侧壁垂直漫步蠕动
-            float step_y = cycle_c * 4.5f * creep_dir;
-            float step_x = (cycle_s > 0.0f) ? (cycle_s * (on_left ? 2.5f : -2.5f)) : 0.0f;
-
-            p.cur_tip_x = on_left ? std::max(1.0f, p.base_x - p.leg_len + step_x) : std::min((float)(SCREEN_W - 1), p.base_x + p.leg_len + step_x);
-            p.cur_tip_y = p.base_y + step_y;
-            p.is_planted = (cycle_s <= 0.0f);
-
-            if (p.is_planted) {
-                total_creep_impulse_y += creep_dir * 0.035f;
-                planted_count++;
-            }
-        } else {
-            p.cur_tip_x = p.base_x + cycle_c * 3.5f;
-            p.cur_tip_y = p.base_y + p.leg_len + cycle_s * 2.0f;
-            p.is_planted = false;
-        }
-    }
-
-    // 当没有大动作牵引且有小触手踩地时，施加轻柔平缓的流体蠕动微位移
-    if (!grapple.active && planted_count > 0) {
-        skeleton.applyCreepMotion(total_creep_impulse_x, total_creep_impulse_y);
-    }
-}
-
-void TentacleRenderer::drawMicroPodia(M5Canvas &canvas) const {
-    if (grapple.stage == GRAPPLE_SWING) return;
-
-    for (int i = 0; i < MAX_MICRO_PODIA; ++i) {
-        const MicroPodia &p = podia[i];
-        int bx = (int)std::round(p.base_x);
-        int by = (int)std::round(p.base_y);
-        int tx = (int)std::round(p.cur_tip_x);
-        int ty = (int)std::round(p.cur_tip_y);
-
-        // 绘制微小流体触手小腿 (2px 粗纯黑柔性肉丝)
-        canvas.drawLine(bx, by, tx, ty, COLOR_VENOM_CORE);
-        canvas.drawLine(bx + 1, by, tx + 1, ty, COLOR_VENOM_CORE);
-
-        // 尖端微小吸盘抓垫 (踩地时带有高光微光)
-        if (p.is_planted) {
-            canvas.drawPixel(tx, ty, COLOR_GLOW_CYAN); // 荧光吸盘小脚
-        } else {
-            canvas.drawPixel(tx, ty, COLOR_DITHER_GRAY);
-        }
-    }
-}
-
 void TentacleRenderer::update(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology, bool is_upside_down) {
     // 1. 爬行与秋千抓取触手更新
     updateGrappleCrawl(dt, skeleton, physiology);
 
-    // 2. 皮肤表面微小触手蠕动管足更新
-    updateMicroPodia(dt, skeleton, physiology);
+    // 2. 表皮细小腹足触手波浪步态更新
+    updateMicroTentacles(dt, skeleton);
 
     // 3. 全天候多触手高频自发摸索生长 (Ambient Spawning)
     auto_spawn_timer += dt;
@@ -391,6 +289,63 @@ void TentacleRenderer::update(float dt, SkeletonSystem &skeleton, const Physiolo
     }
 }
 
+void TentacleRenderer::updateMicroTentacles(float dt, const SkeletonSystem &skeleton) {
+    if (is_creeping) {
+        creep_wave_phase += dt * creep_speed * 10.5f; // 蠕动划步波浪相位
+    }
+
+    float head_angle = skeleton.getHeadingAngle(); // 身体主轴朝向角
+    float norm_angle = head_angle + 1.5708f;       // 法线角
+
+    for (int i = 0; i < MAX_MICRO_TENTACLES; ++i) {
+        MicroTentacle &mt = micro_tentacles[i];
+        const SkeletonNode &node = skeleton.getNode(mt.node_idx);
+
+        // 目标生长长度：蠕动时伸长至 6.5~8.5px，停止时平缓缩回体内
+        float target_len = is_creeping ? mt.max_len : 0.0f;
+        mt.current_len += (target_len - mt.current_len) * (dt * 12.0f);
+
+        if (mt.current_len < 0.3f) continue;
+
+        // 计算表皮根部锚点 (位于骨架节点外缘)
+        float base_ang = norm_angle * mt.side_sign + mt.offset_angle;
+        float bx = node.x + std::cos(base_ang) * (node.radius_x * 0.72f);
+        float by = node.y + std::sin(base_ang) * (node.radius_y * 0.72f);
+
+        // 小触手步态波浪 (Metachronal Wave): 向后推地 -> 抬起向前移
+        float leg_phase = creep_wave_phase + mt.phase_offset;
+        float stroke_x = -std::cos(head_angle) * (std::sin(leg_phase) * mt.current_len * 0.85f);
+        float stroke_y = std::sin(base_ang) * (mt.current_len * (0.6f + 0.4f * std::cos(leg_phase)));
+
+        mt.tip_x = bx + stroke_x;
+        mt.tip_y = by + stroke_y;
+    }
+}
+
+void TentacleRenderer::drawMicroTentacles(M5Canvas &canvas, const SkeletonSystem &skeleton) const {
+    for (int i = 0; i < MAX_MICRO_TENTACLES; ++i) {
+        const MicroTentacle &mt = micro_tentacles[i];
+        if (mt.current_len < 0.6f) continue;
+
+        const SkeletonNode &node = skeleton.getNode(mt.node_idx);
+        float head_angle = skeleton.getHeadingAngle();
+        float norm_angle = head_angle + 1.5708f;
+        float base_ang = norm_angle * mt.side_sign + mt.offset_angle;
+        float bx = node.x + std::cos(base_ang) * (node.radius_x * 0.70f);
+        float by = node.y + std::sin(base_ang) * (node.radius_y * 0.70f);
+
+        int ibx = (int)std::round(bx);
+        int iby = (int)std::round(by);
+        int itx = (int)std::round(mt.tip_x);
+        int ity = (int)std::round(mt.tip_y);
+
+        // 绘制 2px 粗的纯黑肉质细小足肢
+        canvas.drawLine(ibx, iby, itx, ity, COLOR_VENOM_CORE);
+        canvas.drawLine(ibx + 1, iby, itx + 1, ity, COLOR_VENOM_CORE);
+        canvas.drawPixel(itx, ity, COLOR_GLOW_CYAN); // 爪尖共生体微弱荧光
+    }
+}
+
 void TentacleRenderer::drawGrappleTendril(M5Canvas &canvas) const {
     if (!grapple.active) return;
 
@@ -401,14 +356,17 @@ void TentacleRenderer::drawGrappleTendril(M5Canvas &canvas) const {
 
     // 【1. 荡秋千专用：牛顿摆紧绷吊索与天花板强力吸附大爪掌】
     if (grapple.stage == GRAPPLE_SWING) {
+        // 1.1 绘制紧绷单摆共生体吊索 (从天花板直通毒液球心)
         for (int off = -1; off <= 1; ++off) {
             canvas.drawLine((int)hx + off, (int)hy, (int)sx + off, (int)sy, COLOR_VENOM_CORE);
         }
-        canvas.drawLine((int)hx, (int)hy, (int)sx, (int)sy, COLOR_DITHER_GRAY);
+        canvas.drawLine((int)hx, (int)hy, (int)sx, (int)sy, COLOR_DITHER_GRAY); // 核心高光拉丝
 
+        // 1.2 绘制天花板强力吸附大肉掌 (牢固抓住天花板顶框)
         canvas.fillEllipse((int)hx, (int)hy + 1, 9, 5, COLOR_VENOM_CORE);
         canvas.fillCircle((int)hx, (int)hy, 5, COLOR_VENOM_CORE);
 
+        // 1.3 绘制 4 根锋利张开抠住天花板的共生体利爪
         float claw_angles[4] = { -2.4f, -1.8f, -1.3f, -0.7f };
         for (int c = 0; c < 4; ++c) {
             float ca = claw_angles[c];
@@ -417,7 +375,7 @@ void TentacleRenderer::drawGrappleTendril(M5Canvas &canvas) const {
 
             canvas.drawLine((int)hx, (int)hy, (int)fx, (int)fy, COLOR_VENOM_CORE);
             canvas.drawLine((int)hx + 1, (int)hy, (int)fx + 1, (int)fy, COLOR_VENOM_CORE);
-            canvas.drawPixel((int)fx, (int)fy, COLOR_GLOW_CYAN);
+            canvas.drawPixel((int)fx, (int)fy, COLOR_GLOW_CYAN); // 爪尖共生体微光
         }
         return;
     }
@@ -450,9 +408,11 @@ void TentacleRenderer::drawGrappleTendril(M5Canvas &canvas) const {
         prev_y = cur_y;
     }
 
+    // 绘制目的地掌心肉垫
     int palm_r = (int)std::round(6.0f + grapple.palm_spread * 2.5f);
     canvas.fillCircle((int)hx, (int)hy, palm_r, COLOR_VENOM_CORE);
 
+    // 绘制目的地 3 根张开的利爪
     if (grapple.palm_spread > 0.05f) {
         float dx = hx - sx;
         float dy = hy - sy;
@@ -472,11 +432,11 @@ void TentacleRenderer::drawGrappleTendril(M5Canvas &canvas) const {
     }
 }
 
-void TentacleRenderer::draw(M5Canvas &canvas) const {
-    // 1. 绘制皮肤表面微小触手蠕动足 (在身体腹面交替踏步)
-    drawMicroPodia(canvas);
+void TentacleRenderer::draw(M5Canvas &canvas, const SkeletonSystem &skeleton) const {
+    // 1. 绘制表皮细小蠕动触手 (Cilia / Micro-Footpads)
+    drawMicroTentacles(canvas, skeleton);
 
-    // 2. 绘制爬行射出大触手与掌心爪盘
+    // 2. 绘制爬行射出触手与掌心爪盘
     drawGrappleTendril(canvas);
 
     // 3. 绘制倒置吸附微丝

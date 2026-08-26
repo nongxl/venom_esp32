@@ -12,7 +12,8 @@
 
 enum CreatureState {
     STATE_IDLE = 0,
-    STATE_CRAWL,
+    STATE_CRAWL,        // 粗壮触手远距离大步爬行
+    STATE_CREEP,        // 表皮细小触手近距离缓慢蠕动
     STATE_OBSERVE,
     STATE_SLEEP,
     STATE_STARTLED,
@@ -42,6 +43,7 @@ public:
 
     bool isStartled() const { return current_state == STATE_STARTLED || current_state == STATE_JOLTING; }
     bool isSleeping() const { return current_state == STATE_SLEEP; }
+    bool isCreeping() const { return current_state == STATE_CREEP; }
 
     void triggerStartle(float intensity = 1.0f);
     void triggerJolt(SkeletonSystem &skeleton, MetaballSystem &metaballs, float intensity = 1.0f);
@@ -85,6 +87,7 @@ private:
 
     void updateIdle(float dt, float hx, float hy, const PhysiologySystem &physiology, const RelationshipSystem &relationship, TentacleRenderer &tentacles, SkeletonSystem &skeleton);
     void updateCrawl(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles, SkeletonSystem &skeleton);
+    void updateCreep(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles, SkeletonSystem &skeleton);
     void updateObserve(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles, SkeletonSystem &skeleton);
     void updateSleep(float dt, float hx, float hy, const PhysiologySystem &physiology);
     void updateStartled(float dt, float hx, float hy, const PhysiologySystem &physiology);

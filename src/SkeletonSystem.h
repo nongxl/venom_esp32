@@ -35,7 +35,6 @@ public:
                 float audio_low = 0.0f);
 
     void applyImpulse(float ix, float iy);
-    void applyCreepMotion(float c_vx, float c_vy);
     void triggerSlingThrow(float dir_x, float dir_y, float speed);
     void triggerLocalBleb(int node_index, float intensity = 1.0f);
 
@@ -56,6 +55,11 @@ public:
     void getHeadPos(float &hx, float &hy) const { hx = nodes[0].x; hy = nodes[0].y; }
     void getCenterPos(float &cx, float &cy) const { cx = nodes[2].x; cy = nodes[2].y; }
     void getTailPos(float &tx, float &ty) const { tx = nodes[4].x; ty = nodes[4].y; }
+
+    // 防倒退掉头与表皮小触手蠕动动力学
+    void alignHeadingToTarget(float target_x, float target_y);
+    void applyCreepingMotion(float dir_x, float dir_y, float speed, float dt);
+    float getHeadingAngle() const;
 
     bool isAttachedToWall() const;
     bool isStickyToyAdhered() const { return sticky_clog_timer > 0.0f; }

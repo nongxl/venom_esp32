@@ -59,10 +59,15 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
         case STATE_CREEP: {
             // 【表皮小触手近距离缓慢蠕动漫步模式】
             state_duration = 3.5f + (rand() % 25) * 0.1f; // 3.5 ~ 6.0s 表皮小触手缓慢蠕动
-            float angle = (float)(rand() % 360) * 0.017453f;
-            float step_dist = 28.0f + (float)(rand() % 25);
-            crawl_target_x = std::max(25.0f, std::min(SCREEN_W - 25.0f, hx + std::cos(angle) * step_dist));
-            crawl_target_y = std::max(25.0f, std::min(SCREEN_H - 25.0f, hy + std::sin(angle) * step_dist));
+            
+            // 挑选水平巡逻目标 (沿地面左右移动 35 ~ 65px)
+            float dir_sign = ((rand() % 100) < 50) ? 1.0f : -1.0f;
+            if (hx < 40.0f) dir_sign = 1.0f;
+            if (hx > (float)SCREEN_W - 40.0f) dir_sign = -1.0f;
+
+            float step_dist = 35.0f + (float)(rand() % 30);
+            crawl_target_x = std::max(25.0f, std::min((float)SCREEN_W - 25.0f, hx + dir_sign * step_dist));
+            crawl_target_y = std::max(25.0f, std::min((float)SCREEN_H - 25.0f, hy + ((rand() % 20) - 10)));
 
             target_look_x = crawl_target_x;
             target_look_y = crawl_target_y;

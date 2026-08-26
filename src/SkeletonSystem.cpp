@@ -480,6 +480,28 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         if (n.y < margin) { n.y = margin; n.vy = std::max(0.0f, n.vy); }
         if (n.y > (float)SCREEN_H - margin) { n.y = (float)SCREEN_H - margin; n.vy = std::min(0.0f, n.vy); }
     }
+
+    // 表皮小触手全骨架 5 节点直接整体平移位移 (100% 确保实打实向前移动，绝不卡在原地！)
+    if (is_creeping_motion && flying_timer <= 0.0f && !is_hanging) {
+        float dx = creep_target_x - nodes[0].x;
+        float dy = creep_target_y - nodes[0].y;
+        float dist = std::sqrt(dx * dx + dy * dy);
+        if (dist > 3.0f) {
+            float nx = dx / dist;
+            float ny = dy / dist;
+            float step_move = 22.0f * creep_speed_mult * dt;
+            creep_locomotion_phase += dt * 8.0f;
+
+            for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
+                float wave = std::sin(creep_locomotion_phase - (float)i * 0.85f);
+                float node_step = step_move * (1.0f + 0.25f * wave);
+                nodes[i].x += nx * node_step;
+                nodes[i].y += ny * node_step;
+                nodes[i].vx = nx * 10.0f;
+                nodes[i].vy = ny * 10.0f;
+            }
+        }
+    }
 }
 
 float SkeletonSystem::getHeadingAngle() const {

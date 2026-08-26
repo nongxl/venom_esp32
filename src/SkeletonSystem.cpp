@@ -363,6 +363,11 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         if (sticky_clog_timer < 0.0f) sticky_clog_timer = 0.0f;
     }
 
+    if (flip_cooldown > 0.0f) {
+        flip_cooldown -= dt;
+        if (flip_cooldown < 0.0f) flip_cooldown = 0.0f;
+    }
+
     for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
         updateNodePhysics(i, dt, gravity_x, gravity_y, crawl_force_x, crawl_force_y, neuro_tension, is_upside_down);
     }
@@ -459,7 +464,7 @@ float SkeletonSystem::getHeadingAngle() const {
 }
 
 void SkeletonSystem::alignHeadingToTarget(float target_x, float target_y) {
-    if (is_hanging || flying_timer > 0.0f) return;
+    if (is_hanging || flying_timer > 0.0f || flip_cooldown > 0.0f) return;
 
     float hx = nodes[0].x;
     float hy = nodes[0].y;
@@ -469,31 +474,29 @@ void SkeletonSystem::alignHeadingToTarget(float target_x, float target_y) {
     float move_dx = target_x - hx;
     float move_dy = target_y - hy;
     float move_dist = std::sqrt(move_dx * move_dx + move_dy * move_dy);
-    if (move_dist < 4.0f) return;
+    if (move_dist < 12.0f) return;
 
     // 身体向量 (尾 -> 头)
     float body_dx = hx - tx;
     float body_dy = hy - ty;
     float body_len = std::sqrt(body_dx * body_dx + body_dy * body_dy);
-    if (body_len < 1.0f) return;
+    if (body_len < 2.0f) return;
 
     // 计算运动方向与身体朝向的点积
     float dot = (move_dx * body_dx + move_dy * body_dy) / (move_dist * body_len);
 
-    // 如果 dot < -0.15f，说明目标在身躯后方，如果不调头就会“倒着走”！
-    if (dot < -0.15f) {
-        // 触发原地翻转掉头（Head Turnaround Flip）：
-        // 让头部沿弧线跃起跨过身体，来到最前侧！
+    // 仅当严重反向 (dot < -0.45 超过 116 度) 且冷却就绪时，触发一次干净利落的流体翻身调头！
+    if (dot < -0.45f) {
+        flip_cooldown = 1.6f; // 锁定 1.6 秒冷却，绝不每帧高频抽搐震荡
         float norm_move_x = move_dx / move_dist;
-        float norm_move_y = move_dy / move_dist;
 
-        // 头部施加前突跨越速度，迅速确立前进龙头
-        nodes[0].vx += norm_move_x * 9.5f;
-        nodes[0].vy -= 4.2f; // 向上拱起翻身
+        // 头部向目标方向前突并轻柔跃起翻越
+        nodes[0].vx = norm_move_x * 7.5f;
+        nodes[0].vy = -3.5f;
 
-        // 中间节点配合向上弯折形成拱桥流体翻身弧线
-        nodes[1].vy -= 2.8f;
-        nodes[2].vy -= 1.5f;
+        // 中间节点顺向跟进拱起
+        nodes[1].vx = norm_move_x * 3.5f;
+        nodes[1].vy = -2.0f;
     }
 }
 
@@ -501,19 +504,28 @@ void SkeletonSystem::applyCreepingMotion(float dir_x, float dir_y, float speed, 
     if (is_hanging || flying_timer > 0.0f) return;
 
     float len = std::sqrt(dir_x * dir_x + dir_y * dir_y);
-    if (len < 0.01f) return;
+    if (len < 0.5f) return;
 
     float nx = dir_x / len;
     float ny = dir_y / len;
 
-    // 头部作为牵引龙头向前滑移
-    nodes[0].vx += nx * speed * dt * 22.0f;
-    nodes[0].vy += ny * speed * dt * 22.0f;
+    creep_locomotion_phase += dt * 7.5f; // 尺蠖前进波浪推进
 
-    // 后续节点依次顺向传导小触手推力
+    // 【1. 头部以稳健的向前滑移步速 (14.0 ~ 18.0 px/s) 实打实向前推进】
+    float head_creep_speed = 16.0f * speed;
+    nodes[0].x += nx * head_creep_speed * dt;
+    nodes[0].y += ny * head_creep_speed * dt;
+    nodes[0].vx = nx * head_creep_speed * 0.45f;
+    nodes[0].vy = ny * head_creep_speed * 0.45f;
+
+    // 【2. 身体各节依次产生波浪推进力与跟随滑移，彻底克服弹簧阻尼】
     for (int i = 1; i < SKELETON_NODE_COUNT; ++i) {
-        float push = speed * (1.0f - (float)i * 0.14f);
-        nodes[i].vx += nx * push * dt * 14.0f;
-        nodes[i].vy += ny * push * dt * 14.0f;
+        float wave = std::sin(creep_locomotion_phase - (float)i * 0.85f);
+        float node_speed = (14.0f - (float)i * 1.2f) * speed * (0.85f + 0.35f * wave);
+
+        nodes[i].x += nx * node_speed * dt;
+        nodes[i].y += ny * node_speed * dt;
+        nodes[i].vx = nx * node_speed * 0.40f;
+        nodes[i].vy = ny * node_speed * 0.40f;
     }
 }

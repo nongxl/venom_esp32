@@ -340,17 +340,13 @@ void CreatureAI::updateCreep(float dt, float hx, float hy, const PhysiologySyste
     float dy = crawl_target_y - hy;
     float dist = std::sqrt(dx * dx + dy * dy);
 
-    // 确保头部始终朝向目标，绝不倒退走
-    skeleton.alignHeadingToTarget(crawl_target_x, crawl_target_y);
-
-    // 推动表皮小触手和身体以平稳步速缓慢蠕动前进 (每秒 5~8px)
-    float creep_speed = 0.45f;
-    skeleton.applyCreepingMotion(dx, dy, creep_speed, dt);
+    // 推动表皮小触手和身体以平稳步速 (约 16px/s) 优雅滑移蠕动前进
+    skeleton.applyCreepingMotion(dx, dy, 1.0f, dt);
 
     const_cast<PhysiologySystem&>(physiology).consumeEnergy(dt * 0.006f); // 蠕动能耗极低
 
     // 蠕动到达目标或超时，转入从容观察发呆
-    if (dist <= 10.0f || state_timer >= state_duration) {
+    if (dist <= 12.0f || state_timer >= state_duration) {
         tentacles.setCreepMode(false);
         enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
     }

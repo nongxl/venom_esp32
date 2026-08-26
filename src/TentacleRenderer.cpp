@@ -331,18 +331,20 @@ void TentacleRenderer::drawMicroTentacles(M5Canvas &canvas, const SkeletonSystem
         float head_angle = skeleton.getHeadingAngle();
         float norm_angle = head_angle + 1.5708f;
         float base_ang = norm_angle * mt.side_sign + mt.offset_angle;
-        float bx = node.x + std::cos(base_ang) * (node.radius_x * 0.70f);
-        float by = node.y + std::sin(base_ang) * (node.radius_y * 0.70f);
+        float bx = node.x + std::cos(base_ang) * (node.radius_x * 0.68f);
+        float by = node.y + std::sin(base_ang) * (node.radius_y * 0.68f);
 
         int ibx = (int)std::round(bx);
         int iby = (int)std::round(by);
         int itx = (int)std::round(mt.tip_x);
         int ity = (int)std::round(mt.tip_y);
 
-        // 绘制 2px 粗的纯黑肉质细小足肢
-        canvas.drawLine(ibx, iby, itx, ity, COLOR_VENOM_CORE);
-        canvas.drawLine(ibx + 1, iby, itx + 1, ity, COLOR_VENOM_CORE);
-        canvas.drawPixel(itx, ity, COLOR_GLOW_CYAN); // 爪尖共生体微弱荧光
+        // 绘制 2~3px 粗的纯黑肉质细小足肢与中间高光
+        for (int off = -1; off <= 1; ++off) {
+            canvas.drawLine(ibx + off, iby, itx + off, ity, COLOR_VENOM_CORE);
+            canvas.drawLine(ibx, iby + off, itx, ity + off, COLOR_VENOM_CORE);
+        }
+        canvas.fillCircle(itx, ity, 1, COLOR_GLOW_CYAN); // 爪尖共生体青绿荧光微点
     }
 }
 

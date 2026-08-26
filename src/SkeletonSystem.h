@@ -98,6 +98,8 @@ private:
     // 高速飞行抛体与黏性吸附状态
     float flying_timer = 0.0f;
     float sticky_clog_timer = 0.0f;
+    float flip_cooldown = 0.0f;             // 原地调头翻身冷却，杜绝每帧高频震荡
+    float creep_locomotion_phase = 0.0f;    // 尺蠖蠕动波浪相位
     bool impact_occurred = false;
     float last_impact_speed = 0.0f;
     float impact_hit_x = 120.0f;

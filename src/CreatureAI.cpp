@@ -305,25 +305,25 @@ void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem
         if (energy < 0.25f) {
             enterState(STATE_SLEEP, &tentacles, &skeleton, hx, hy);
         } else if (energy < 0.60f) {
-            // 中度疲惫：5% 小触手蠕动, 3% 大触手爬行, 52% 好奇观察, 40% 继续安详呼吸发呆
-            if (r < 5) {
+            // 中度疲惫：35% 表皮小触手轻松蠕动漫步, 5% 大触手攀爬, 30% 好奇观察, 30% 继续安详呼吸发呆
+            if (r < 35) {
                 enterState(STATE_CREEP, &tentacles, &skeleton, hx, hy);
-            } else if (r < 8) {
+            } else if (r < 40) {
                 enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
-            } else if (r < 60) {
+            } else if (r < 70) {
                 enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
             } else {
                 enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
             }
         } else {
-            // 精力充沛：15% 荡秋千, 12% 小触手缓慢蠕动, 8% 大触手攀爬, 35% 观察周围, 30% 安静发呆
-            if (r < 15) {
-                enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
-            } else if (r < 27) {
+            // 精力充沛：40% 表皮小触手优雅蠕动巡逻, 12% 荡秋千, 12% 大触手攀爬, 20% 观察周围, 16% 安静发呆
+            if (r < 40) {
                 enterState(STATE_CREEP, &tentacles, &skeleton, hx, hy);
-            } else if (r < 35) {
+            } else if (r < 52) {
+                enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
+            } else if (r < 64) {
                 enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
-            } else if (r < 70) {
+            } else if (r < 84) {
                 enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
             } else {
                 enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
@@ -339,6 +339,9 @@ void CreatureAI::updateCreep(float dt, float hx, float hy, const PhysiologySyste
     float dx = crawl_target_x - hx;
     float dy = crawl_target_y - hy;
     float dist = std::sqrt(dx * dx + dy * dy);
+
+    // 确保触手处于活跃蠕动模式
+    tentacles.setCreepMode(true, 1.0f);
 
     // 推动表皮小触手和身体以平稳步速 (约 16px/s) 优雅滑移蠕动前进
     skeleton.applyCreepingMotion(dx, dy, 1.0f, dt);
@@ -407,28 +410,28 @@ void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySys
         if (energy < 0.25f) {
             enterState(STATE_SLEEP, &tentacles, &skeleton, hx, hy);
         } else if (energy < 0.60f) {
-            // 中度疲惫：5% 小触手蠕动, 3% 大触手爬行, 52% 继续观察, 40% 安静发呆
-            if (roll < 5) {
+            // 中度疲惫：35% 表皮小触手蠕动, 5% 大触手爬行, 30% 继续观察, 30% 安静发呆
+            if (roll < 35) {
                 enterState(STATE_CREEP, &tentacles, &skeleton, hx, hy);
-            } else if (roll < 8) {
-                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
-            } else if (roll < 60) {
-                enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
-            } else {
-                enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
-            }
-        } else {
-            // 精力充沛：15% 荡秋千, 12% 小触手蠕动, 8% 大触手攀爬, 35% 观察周围, 30% 安静发呆
-            if (roll < 15) {
-                enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
-            } else if (roll < 27) {
-                enterState(STATE_CREEP, &tentacles, &skeleton, hx, hy);
-            } else if (roll < 35) {
+            } else if (roll < 40) {
                 enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
             } else if (roll < 70) {
                 enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
             } else {
                 enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
+            }
+        } else {
+            // 精力充沛：40% 表皮小触手蠕动, 12% 荡秋千, 12% 大触手攀爬, 20% 观察周围, 16% 安静发呆
+            if (roll < 40) {
+                enterState(STATE_CREEP, &tentacles, &skeleton, hx, hy);
+            } else if (roll < 52) {
+                enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
+            } else if (roll < 64) {
+                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);
+            } else if (roll < 84) {
+                enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
+            } else {
+                enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
             }
         }
     }

@@ -480,30 +480,79 @@ void PredatorSystem::drawTongue(M5Canvas &canvas) const {
 void PredatorSystem::drawGrabTentacle(M5Canvas &canvas) const {
     if (!hunt.active || hunt.action != HUNT_TENTACLE) return;
 
-    int sx = (int)hunt.start_x;
-    int sy = (int)hunt.start_y;
-    int tx = (int)hunt.tip_x;
-    int ty = (int)hunt.tip_y;
+    float sx = hunt.start_x;
+    float sy = hunt.start_y;
+    float tx = hunt.tip_x;
+    float ty = hunt.tip_y;
 
-    // 加粗一倍的粗壮黑色抓取触手 (7px 宽粗壮肉柱)
-    for (int off = -3; off <= 3; ++off) {
-        canvas.drawLine(sx + off, sy, tx + off, ty, COLOR_VENOM_CORE);
-        canvas.drawLine(sx, sy + off, tx, ty + off, COLOR_VENOM_CORE);
-    }
-
-    // 尖端加粗加长的强力三指爪盘
     float dx = tx - sx;
     float dy = ty - sy;
+    float len = std::sqrt(dx * dx + dy * dy);
+    if (len < 1.0f) return;
+
     float main_angle = std::atan2(dy, dx);
-    for (int f = -1; f <= 1; ++f) {
-        float fa = main_angle + (float)f * 0.48f;
-        float fx = hunt.tip_x + std::cos(fa) * 9.5f;
-        float fy = hunt.tip_y + std::sin(fa) * 9.5f;
-        for (int off = -1; off <= 1; ++off) {
-            canvas.drawLine(tx + off, ty, (int)fx + off, (int)fy, COLOR_VENOM_CORE);
-            canvas.drawLine(tx, ty + off, (int)fx, (int)fy + off, COLOR_VENOM_CORE);
+    float cx = (sx + tx) * 0.5f - dy * 0.12f;
+    float cy = (sy + ty) * 0.5f + dx * 0.12f;
+
+    // 【1. 绘制饱满有力的贝塞尔大肉柱触手 (根部 11px -> 腕部 7.5px)】
+    constexpr int SEGMENTS = 10;
+    float prev_x = sx, prev_y = sy;
+
+    for (int step = 1; step <= SEGMENTS; ++step) {
+        float s = (float)step / (float)SEGMENTS;
+        float one_minus_s = 1.0f - s;
+
+        float cur_x = one_minus_s * one_minus_s * sx +
+                      2.0f * one_minus_s * s * cx +
+                      s * s * tx;
+        float cur_y = one_minus_s * one_minus_s * sy +
+                      2.0f * one_minus_s * s * cy +
+                      s * s * ty;
+
+        int thickness = (int)std::round(11.0f * (1.0f - s * 0.35f));
+        for (int off = -thickness / 2; off <= thickness / 2; ++off) {
+            canvas.drawLine((int)prev_x + off, (int)prev_y, (int)cur_x + off, (int)cur_y, COLOR_VENOM_CORE);
+            canvas.drawLine((int)prev_x, (int)prev_y + off, (int)cur_x, (int)cur_y + off, COLOR_VENOM_CORE);
         }
-        canvas.fillCircle((int)fx, (int)fy, 1, COLOR_GLOW_CYAN);
+
+        if (step % 2 == 0) {
+            canvas.drawPixel((int)cur_x, (int)cur_y, COLOR_DITHER_GRAY); // 触手核心高光拉丝
+        }
+
+        prev_x = cur_x;
+        prev_y = cur_y;
+    }
+
+    // 【2. 绘制饱满纯黑掌心大肉垫 (Palm Hand)】
+    int itx = (int)std::round(tx);
+    int ity = (int)std::round(ty);
+    int palm_r = (hunt.phase == PHASE_HOLD || hunt.phase == PHASE_RETRACT) ? 8 : 7;
+    canvas.fillCircle(itx, ity, palm_r, COLOR_VENOM_CORE);
+    canvas.drawPixel(itx - 1, ity - 1, COLOR_DITHER_GRAY); // 掌心湿润高光
+
+    // 【3. 绘制 4 根带抓紧-握拳动作的共生体利爪手指 (Articulated Fingers)】
+    // PHASE_SHOOT 时利爪大张开 (准备扑击)；PHASE_HOLD / RETRACT 时向内死死握紧抓牢小虫！
+    float spread = (hunt.phase == PHASE_SHOOT) ? 1.0f : 0.25f;
+    float finger_len = 11.5f;
+
+    float finger_angles[4] = { -0.75f, -0.25f, 0.25f, 0.75f };
+    for (int f = 0; f < 4; ++f) {
+        float fa = main_angle + finger_angles[f] * spread;
+        // 中关节弯折
+        float mid_x = tx + std::cos(fa) * (finger_len * 0.55f);
+        float mid_y = ty + std::sin(fa) * (finger_len * 0.55f);
+        // 爪尖内扣
+        float tip_ang = fa + ((finger_angles[f] > 0) ? -0.35f : 0.35f) * (1.0f - spread);
+        float fx = mid_x + std::cos(tip_ang) * (finger_len * 0.55f);
+        float fy = mid_y + std::sin(tip_ang) * (finger_len * 0.55f);
+
+        for (int off = -1; off <= 1; ++off) {
+            canvas.drawLine(itx + off, ity, (int)mid_x + off, (int)mid_y, COLOR_VENOM_CORE);
+            canvas.drawLine((int)mid_x + off, (int)mid_y, (int)fx + off, (int)fy, COLOR_VENOM_CORE);
+            canvas.drawLine(itx, ity + off, (int)mid_x, (int)mid_y + off, COLOR_VENOM_CORE);
+            canvas.drawLine((int)mid_x, (int)mid_y + off, (int)fx, (int)fy + off, COLOR_VENOM_CORE);
+        }
+        canvas.drawPixel((int)fx, (int)fy, COLOR_GLOW_CYAN); // 爪尖锋利青光
     }
 }
 

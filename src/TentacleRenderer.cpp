@@ -203,7 +203,7 @@ void TentacleRenderer::spawnTentacle(const SkeletonSystem &skeleton, bool cling_
             t.length_progress = 0.0f;
             t.wave_phase = (rand() % 100) * 0.1f;
             t.life_timer = 0.0f;
-            t.base_thickness = 7.0f; // 加粗一倍的自发探索触手
+            t.base_thickness = 4.0f; // 自发探索触手
             break;
         }
     }
@@ -301,8 +301,8 @@ void TentacleRenderer::drawGrappleTendril(M5Canvas &canvas) const {
         prev_y = cur_y;
     }
 
-    // 2. 绘制加粗一倍的目的地掌心（Palm Hand）肉垫 (半径 8.0px ~ 11.5px)
-    int palm_r = (int)std::round(8.0f + grapple.palm_spread * 3.5f);
+    // 2. 绘制加粗一倍的目的地掌心（Palm Hand）肉垫 (半径 6.0px ~ 11.5px)
+    int palm_r = (int)std::round(6.0f + grapple.palm_spread * 2.5f);
     canvas.fillCircle((int)hx, (int)hy, palm_r, COLOR_VENOM_CORE);
 
     // 3. 绘制掌心抓附粗微指（3 根粗壮张开吸附在目的地的利爪）

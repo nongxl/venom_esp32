@@ -236,35 +236,52 @@ void Renderer::renderHUD(const CreatureAI &ai, const PhysiologySystem &physiolog
     canvas->setTextSize(1);
     canvas->setTextColor(TFT_WHITE);
 
+    // 视觉刷新节流与显示缓冲 (每 350ms 更新一次，提供沉稳、清晰、极高可读性，消灭高频跳字)
+    if (millis() - last_hud_refresh_ms >= 350) {
+        last_hud_refresh_ms = millis();
+
+        snprintf(hud_line1_ai, sizeof(hud_line1_ai), "AI: %-6s", ai.getStateName());
+        snprintf(hud_line1_emo, sizeof(hud_line1_emo), "EMO: %-5s", physiology.getEmotionName());
+        snprintf(hud_line1_fps, sizeof(hud_line1_fps), "FPS: %4.1f", fps);
+
+        snprintf(hud_line2_nrg, sizeof(hud_line2_nrg), "NRG: %4.2f", physiology.getEnergy());
+        snprintf(hud_line2_tru, sizeof(hud_line2_tru), "TRU: %4.2f", relationship.getTrust());
+        snprintf(hud_line2_exp, sizeof(hud_line2_exp), "EXP: %-5s", expression.getExpressionName());
+
+        snprintf(hud_line3_mic, sizeof(hud_line3_mic), "MIC: %2.0fdB", physiology.getMicDecibels());
+        snprintf(hud_line3_res, sizeof(hud_line3_res), "RES: %4.2f", relationship.getResentment());
+        snprintf(hud_line3_soc, sizeof(hud_line3_soc), "SOC: %4.2f", relationship.getSocialOpenness());
+
+        snprintf(hud_line4_int, sizeof(hud_line4_int), "INT: %-18s", v3_state.emotional_shift);
+    }
+
     // 行 1 (Y=4): [AI 行为] | [EMO 情绪] | [FPS 帧率]
     canvas->setCursor(6, 4);
-    canvas->printf("AI: %-6s", ai.getStateName());
+    canvas->print(hud_line1_ai);
     canvas->setCursor(84, 4);
-    canvas->printf("EMO: %-5s", physiology.getEmotionName());
+    canvas->print(hud_line1_emo);
     canvas->setCursor(162, 4);
-    canvas->printf("FPS: %4.1f", fps);
+    canvas->print(hud_line1_fps);
 
     // 行 2 (Y=14): [NRG 体力/能量] | [TRU 信任度] | [EXP 面部微表情]
     canvas->setCursor(6, 14);
-    canvas->printf("NRG: %4.2f", physiology.getEnergy());
+    canvas->print(hud_line2_nrg);
     canvas->setCursor(84, 14);
-    canvas->printf("TRU: %4.2f", relationship.getTrust());
+    canvas->print(hud_line2_tru);
     canvas->setCursor(162, 14);
-    canvas->printf("EXP: %-5s", expression.getExpressionName());
+    canvas->print(hud_line2_exp);
 
     // 行 3 (Y=24): [MIC 麦克风分贝] | [RES 压力/怨念] | [SOC 社交开放度]
     canvas->setCursor(6, 24);
-    canvas->printf("MIC: %2.0fdB", physiology.getMicDecibels());
+    canvas->print(hud_line3_mic);
     canvas->setCursor(84, 24);
-    canvas->printf("RES: %4.2f", relationship.getResentment());
+    canvas->print(hud_line3_res);
     canvas->setCursor(162, 24);
-    canvas->printf("SOC: %4.2f", relationship.getSocialOpenness());
+    canvas->print(hud_line3_soc);
 
     // 行 4 (Y=34): [INT 心声意图]
     canvas->setCursor(6, 34);
-    char intent_buf[20];
-    snprintf(intent_buf, sizeof(intent_buf), "INT: %s", v3_state.emotional_shift);
-    canvas->printf("%-20s", intent_buf);
+    canvas->print(hud_line4_int);
 
     // 动态打字机心声涌现面板
     renderMindEchoPanel();

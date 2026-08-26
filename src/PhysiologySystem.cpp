@@ -81,22 +81,34 @@ void PhysiologySystem::updateInternalDynamics(float dt) {
     energy = std::max(0.05f, energy - dt * 0.006f);
 }
 
-void PhysiologySystem::updateEmotionState() {
-    // 综合判定主导情绪
-    if (energy < 0.25f) {
-        current_emotion = EMOTION_EXHAUSTED; // 疲惫困倦
+void PhysiologySystem::updateEmotionState(float dt) {
+    emotion_dwell_timer += dt;
+
+    EmotionState target_emotion = current_emotion;
+
+    // 综合判定目标主导情绪 (带滞后区间保护，彻底避免频繁跳跃)
+    if (energy < 0.20f) {
+        target_emotion = EMOTION_EXHAUSTED; // 疲惫困倦
     } else if (stress > 0.65f) {
         if (smoothed_audio_high > 0.5f || neuro_tension > 0.75f) {
-            current_emotion = EMOTION_ANGER; // 受强烈持续刺激时转为愤怒攻击形态
+            target_emotion = EMOTION_ANGER; // 受强烈持续刺激时转为愤怒攻击形态
         } else {
-            current_emotion = EMOTION_FEAR;  // 剧烈恐惧收缩
+            target_emotion = EMOTION_FEAR;  // 剧烈恐惧收缩
         }
-    } else if (stress > 0.30f) {
-        current_emotion = EMOTION_STRESS;    // 紧张不安
-    } else if (curiosity > 0.60f && comfort > 0.50f) {
-        current_emotion = EMOTION_CURIOSITY; // 好奇探究
-    } else {
-        current_emotion = EMOTION_CALM;      // 平静舒缓
+    } else if (stress > 0.35f) {
+        target_emotion = EMOTION_STRESS;    // 紧张不安
+    } else if (curiosity > 0.55f && comfort > 0.45f) {
+        target_emotion = EMOTION_CURIOSITY; // 好奇探究
+    } else if (stress < 0.25f) {
+        target_emotion = EMOTION_CALM;      // 平静舒缓
+    }
+
+    // 最小情绪停留时间 2.0 秒（强力惊吓除外），使情绪连贯沉稳
+    if (target_emotion != current_emotion) {
+        if (emotion_dwell_timer >= 2.0f || target_emotion == EMOTION_ANGER || target_emotion == EMOTION_FEAR) {
+            current_emotion = target_emotion;
+            emotion_dwell_timer = 0.0f;
+        }
     }
 }
 
@@ -115,7 +127,7 @@ void PhysiologySystem::update(float dt, float imu_shake, bool is_upside_down, bo
     }
 
     updateInternalDynamics(dt);
-    updateEmotionState();
+    updateEmotionState(dt);
 }
 
 float PhysiologySystem::getSpikeIntensity() const {

@@ -56,6 +56,11 @@ public:
     void getCenterPos(float &cx, float &cy) const { cx = nodes[2].x; cy = nodes[2].y; }
     void getTailPos(float &tx, float &ty) const { tx = nodes[4].x; ty = nodes[4].y; }
 
+    // 全节点表皮小触手蠕动动力学接口 (彻底克服弹簧阻尼整体前移)
+    void setCreepingTarget(float tx, float ty, float speed = 1.0f);
+    void clearCreepingTarget();
+    bool isCreepingMotion() const { return is_creeping_motion; }
+
     // 防倒退掉头与表皮小触手蠕动动力学
     void alignHeadingToTarget(float target_x, float target_y);
     void applyCreepingMotion(float dir_x, float dir_y, float speed, float dt);
@@ -87,6 +92,12 @@ private:
     float pull_target_y = 100.0f;
     float pull_strength = 0.0f;
     float pull_timeout_timer = 0.0f;
+
+    // 全骨架全节点表皮小触手持续蠕动推力系统
+    bool is_creeping_motion = false;
+    float creep_target_x = 120.0f;
+    float creep_target_y = 100.0f;
+    float creep_speed_mult = 1.0f;
 
     // 蛛丝高空悬挂荡秋千参数
     bool is_hanging = false;

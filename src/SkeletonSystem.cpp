@@ -45,6 +45,18 @@ void SkeletonSystem::init() {
     impact_occurred = false;
 }
 
+void SkeletonSystem::setCreepingTarget(float tx, float ty, float speed) {
+    if (flying_timer > 0.0f || is_hanging) return;
+    is_creeping_motion = true;
+    creep_target_x = std::max(16.0f, std::min((float)SCREEN_W - 16.0f, tx));
+    creep_target_y = std::max(16.0f, std::min((float)SCREEN_H - 16.0f, ty));
+    creep_speed_mult = speed;
+}
+
+void SkeletonSystem::clearCreepingTarget() {
+    is_creeping_motion = false;
+}
+
 void SkeletonSystem::setPullTarget(float tx, float ty, float force) {
     has_pull_target = true;
     // 强制将牵引目标点内收到屏幕安全区域内 (距边界至少 14px)
@@ -252,6 +264,20 @@ void SkeletonSystem::updateNodePhysics(int i, float dt, float gx, float gy, floa
             float brake = 0.55f + (dist / 5.0f) * 0.35f;
             n.vx *= brake;
             n.vy *= brake;
+        }
+    }
+
+    // 表皮小触手全骨架 5 节点同步推地动力学 (推动全身整体平稳滑移，彻底克服阻尼与弹簧拉扯)
+    if (is_creeping_motion && flying_timer <= 0.0f && !is_hanging) {
+        float dx = creep_target_x - nodes[0].x;
+        float dy = creep_target_y - nodes[0].y;
+        float dist = std::sqrt(dx * dx + dy * dy);
+        if (dist > 3.0f) {
+            float nx = dx / dist;
+            float ny = dy / dist;
+            float push = 18.0f * creep_speed_mult;
+            n.vx += nx * push * dt * 30.0f;
+            n.vy += ny * push * dt * 30.0f;
         }
     }
 

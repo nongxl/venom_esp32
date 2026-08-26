@@ -41,6 +41,10 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
         skeleton->clearPullTarget();
     }
 
+    if (skeleton && new_state != STATE_CREEP) {
+        skeleton->clearCreepingTarget();
+    }
+
     if (tentacles && new_state != STATE_CREEP) {
         tentacles->setCreepMode(false);
     }
@@ -66,7 +70,7 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
             // 关键：起步前先原地对齐头部朝向，头部在最前端领路，杜绝倒退！
             if (skeleton) {
                 skeleton->alignHeadingToTarget(crawl_target_x, crawl_target_y);
-                skeleton->setPullTarget(crawl_target_x, crawl_target_y, 0.95f);
+                skeleton->setCreepingTarget(crawl_target_x, crawl_target_y, 1.0f);
             }
             if (tentacles) {
                 tentacles->setCreepMode(true, 1.0f);
@@ -341,16 +345,15 @@ void CreatureAI::updateCreep(float dt, float hx, float hy, const PhysiologySyste
     float dy = crawl_target_y - hy;
     float dist = std::sqrt(dx * dx + dy * dy);
 
-    // 确保触手处于活跃蠕动划步模式
+    // 确保触手与全节点推进处于活跃状态
     tentacles.setCreepMode(true, 1.0f);
-    // 持续施加平稳牵引力拉动毒液整体向前滑移
-    skeleton.setPullTarget(crawl_target_x, crawl_target_y, 0.95f);
+    skeleton.setCreepingTarget(crawl_target_x, crawl_target_y, 1.0f);
 
     const_cast<PhysiologySystem&>(physiology).consumeEnergy(dt * 0.006f); // 蠕动能耗极低
 
     // 蠕动到达目标或超时，转入从容观察发呆
     if (dist <= 14.0f || state_timer >= state_duration) {
-        skeleton.clearPullTarget();
+        skeleton.clearCreepingTarget();
         tentacles.setCreepMode(false);
         enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
     }

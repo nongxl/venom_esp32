@@ -267,7 +267,8 @@ void EyeSystem::draw(M5Canvas &canvas, const PhysiologySystem &physiology) const
     int ex = (int)std::round(current_eye_x);
     int ey = (int)std::round(current_eye_y);
 
-    if (eyelid_close >= 0.98f) {
+    // 1. 闭眼判定：当 eyelid_close >= 0.85f 时，干净利落绘制闭眼线，彻底杜绝翻白眼/无瞳孔现象！
+    if (eyelid_close >= 0.85f) {
         int w = (int)current_eye_rx;
         canvas.drawFastHLine(ex - w, ey, w * 2, COLOR_VENOM_BLACK);
         canvas.drawFastHLine(ex - w + 2, ey + 1, (w - 2) * 2, COLOR_VENOM_BLACK);
@@ -276,28 +277,35 @@ void EyeSystem::draw(M5Canvas &canvas, const PhysiologySystem &physiology) const
 
     int rx = (int)std::round(current_eye_rx);
     int ry = (int)std::round(current_eye_ry * (1.0f - eyelid_close * 0.85f));
-    if (ry < 1) ry = 1;
+    if (ry < 2) {
+        int w = (int)current_eye_rx;
+        canvas.drawFastHLine(ex - w, ey, w * 2, COLOR_VENOM_BLACK);
+        return;
+    }
 
-    // 1. 绘制白色椭圆眼白
+    // 2. 绘制白色椭圆眼白
     canvas.fillEllipse(ex, ey, rx, ry, COLOR_EYE_WHITE);
 
-    // 2. 绘制若隐若现的红色血丝微血管与眼角充血
-    if (eyelid_close < 0.85f) {
+    // 3. 绘制若隐若现的红色血丝微血管（仅在眼睛张开度良好时绘制，避免眯眼时血丝占满眼眶）
+    if (eyelid_close < 0.55f && ry >= 4) {
         drawBloodVeins(canvas, ex, ey, rx, ry, physiology);
     }
 
-    // 3. 绘制深色瞳孔（覆盖在血丝上，具有清晰的边缘）
-    if (eyelid_close < 0.7f) {
-        int px = (int)std::round(current_eye_x + pupil_offset_x);
-        int py = (int)std::round(current_eye_y + pupil_offset_y);
-        int pr = (int)std::round(current_pupil_radius * (1.0f - eyelid_close * 0.5f));
-        if (pr < 1) pr = 1;
+    // 4. 绘制深色瞳孔（无论眼皮开合度如何，瞳孔始终在眼白内可见，随眼眶上下边缘自然裁剪）
+    int px = (int)std::round(current_eye_x + pupil_offset_x);
+    int py = (int)std::round(current_eye_y + pupil_offset_y);
+    int pr = (int)std::round(current_pupil_radius);
 
-        canvas.fillCircle(px, py, pr, COLOR_EYE_PUPIL);
+    // 瞳孔椭圆自适应眼眶边界，保证无论何时都清晰可见且不溢出
+    int prx = std::min(pr, rx - 1);
+    if (prx < 1) prx = 1;
+    int pry = std::min(pr, ry - 1);
+    if (pry < 1) pry = 1;
 
-        // 4. 瞳孔高光反射亮斑
-        if (pr >= 3) {
-            canvas.drawPixel(px - 1, py - 1, COLOR_EYE_WHITE);
-        }
+    canvas.fillEllipse(px, py, prx, pry, COLOR_EYE_PUPIL);
+
+    // 5. 瞳孔高光反射亮斑
+    if (pry >= 3 && prx >= 3 && eyelid_close < 0.40f) {
+        canvas.drawPixel(px - 1, py - 1, COLOR_EYE_WHITE);
     }
 }

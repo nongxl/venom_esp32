@@ -265,7 +265,12 @@ void SkeletonSystem::updateNodePhysics(int i, float dt, float gx, float gy, floa
     // 恢复沉实的重力加速度传导 (尾部重力充足，下摆自然流畅)
     float g_scale = (i >= 2) ? 0.95f : 0.65f;
     n.vx += eff_gx * (g_scale / n.mass);
-    n.vy += eff_gy * (g_scale / n.mass);
+    // 睡眠模式：彻底消除自发与外力运动扰动，身体安静静止休憩
+    if (is_sleeping_mode) {
+        n.vx *= 0.65f;
+        n.vy *= 0.65f;
+        return;
+    }
 
     if (flying_timer <= 0.0f) {
         float c_lead = (i == 0) ? 1.25f : ((i == 1) ? 0.70f : ((i == 2) ? 0.35f : 0.10f));
@@ -614,33 +619,45 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         float flat_x = 1.0f + resp_narrow_x;
         float flat_y = 1.0f + resp_rise_y;
 
-        // 疲惫/无聊瘫软物理 (Slouching Puddle Effect)
-        if (slouch_level > 0.01f) {
-            flat_y -= slouch_level * 0.32f; // 像液态黑泥一样向地表瘫软变扁
-            flat_x += slouch_level * 0.28f; // 横向松弛摊开
+        // 睡眠与疲惫松弛（保持圆润饱满的猫咪母鸡蹲/面包体态，绝不过度压扁瘫软）
+        if (is_sleeping_mode) {
+            // 头部与胸部保持挺括饱满圆润，尾部轻柔靠拢
+            float sleep_loaf_x = (i <= 1) ? 1.04f : 1.08f;
+            float sleep_loaf_y = (i <= 1) ? (0.95f + resp_rise_y) : 0.88f;
+            flat_x = sleep_loaf_x;
+            flat_y = sleep_loaf_y;
+        } else if (slouch_level > 0.01f) {
+            // 疲惫/无聊温和松弛 (微压扁 6% ~ 8%)
+            flat_y -= slouch_level * 0.08f;
+            flat_x += slouch_level * 0.08f;
         }
 
         // 睡醒伸懒腰拉伸 (Awake Stretch)
         if (is_wake_stretching) {
-            flat_y += 0.45f;
-            flat_x -= 0.25f;
+            flat_y += 0.40f;
+            flat_x -= 0.22f;
         }
 
         // 黏性撞击拍扁增强因子 (撞墙瞬间增强形变)
         float stick_boost = (sticky_clog_timer > 0.0f) ? (1.0f + (sticky_clog_timer / 1.0f) * 1.5f) : 1.0f;
 
-        // 贴边拍扁温和形变与尾部瘫软 (尾部节点越来越扁)
-        if (contact_y > 0.05f) {
-            float eff = std::min(1.0f, contact_y * 0.6f * stick_boost);
-            float tail_slouch = (i >= 1) ? (i * 0.10f) : 0.0f; // 0.1, 0.2, 0.3, 0.4
-            flat_y -= eff * (0.22f + tail_slouch);
-            flat_x += eff * (0.25f + tail_slouch * 0.6f);
+        // 贴边拍扁温和形变（睡眠模式下保持自然圆润，不受过度地面下压）
+        if (!is_sleeping_mode) {
+            if (contact_y > 0.05f) {
+                float eff = std::min(1.0f, contact_y * 0.45f * stick_boost);
+                float tail_slouch = (i >= 1) ? (i * 0.05f) : 0.0f;
+                flat_y -= eff * (0.12f + tail_slouch);
+                flat_x += eff * (0.15f + tail_slouch * 0.4f);
+            }
+            if (contact_x > 0.05f) {
+                float eff = std::min(1.0f, contact_x * 0.6f * stick_boost);
+                flat_x -= eff * 0.35f;
+                flat_y += eff * 0.45f;
+            }
         }
-        if (contact_x > 0.05f) {
-            float eff = std::min(1.0f, contact_x * 0.6f * stick_boost);
-            flat_x -= eff * 0.35f;
-            flat_y += eff * 0.45f;
-        }
+
+        // 保护下限：高度绝对不低于 0.82f，彻底消除过度扁平 pancake
+        flat_y = std::max(0.82f, flat_y);
 
         // 速度形变：基于速度主方向自然拉长成细线 (液态共生体拉丝行为)
         // 注意：荡秋千与倒挂时采用“倒挂金钟”形态（上部饱满圆润，尾部自然收窄垂坠）

@@ -77,7 +77,14 @@ public:
     TentacleRenderer();
 
     void init();
-    void update(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology, bool is_upside_down);
+    void update(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology, bool is_upside_down, bool is_sleeping = false);
+
+    void clearAllTentacles() {
+        for (int i = 0; i < MAX_TENTACLES; ++i) tentacles[i].active = false;
+        for (int i = 0; i < MAX_MICRO_TENTACLES; ++i) micro_tentacles[i].current_len = 0.0f;
+        grapple.active = false;
+        is_creeping = false;
+    }
     void draw(M5Canvas &canvas, const SkeletonSystem &skeleton) const;
 
     // 蠕动爬行模式控制

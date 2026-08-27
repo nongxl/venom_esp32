@@ -50,8 +50,14 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
     if (skeleton) {
         skeleton->setRollingMode(false);
         skeleton->setBatHangMode(false);
+        skeleton->setSleepMode(new_state == STATE_SLEEP);
         if (new_state != STATE_STRETCH) {
             skeleton->setWakeStretchMode(false);
+        }
+        if (new_state == STATE_SLEEP) {
+            skeleton->clearVelocities();
+            skeleton->clearCreepingTarget();
+            skeleton->clearPullTarget();
         }
     }
 
@@ -61,6 +67,9 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
 
     if (tentacles && new_state != STATE_CREEP) {
         tentacles->setCreepMode(false);
+    }
+    if (tentacles && new_state == STATE_SLEEP) {
+        tentacles->clearAllTentacles();
     }
 
     if (new_state != STATE_BALL_PLAY) {

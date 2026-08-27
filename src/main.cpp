@@ -655,7 +655,7 @@ void loop() {
     float look_x, look_y;
     ai.getLookTarget(look_x, look_y);
     voronoi.update(dt, skeleton, physiology, look_x, look_y);
-    metaballs.update(dt, skeleton, gx, gy, physiology);
+    metaballs.update(dt, skeleton, gx, gy, physiology, is_sleeping);
     float ball_x = -1.0f, ball_y = -1.0f, ball_r = 0.0f;
     if (ai.hasActiveBall()) {
         ai.getBallPos(ball_x, ball_y, ball_r);
@@ -663,7 +663,7 @@ void loop() {
     metaballs.computeField(skeleton, physiology, fluid_symbols, gx, gy, ball_x, ball_y, ball_r);
 
     // 12. 触手与眼睛系统更新
-    tentacles.update(dt, skeleton, physiology, is_upside_down);
+    tentacles.update(dt, skeleton, physiology, is_upside_down, is_sleeping);
     eye.update(dt, skeleton, physiology, look_x, look_y, ai.isSleeping(), ai.isSleepPeeking());
 
     // 13. 渲染输出 (包含小虫子与捕食进食视觉)

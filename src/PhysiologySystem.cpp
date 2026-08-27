@@ -73,46 +73,48 @@ void PhysiologySystem::updateInternalDynamics(float dt) {
         comfort = std::max(0.0f, comfort - dt * 0.12f);
     }
 
-    // 好奇心在平静时适度积累
+    // 好奇心在平静时积累
     if (comfort > 0.6f && stress < 0.2f) {
-        curiosity = std::min(1.0f, curiosity + dt * 0.035f);
-    } else if (stress > 0.45f) {
-        curiosity = std::max(0.05f, curiosity - dt * 0.12f);
+        curiosity = std::min(1.0f, curiosity + dt * 0.04f);
+    } else if (stress > 0.5f) {
+        curiosity = std::max(0.1f, curiosity - dt * 0.15f);
     }
 
-    // 基础代谢自然消耗能量 (每秒 0.0025，剧烈活动加速消耗)
-    energy = std::max(0.02f, energy - dt * 0.0025f);
+    // 基础代谢温和消耗能量 (维持 10+ 分钟充沛精力与探索活力)
+    energy = std::max(0.05f, energy - dt * 0.0015f);
 }
 
 void PhysiologySystem::updateEmotionState() {
-    // 基于宽区间滞后门限 (Hysteresis) 的纯自然生物情绪演化
+    // 基于宽区间滞后门限 (Hysteresis) 的纯自然生物情绪演化 (彻底无需硬编码时间)
     switch (current_emotion) {
         case EMOTION_CALM:
-            if (energy < 0.25f) {
+            if (energy < 0.20f) {
                 current_emotion = EMOTION_EXHAUSTED;
             } else if (stress > 0.45f) {
                 current_emotion = (smoothed_audio_high > 0.6f || neuro_tension > 0.7f) ? EMOTION_ANGER : EMOTION_STRESS;
-            } else if (curiosity > 0.55f && comfort > 0.45f) {
+            } else if (curiosity > 0.65f && comfort > 0.45f) {
                 current_emotion = EMOTION_CURIOSITY;
             }
             break;
 
         case EMOTION_CURIOSITY:
-            if (energy < 0.25f) {
+            if (energy < 0.20f) {
                 current_emotion = EMOTION_EXHAUSTED;
             } else if (stress > 0.45f) {
                 current_emotion = EMOTION_STRESS;
-            } else if (curiosity < 0.30f || comfort < 0.25f) {
+            } else if (curiosity < 0.35f || comfort < 0.30f) {
+                // 好奇心随时间自然降温，平缓回归平静
                 current_emotion = EMOTION_CALM;
             }
             break;
 
         case EMOTION_STRESS:
-            if (energy < 0.20f) {
+            if (energy < 0.15f) {
                 current_emotion = EMOTION_EXHAUSTED;
             } else if (stress > 0.70f) {
                 current_emotion = (smoothed_audio_high > 0.6f || neuro_tension > 0.75f) ? EMOTION_ANGER : EMOTION_FEAR;
             } else if (stress < 0.20f) {
+                // 压力完全释放，平稳回归平静
                 current_emotion = EMOTION_CALM;
             }
             break;
@@ -120,13 +122,13 @@ void PhysiologySystem::updateEmotionState() {
         case EMOTION_FEAR:
         case EMOTION_ANGER:
             if (stress < 0.35f) {
-                current_emotion = EMOTION_STRESS;
+                current_emotion = EMOTION_STRESS; // 暴躁/恐惧渐进式降温回落
             }
             break;
 
         case EMOTION_EXHAUSTED:
-            if (energy > 0.60f) {
-                current_emotion = EMOTION_CALM; // 睡醒且体力充沛苏醒
+            if (energy > 0.40f) {
+                current_emotion = EMOTION_CALM; // 体力充分恢复后苏醒
             }
             break;
     }

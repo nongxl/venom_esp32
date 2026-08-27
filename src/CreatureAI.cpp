@@ -24,8 +24,6 @@ const char* CreatureAI::getStateName() const {
         case STATE_BOUNCE:     return "BOUNCE";
         case STATE_BAT_HANG:   return "BAT_HANG";
         case STATE_BALL_PLAY:  return "BALL_PLAY";
-        case STATE_YAWN:       return "YAWN";
-        case STATE_STRETCH:    return "STRETCH";
         default:               return "UNKNOWN";
     }
 }
@@ -50,15 +48,6 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
     if (skeleton) {
         skeleton->setRollingMode(false);
         skeleton->setBatHangMode(false);
-        skeleton->setSleepMode(new_state == STATE_SLEEP);
-        if (new_state != STATE_STRETCH) {
-            skeleton->setWakeStretchMode(false);
-        }
-        if (new_state == STATE_SLEEP) {
-            skeleton->clearVelocities();
-            skeleton->clearCreepingTarget();
-            skeleton->clearPullTarget();
-        }
     }
 
     if (skeleton && new_state != STATE_CREEP) {
@@ -67,9 +56,6 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
 
     if (tentacles && new_state != STATE_CREEP) {
         tentacles->setCreepMode(false);
-    }
-    if (tentacles && new_state == STATE_SLEEP) {
-        tentacles->clearAllTentacles();
     }
 
     if (new_state != STATE_BALL_PLAY) {
@@ -188,31 +174,10 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
             break;
 
         case STATE_SLEEP:
-            state_duration = 26.0f + (rand() % 100) * 0.1f; // 26 ~ 36 秒深度沉睡
+            state_duration = 18.0f + (rand() % 100) * 0.1f; // 快速舒适小憩 18 ~ 28 秒，恢复满满元气
             crawl_force_x = 0.0f;
             crawl_force_y = 0.0f;
-            sleep_zz_timer = 1.0f; // 入睡后迅速喷出第一串 Zz
-            break;
-
-        case STATE_YAWN:
-            state_duration = 2.8f; // 2.8s 舒展打哈欠
-            crawl_force_x = 0.0f;
-            crawl_force_y = 0.0f;
-            target_look_x = hx;
-            target_look_y = hy - 35.0f; // 微微仰头
-            break;
-
-        case STATE_STRETCH:
-            state_duration = 2.6f; // 2.6s 睡醒舒畅伸懒腰
-            crawl_force_x = 0.0f;
-            crawl_force_y = 0.0f;
-            target_look_x = hx;
-            target_look_y = hy - 40.0f;
-            if (skeleton) {
-                skeleton->setWakeStretchMode(true);
-                skeleton->triggerLocalBleb(0, 1.5f);
-                skeleton->triggerLocalBleb(1, 1.2f);
-            }
+            sleep_zz_timer = 1.5f; // 入睡后很快喷出第一串 Zz
             break;
 
         case STATE_STARTLED:
@@ -464,94 +429,55 @@ void CreatureAI::updateHesitating(float dt, float hx, float hy, const Expression
     }
 }
 
-void CreatureAI::decideNextBehavior(float hx, float hy, const PhysiologySystem &physiology, SkeletonSystem &skeleton, TentacleRenderer &tentacles, const PreyBugSystem *bugs) {
-    float energy = physiology.getEnergy();
-    float boredom = physiology.getBoredom();
-    float curiosity = physiology.getCuriosity();
-    bool is_vertical = (std::abs(last_imu_gx) > 3.0f || std::abs(last_imu_gy) > 6.5f);
-
-    // 1. 【层级 1: 极端疲劳 (Energy < 0.22) -> 深度睡眠】
-    if (energy < 0.22f) {
-        if (hy < 35.0f && (rand() % 100) < 65) {
-            enterState(STATE_BAT_HANG, &tentacles, &skeleton, hx, hy);
-        } else {
-            enterState(STATE_SLEEP, &tentacles, &skeleton, hx, hy);
-        }
-        return;
-    }
-
-    // 2. 【层级 2: 疲劳犯困期 (0.22 <= energy < 0.38) -> 打哈欠 / 慵懒慢速漫步找角落】
-    if (energy < 0.38f) {
-        int r = rand() % 100;
-        if (r < 55) {
-            enterState(STATE_YAWN, &tentacles, &skeleton, hx, hy);
-        } else if (r < 85) {
-            enterState(STATE_CREEP, &tentacles, &skeleton, hx, hy);
-        } else {
-            enterState(STATE_IDLE, &tentacles, &skeleton, hx, hy);
-        }
-        return;
-    }
-
-    // 3. 【层级 3: 好奇心驱动 (Curiosity > 0.55 或声光微震刺激)】
-    if (curiosity > 0.55f) {
-        int r = rand() % 100;
-        if (r < 45) {
-            enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);     // 大触手攀爬全景探索
-        } else if (r < 75) {
-            enterState(STATE_CATCH_DUST, &tentacles, &skeleton, hx, hy);// 猫式飞扑探查
-        } else {
-            enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);   // 好奇歪头注视
-        }
-        return;
-    }
-
-    // 4. 【层级 4: 精力充沛 (Energy >= 0.60) 且无聊 -> 剧烈特技与自娱自乐】
-    if (energy >= 0.60f && boredom > 0.28f) {
-        int r = rand() % 100;
-        if (is_vertical) {
-            if (r < 55) {
-                enterState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy);    // 竖屏超弹蹦蹦床
-            } else if (r < 80) {
-                enterState(STATE_BALL_PLAY, &tentacles, &skeleton, hx, hy); // 自体颠球
-            } else {
-                enterState(STATE_ROLL, &tentacles, &skeleton, hx, hy);      // 翻滚
-            }
-        } else {
-            if (r < 35) {
-                enterState(STATE_BALL_PLAY, &tentacles, &skeleton, hx, hy); // 横屏自体颠球
-            } else if (r < 65) {
-                enterState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy);    // 蹦床弹跳
-            } else if (r < 85) {
-                enterState(STATE_ROLL, &tentacles, &skeleton, hx, hy);      // 翻滚
-            } else {
-                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);     // 背景大触手攀爬
-            }
-        }
-        return;
-    }
-
-    // 5. 【层级 5: 稳态日常巡逻与发呆】
-    int r = rand() % 100;
-    if (r < 45) {
-        enterState(STATE_CREEP, &tentacles, &skeleton, hx, hy); // 45% 悠闲漫步
-    } else if (r < 75) {
-        enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy); // 30% 大触手攀爬
-    } else {
-        enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);// 25% 好奇观察
-    }
-}
-
 void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem &physiology, const RelationshipSystem &relationship, TentacleRenderer &tentacles, SkeletonSystem &skeleton) {
     target_look_x = hx + std::cos(respiration_phase * 0.5f) * 45.0f;
     target_look_y = hy + std::sin(respiration_phase * 0.7f) * 25.0f - 12.0f;
 
     // 发呆静止中：无聊度持续自然累积，平静中好奇心蓄积
-    const_cast<PhysiologySystem&>(physiology).addBoredom(dt * 0.04f);
+    const_cast<PhysiologySystem&>(physiology).addBoredom(dt * 0.08f);
     const_cast<PhysiologySystem&>(physiology).applyStimulus(0.0f, dt * 0.02f);
 
-    if (state_timer >= state_duration || physiology.isExhausted() || physiology.getBoredom() > 0.35f) {
-        decideNextBehavior(hx, hy, physiology, skeleton, tentacles, nullptr);
+    float energy = physiology.getEnergy();
+    float boredom = physiology.getBoredom();
+
+    // 1. 疲惫驱动：体力过低 (< 0.18) 时自然进入睡眠恢复
+    if (energy < 0.18f) {
+        enterState(STATE_SLEEP, &tentacles, &skeleton, hx, hy);
+        return;
+    }
+
+    // 2. 无聊/好奇心欲望驱动闭环 (无聊度累积至阈值或自然微停顿结束)
+    if (boredom >= 0.30f || state_timer >= state_duration) {
+        int r = rand() % 100;
+        bool is_vertical = (std::abs(last_imu_gx) > 3.0f || std::abs(last_imu_gy) > 6.5f);
+
+        if (is_vertical) {
+            // 【竖屏模式】：屏幕垂直纵深高达 240px，65% 极高概率触发壮观的高空蹦蹦床特技！
+            if (r < 65) {
+                enterState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy); // 65% 竖屏蹦蹦床高空弹跳
+            } else if (r < 80) {
+                enterState(STATE_BALL_PLAY, &tentacles, &skeleton, hx, hy); // 15% 自体颠球
+            } else if (r < 90) {
+                enterState(STATE_ROLL, &tentacles, &skeleton, hx, hy);      // 10% 软体翻滚
+            } else {
+                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);     // 10% 攀爬
+            }
+        } else {
+            // 【横屏模式】：丰富多样化自娱自乐生态
+            if (r < 35) {
+                enterState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy);    // 35% 蹦蹦床弹跳
+            } else if (r < 55) {
+                enterState(STATE_BALL_PLAY, &tentacles, &skeleton, hx, hy); // 20% 自体颠球
+            } else if (r < 70) {
+                enterState(STATE_CATCH_DUST, &tentacles, &skeleton, hx, hy);// 15% 飞扑抓发光浮尘
+            } else if (r < 85) {
+                enterState(STATE_ROLL, &tentacles, &skeleton, hx, hy);      // 15% 软体翻滚
+            } else if (r < 95) {
+                enterState(STATE_CREEP, &tentacles, &skeleton, hx, hy);     // 10% 地表漫步
+            } else {
+                enterState(STATE_BAT_HANG, &tentacles, &skeleton, hx, hy);  // 5% 倒挂金钟
+            }
+        }
     }
 }
 
@@ -624,19 +550,63 @@ void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySyste
         crawl_shoot_timer = 0.0f;
     }
 
-    // 爬行到达目标或超时，转入从容观察发呆
+    // 爬行到达目标或超时，转入观察或抓浮尘/翻滚等动作
     if ((dist <= 16.0f && !tentacles.isGrappling()) || (state_timer >= state_duration && !tentacles.isGrappling())) {
-        enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
+        int r = rand() % 100;
+        if (crawl_target_y < 35.0f && physiology.getEnergy() > 0.65f && r < 18) {
+            enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
+        } else if (r < 25) {
+            enterState(STATE_CATCH_DUST, &tentacles, &skeleton, hx, hy);
+        } else if (r < 45) {
+            enterState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy);
+        } else {
+            enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
+        }
     }
 }
 
 void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles, SkeletonSystem &skeleton) {
     // 观察阶段：无聊度持续累积，好奇心活跃
-    const_cast<PhysiologySystem&>(physiology).addBoredom(dt * 0.045f);
+    const_cast<PhysiologySystem&>(physiology).addBoredom(dt * 0.085f);
     const_cast<PhysiologySystem&>(physiology).applyStimulus(0.0f, dt * 0.025f);
 
-    if (state_timer >= state_duration || physiology.isExhausted() || physiology.getBoredom() > 0.32f) {
-        decideNextBehavior(hx, hy, physiology, skeleton, tentacles, nullptr);
+    float energy = physiology.getEnergy();
+    float boredom = physiology.getBoredom();
+
+    if (energy < 0.18f) {
+        enterState(STATE_SLEEP, &tentacles, &skeleton, hx, hy);
+        return;
+    }
+
+    if (boredom >= 0.28f || state_timer >= state_duration) {
+        int roll = rand() % 100;
+        bool is_vertical = (std::abs(last_imu_gx) > 3.0f || std::abs(last_imu_gy) > 6.5f);
+
+        if (is_vertical) {
+            if (roll < 65) {
+                enterState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy); // 65% 竖屏高空蹦蹦床
+            } else if (roll < 80) {
+                enterState(STATE_BALL_PLAY, &tentacles, &skeleton, hx, hy); // 15% 自体颠球
+            } else if (roll < 90) {
+                enterState(STATE_ROLL, &tentacles, &skeleton, hx, hy);      // 10% 软体翻滚
+            } else {
+                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);     // 10% 攀爬
+            }
+        } else {
+            if (roll < 35) {
+                enterState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy);    // 35% 蹦蹦床
+            } else if (roll < 55) {
+                enterState(STATE_BALL_PLAY, &tentacles, &skeleton, hx, hy); // 20% 自体颠球
+            } else if (roll < 70) {
+                enterState(STATE_CATCH_DUST, &tentacles, &skeleton, hx, hy);// 15% 飞扑抓浮尘
+            } else if (roll < 85) {
+                enterState(STATE_ROLL, &tentacles, &skeleton, hx, hy);      // 15% 软体翻滚
+            } else if (roll < 95) {
+                enterState(STATE_CREEP, &tentacles, &skeleton, hx, hy);     // 10% 地表小触手
+            } else {
+                enterState(STATE_BAT_HANG, &tentacles, &skeleton, hx, hy);  // 5% 倒挂
+            }
+        }
     }
 }
 
@@ -1087,62 +1057,25 @@ void CreatureAI::updateBallPlay(float dt, float hx, float hy, SkeletonSystem &sk
 }
 
 void CreatureAI::updateSleep(float dt, float hx, float hy, const PhysiologySystem &physiology, FluidSymbolSystem *fluid_symbols) {
-    // 睡眠中平缓恢复体力 (+0.028/s) 且重置无聊度
-    const_cast<PhysiologySystem&>(physiology).recoverEnergy(dt * 0.028f);
+    // 睡眠中深度平缓恢复体力 (+0.045/s) 且重置无聊度
+    const_cast<PhysiologySystem&>(physiology).recoverEnergy(dt * 0.045f);
     const_cast<PhysiologySystem&>(physiology).resetBoredom();
 
     target_look_x = hx;
     target_look_y = hy + 10.0f;
 
-    // 睡眠中定期喷出上升的 Zz 呼噜气泡 (每 5.0s 周期)
+    // 睡眠中偶尔喷出代表睡眠的大小不一 Zz 符号 (每 5.5s 周期)
     sleep_zz_timer += dt;
-    if (sleep_zz_timer >= 5.0f) {
+    if (sleep_zz_timer >= 5.5f) {
         sleep_zz_timer = 0.0f;
         if (fluid_symbols) {
             fluid_symbols->trigger("zz", hx + ((rand() % 14) - 7), hy - 14.0f);
         }
     }
 
-    // 睡眠结束条件：睡满时间或体力恢复到 0.90 满血自然苏醒 -> 伸懒腰！
-    if (state_timer >= state_duration || physiology.getEnergy() >= 0.90f) {
-        enterState(STATE_STRETCH, nullptr, nullptr, hx, hy);
-    } else if (physiology.getStress() > 0.45f) {
-        // 受到惊吓直接惊醒转入观察
-        enterState(STATE_OBSERVE, nullptr, nullptr, hx, hy);
-    }
-}
-
-void CreatureAI::updateYawn(float dt, float hx, float hy, SkeletonSystem &skeleton, ExpressionLayer &expression, PhysiologySystem &physiology, FluidSymbolSystem *fluid_symbols) {
-    target_look_x = hx;
-    target_look_y = hy - 35.0f; // 仰头打哈欠
-    expression.triggerExpression(EXPR_OBSERVE, 2.5f);
-
-    if (state_timer >= 1.0f && state_timer - dt < 1.0f) {
-        if (fluid_symbols) {
-            fluid_symbols->trigger("~", hx + ((rand() % 10) - 5), hy - 18.0f);
-        }
-        skeleton.triggerLocalBleb(0, 1.4f);
-    }
-
-    if (state_timer >= state_duration) {
-        if (physiology.isExhausted() || physiology.getEnergy() < 0.22f) {
-            enterState(STATE_SLEEP, nullptr, &skeleton, hx, hy);
-        } else {
-            enterState(STATE_OBSERVE, nullptr, &skeleton, hx, hy);
-        }
-    }
-}
-
-void CreatureAI::updateStretch(float dt, float hx, float hy, SkeletonSystem &skeleton, ExpressionLayer &expression, PhysiologySystem &physiology) {
-    target_look_x = hx;
-    target_look_y = hy - 40.0f;
-    skeleton.setWakeStretchMode(true);
-    expression.triggerExpression(EXPR_TRUST, 2.5f);
-
-    if (state_timer >= state_duration) {
-        skeleton.setWakeStretchMode(false);
-        const_cast<PhysiologySystem&>(physiology).recoverEnergy(0.12f);
-        enterState(STATE_OBSERVE, nullptr, &skeleton, hx, hy);
+    // 睡眠结束条件：数值闭环！体力恢复到 0.90 满血睡饱自然苏醒，或受到外界剧烈应激 (无需硬编码时间)！
+    if (physiology.getEnergy() >= 0.90f || physiology.getStress() > 0.45f) {
+        enterState(STATE_OBSERVE);
     }
 }
 
@@ -1183,15 +1116,6 @@ void CreatureAI::update(float dt, SkeletonSystem &skeleton, MetaballSystem &meta
     // 表达层视觉效果由 ExpressionLayer 独立渲染，不再劫持 AI 状态机转换
     // (原表达劫持会阻断 OBSERVE→CREEP/CRAWL 等正常状态转换，造成 OBSERVE↔EXPRESS 死循环)
 
-    // 疲惫/无聊肉身瘫软动力学与体态计算 (Slouching Puddle Dynamics)
-    float slouch = 0.0f;
-    if (physiology.getEnergy() < 0.38f) {
-        slouch = (0.38f - physiology.getEnergy()) / 0.16f * 0.70f; // 0.38 -> 0.0, 0.22 -> 0.70 瘫软黑泥
-    } else if (physiology.isBored()) {
-        slouch = 0.35f;
-    }
-    skeleton.setSlouchLevel(slouch);
-
     switch (current_state) {
         case STATE_HESITATING: updateHesitating(dt, hx, hy, expression); break;
         case STATE_IDLE:       updateIdle(dt, hx, hy, physiology, relationship, tentacles, skeleton); break;
@@ -1205,8 +1129,6 @@ void CreatureAI::update(float dt, SkeletonSystem &skeleton, MetaballSystem &meta
         case STATE_BAT_HANG:   updateBatHang(dt, hx, hy, skeleton, tentacles, physiology, fluid_symbols); break;
         case STATE_BALL_PLAY:  updateBallPlay(dt, hx, hy, skeleton, tentacles, metaballs, expression, physiology, fluid_symbols); break;
         case STATE_SLEEP:      updateSleep(dt, hx, hy, physiology, fluid_symbols); break;
-        case STATE_YAWN:       updateYawn(dt, hx, hy, skeleton, expression, physiology, fluid_symbols); break;
-        case STATE_STRETCH:    updateStretch(dt, hx, hy, skeleton, expression, physiology); break;
         case STATE_STARTLED:   updateStartled(dt, hx, hy, physiology); break;
         case STATE_JOLTING:    updateJolting(dt, hx, hy, physiology); break;
         case STATE_EXPRESSING: updateExpressing(dt, hx, hy, expression); break;

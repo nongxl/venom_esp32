@@ -104,22 +104,15 @@ void MetaballSystem::triggerSpikeBurst(int count, float max_len_boost) {
     }
 }
 
-void MetaballSystem::updateSpikes(float dt, const PhysiologySystem &physiology, bool is_sleeping) {
-    // 1. 推进所有尖刺生命周期（睡眠时以 5 倍速加速融回母体肉身）
-    float decay_rate = is_sleeping ? 5.0f : 1.0f;
+void MetaballSystem::updateSpikes(float dt, const PhysiologySystem &physiology) {
+    // 1. 推进所有尖刺生命周期
     for (int i = 0; i < MAX_SPIKE_ERUPTIONS; ++i) {
         if (spikes[i].active) {
-            spikes[i].age += dt * decay_rate;
+            spikes[i].age += dt;
             if (spikes[i].age >= spikes[i].duration) {
                 spikes[i].active = false;
             }
         }
-    }
-
-    // 睡眠模式：绝对禁止产生任何尖刺，保持平滑圆润的安睡体态
-    if (is_sleeping) {
-        spike_spawn_timer = 0.0f;
-        return;
     }
 
     // 2. 【音乐播放器 5 频段背脊频谱柱状尖刺系统 (5-Band Spine Equalizer Visualizer)】
@@ -177,9 +170,7 @@ void MetaballSystem::updateSpikes(float dt, const PhysiologySystem &physiology, 
     }
 }
 
-void MetaballSystem::updateDroplets(float dt, const SkeletonSystem &skeleton, float gx, float gy, const PhysiologySystem &physiology, bool is_sleeping) {
-    if (is_sleeping) return;
-
+void MetaballSystem::updateDroplets(float dt, const SkeletonSystem &skeleton, float gx, float gy, const PhysiologySystem &physiology) {
     float cx, cy;
     skeleton.getCenterPos(cx, cy);
     float tension = physiology.getNeuroTension();
@@ -188,43 +179,52 @@ void MetaballSystem::updateDroplets(float dt, const SkeletonSystem &skeleton, fl
         if (!droplets[i].active) continue;
 
         Droplet &d = droplets[i];
-        d.x += d.vx * dt * 30.0f;
-        d.y += d.vy * dt * 30.0f;
-        d.life -= dt * (d.is_jolt_spurt ? 1.6f : 0.8f);
+        d.vx += gx * 0.7f;
+        d.vy += gy * 0.7f;
 
-        // 重力与向心拉力加速度
-        d.vx += gx * 0.2f * dt;
-        d.vy += gy * 0.2f * dt;
-        float to_cx = cx - d.x;
-        float to_cy = cy - d.y;
-        float dist = std::sqrt(to_cx * to_cx + to_cy * to_cy);
+        float dx = cx - d.x;
+        float dy = cy - d.y;
+        float dist = std::sqrt(dx * dx + dy * dy);
+
         if (dist > 1.0f) {
-            d.vx += (to_cx / dist) * 0.85f * dt * 30.0f;
-            d.vy += (to_cy / dist) * 0.85f * dt * 30.0f;
+            float attract = d.is_jolt_spurt ? (0.12f + tension * 0.10f) : 0.08f;
+            d.vx += (dx / dist) * attract * (dist * 0.08f);
+            d.vy += (dy / dist) * attract * (dist * 0.08f);
         }
 
-        if (d.life <= 0.0f) {
+        d.vx *= 0.91f;
+        d.vy *= 0.91f;
+
+        d.x += d.vx * dt;
+        d.y += d.vy * dt;
+
+        if (d.x < 3.0f) { d.x = 3.0f; d.vx = -d.vx * 0.3f; }
+        if (d.x > SCREEN_W - 3.0f) { d.x = SCREEN_W - 3.0f; d.vx = -d.vx * 0.3f; }
+        if (d.y < 3.0f) { d.y = 3.0f; d.vy = -d.vy * 0.3f; }
+        if (d.y > SCREEN_H - 3.0f) { d.y = SCREEN_H - 3.0f; d.vy = -d.vy * 0.3f; }
+
+        d.life -= dt * 0.035f;
+        if (dist < 14.0f || d.life <= 0.0f) {
             d.active = false;
         }
     }
 
-    // 活跃状态下自发生长微液滴
-    if (tension > 0.45f) {
+    if (physiology.getAudioHigh() > 0.60f) {
         auto_droplet_timer += dt;
-        if (auto_droplet_timer >= 0.35f) {
+        if (auto_droplet_timer > 0.25f) {
             auto_droplet_timer = 0.0f;
             float hx, hy;
             skeleton.getHeadPos(hx, hy);
-            float angle = ((rand() % 360)) * 0.017453f;
-            float speed = 1.2f + tension * 2.0f;
+            float angle = (rand() % 360) * 0.017453f;
+            float speed = 2.0f + (rand() % 15) * 0.1f;
             spawnDroplet(hx, hy, std::cos(angle) * speed, std::sin(angle) * speed, 2.2f);
         }
     }
 }
 
-void MetaballSystem::update(float dt, const SkeletonSystem &skeleton, float gravity_x, float gravity_y, const PhysiologySystem &physiology, bool is_sleeping) {
-    updateSpikes(dt, physiology, is_sleeping);
-    updateDroplets(dt, skeleton, gravity_x, gravity_y, physiology, is_sleeping);
+void MetaballSystem::update(float dt, const SkeletonSystem &skeleton, float gravity_x, float gravity_y, const PhysiologySystem &physiology) {
+    updateSpikes(dt, physiology);
+    updateDroplets(dt, skeleton, gravity_x, gravity_y, physiology);
 }
 
 void MetaballSystem::addMetaballToField(float cx, float cy, float rx, float ry, uint8_t intensity,

@@ -39,17 +39,16 @@ public:
         updateEmotionState();
     }
 
-    // 捕食进食补充 (温和恢复 +0.12，杜绝吃一只永远不睡)
-    void feed(float energy_amount = 0.12f) {
+    // 捕食进食补充
+    void feed(float energy_amount = 0.30f) {
         energy = std::min(1.0f, energy + energy_amount);
         comfort = std::min(1.0f, comfort + 0.20f);
         stress = std::max(0.0f, stress - 0.15f);
-        curiosity = std::max(0.1f, curiosity - 0.10f); // 饱腹后注意力暂时放缓
     }
 
     // 体力消耗与睡眠恢复
     void consumeEnergy(float amount) {
-        energy = std::max(0.02f, energy - amount);
+        energy = std::max(0.05f, energy - amount);
     }
     void recoverEnergy(float amount) {
         energy = std::min(1.0f, energy + amount);
@@ -63,19 +62,10 @@ public:
     float getAttachment() const { return attachment; }
     float getBoredom()    const { return boredom; }
 
-    // 状态与动机判定辅助
-    bool isTired()     const { return energy < 0.38f; } // 犯困期：眼皮耷拉，拒绝剧烈特技，打哈欠
-    bool isExhausted() const { return energy < 0.22f; } // 精疲力竭：必须闭眼睡眠
-    bool isCurious()   const { return curiosity > 0.55f; }
-    bool isBored()     const { return boredom > 0.35f; }
-
     // 无聊度动态控制
     void addBoredom(float amount) { boredom = std::min(1.0f, boredom + amount); }
     void reduceBoredom(float amount) { boredom = std::max(0.0f, boredom - amount); }
     void resetBoredom() { boredom = 0.0f; }
-
-    // 好奇心直接激发
-    void boostCuriosity(float amount) { curiosity = std::min(1.0f, curiosity + amount); }
 
     // 获取当前主导情绪
     EmotionState getEmotion() const { return current_emotion; }

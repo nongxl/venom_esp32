@@ -420,12 +420,7 @@ void TentacleRenderer::updateTentacle(int idx, float dt, const SkeletonSystem &s
     t.end_y = t.start_y + (t.target_y - t.start_y) * t.length_progress;
 }
 
-void TentacleRenderer::update(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology, bool is_upside_down, bool is_sleeping) {
-    if (is_sleeping) {
-        clearAllTentacles();
-        return;
-    }
-
+void TentacleRenderer::update(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology, bool is_upside_down) {
     // 1. 爬行与秋千抓取触手更新
     updateGrappleCrawl(dt, skeleton, physiology);
 

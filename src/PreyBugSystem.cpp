@@ -13,7 +13,7 @@ void PreyBugSystem::init() {
         bugs[i].active = false;
         bugs[i].state = BUG_DEAD;
     }
-    spawn_cooldown = 20.0f + (rand() % 150) * 0.1f;
+    spawn_cooldown = 1.2f;
 }
 
 void PreyBugSystem::spawnNewBug() {
@@ -185,13 +185,13 @@ void PreyBugSystem::update(float dt, float venom_hx, float venom_hy) {
         }
     }
 
-    // 多虫动态生态刷新：适度稀缺生成 (场上无虫时 45~80s 刷新一只；场上已有 1 只时 90~160s 刷新；最多 2 只)
-    if (active_count < 2) {
-        float spawn_rate = (active_count == 0) ? 1.0f : 0.45f;
+    // 多虫动态生态刷新：场上无虫时迅速刷新 (12~18s)，场上已有 1~2 只虫时适度慢速增殖 (25~45s)
+    if (active_count < 3) {
+        float spawn_rate = (active_count == 0) ? 1.5f : ((active_count == 1) ? 0.8f : 0.4f);
         spawn_cooldown -= dt * spawn_rate;
         if (spawn_cooldown <= 0.0f) {
             spawnNewBug();
-            spawn_cooldown = 45.0f + (rand() % 350) * 0.1f;
+            spawn_cooldown = 18.0f + (rand() % 220) * 0.1f;
         }
     }
 }

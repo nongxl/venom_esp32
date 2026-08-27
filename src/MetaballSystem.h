@@ -37,7 +37,7 @@ public:
     MetaballSystem();
 
     void init();
-    void update(float dt, const SkeletonSystem &skeleton, float gravity_x, float gravity_y, const PhysiologySystem &physiology, bool is_sleeping = false);
+    void update(float dt, const SkeletonSystem &skeleton, float gravity_x, float gravity_y, const PhysiologySystem &physiology);
 
     void computeField(const SkeletonSystem &skeleton, const PhysiologySystem &physiology,
                       const FluidSymbolSystem &fluid_symbols, float gx, float gy,
@@ -62,8 +62,8 @@ private:
     float auto_droplet_timer = 0.0f;
     float spike_spawn_timer = 0.0f;
 
-    void updateDroplets(float dt, const SkeletonSystem &skeleton, float gx, float gy, const PhysiologySystem &physiology, bool is_sleeping);
-    void updateSpikes(float dt, const PhysiologySystem &physiology, bool is_sleeping);
+    void updateDroplets(float dt, const SkeletonSystem &skeleton, float gx, float gy, const PhysiologySystem &physiology);
+    void updateSpikes(float dt, const PhysiologySystem &physiology);
     void spawnRandomSpike(const PhysiologySystem &physiology);
 
     void addMetaballToField(float cx, float cy, float rx, float ry, uint8_t intensity,

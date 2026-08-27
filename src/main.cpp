@@ -563,21 +563,6 @@ void loop() {
             float hx, hy; skeleton.getHeadPos(hx, hy);
             ai.triggerActionState(STATE_SWING, &tentacles, &skeleton, hx, hy);
             Serial.println(">>> [ACTION] Ceiling Swing triggered!");
-        } else if (cmd.equalsIgnoreCase("sleep")) {
-            float hx, hy; skeleton.getHeadPos(hx, hy);
-            ai.triggerActionState(STATE_SLEEP, &tentacles, &skeleton, hx, hy);
-            Serial.println(">>> [ACTION] Deep Sleep triggered!");
-        } else if (cmd.equalsIgnoreCase("yawn")) {
-            float hx, hy; skeleton.getHeadPos(hx, hy);
-            ai.triggerActionState(STATE_YAWN, &tentacles, &skeleton, hx, hy);
-            Serial.println(">>> [ACTION] Yawn triggered!");
-        } else if (cmd.equalsIgnoreCase("stretch")) {
-            float hx, hy; skeleton.getHeadPos(hx, hy);
-            ai.triggerActionState(STATE_STRETCH, &tentacles, &skeleton, hx, hy);
-            Serial.println(">>> [ACTION] Awake Stretch triggered!");
-        } else if (cmd.equalsIgnoreCase("tired")) {
-            physiology.consumeEnergy(0.70f);
-            Serial.printf(">>> [PHYSIOLOGY] Energy drained! Current energy: %.2f\n", physiology.getEnergy());
         } else if (cmd.equalsIgnoreCase("theme")) {
             renderer.nextTheme();
         }
@@ -655,7 +640,7 @@ void loop() {
     float look_x, look_y;
     ai.getLookTarget(look_x, look_y);
     voronoi.update(dt, skeleton, physiology, look_x, look_y);
-    metaballs.update(dt, skeleton, gx, gy, physiology, is_sleeping);
+    metaballs.update(dt, skeleton, gx, gy, physiology);
     float ball_x = -1.0f, ball_y = -1.0f, ball_r = 0.0f;
     if (ai.hasActiveBall()) {
         ai.getBallPos(ball_x, ball_y, ball_r);
@@ -663,7 +648,7 @@ void loop() {
     metaballs.computeField(skeleton, physiology, fluid_symbols, gx, gy, ball_x, ball_y, ball_r);
 
     // 12. 触手与眼睛系统更新
-    tentacles.update(dt, skeleton, physiology, is_upside_down, is_sleeping);
+    tentacles.update(dt, skeleton, physiology, is_upside_down);
     eye.update(dt, skeleton, physiology, look_x, look_y, ai.isSleeping(), ai.isSleepPeeking());
 
     // 13. 渲染输出 (包含小虫子与捕食进食视觉)

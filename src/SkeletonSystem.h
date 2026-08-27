@@ -62,22 +62,6 @@ public:
     void setBatHangMode(bool active) { is_bat_hang = active; }
     bool isBatHang() const { return is_bat_hang; }
 
-    void setWakeStretchMode(bool active) { is_wake_stretching = active; }
-    bool isWakeStretching() const { return is_wake_stretching; }
-
-    void setSlouchLevel(float slouch) { slouch_level = slouch; }
-    float getSlouchLevel() const { return slouch_level; }
-
-    void setSleepMode(bool active) { is_sleeping_mode = active; }
-    bool isSleepMode() const { return is_sleeping_mode; }
-
-    void clearVelocities() {
-        for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
-            nodes[i].vx = 0.0f;
-            nodes[i].vy = 0.0f;
-        }
-    }
-
     const SkeletonNode& getNode(int idx) const { return nodes[idx]; }
     int getNodeCount() const { return SKELETON_NODE_COUNT; }
 
@@ -148,9 +132,6 @@ private:
     float sticky_clog_timer = 0.0f;
     float flip_cooldown = 0.0f;             // 原地调头翻身冷却，杜绝每帧高频震荡
     float creep_locomotion_phase = 0.0f;    // 尺蠖蠕动波浪相位
-    bool is_wake_stretching = false;        // 睡醒伸懒腰拉伸
-    bool is_sleeping_mode = false;          // 深度睡眠静止模式
-    float slouch_level = 0.0f;              // 疲惫/无聊松弛度 [0.0, 1.0]
     bool impact_occurred = false;
     float last_impact_speed = 0.0f;
     float impact_hit_x = 120.0f;

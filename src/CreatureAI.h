@@ -26,9 +26,7 @@ enum CreatureState {
     STATE_ROLL,         // 软体蜷缩翻滚玩耍
     STATE_BOUNCE,       // 自娱自乐原地蹦床
     STATE_BAT_HANG,     // 倒挂金钩发呆或睡觉
-    STATE_BALL_PLAY,    // 自体分裂弹球颠球自娱自乐
-    STATE_YAWN,         // 疲劳犯困打哈欠
-    STATE_STRETCH       // 睡醒伸懒腰拉伸
+    STATE_BALL_PLAY     // 自体分裂弹球颠球自娱自乐
 };
 
 enum BallPhase {
@@ -78,7 +76,7 @@ public:
 
     bool isStartled() const { return current_state == STATE_STARTLED || current_state == STATE_JOLTING; }
     bool isSleeping() const {
-        return (current_state == STATE_SLEEP) || (current_state == STATE_BAT_HANG && is_bat_hang_sleeping);
+        return (current_state == STATE_SLEEP) || (current_state == STATE_BAT_HANG && is_bat_hang_sleeping) || (current_state == STATE_ROLL);
     }
     bool isSleepPeeking() const { return is_sleep_peeking; }
 
@@ -169,7 +167,4 @@ private:
     void updateBounce(float dt, float hx, float hy, SkeletonSystem &skeleton, MetaballSystem &metaballs, PhysiologySystem &physiology, ExpressionLayer &expression);
     void updateBatHang(float dt, float hx, float hy, SkeletonSystem &skeleton, TentacleRenderer &tentacles, PhysiologySystem &physiology, FluidSymbolSystem *fluid_symbols = nullptr);
     void updateBallPlay(float dt, float hx, float hy, SkeletonSystem &skeleton, TentacleRenderer &tentacles, MetaballSystem &metaballs, ExpressionLayer &expression, PhysiologySystem &physiology, FluidSymbolSystem *fluid_symbols = nullptr);
-    void updateYawn(float dt, float hx, float hy, SkeletonSystem &skeleton, ExpressionLayer &expression, PhysiologySystem &physiology, FluidSymbolSystem *fluid_symbols = nullptr);
-    void updateStretch(float dt, float hx, float hy, SkeletonSystem &skeleton, ExpressionLayer &expression, PhysiologySystem &physiology);
-    void decideNextBehavior(float hx, float hy, const PhysiologySystem &physiology, SkeletonSystem &skeleton, TentacleRenderer &tentacles, const PreyBugSystem *bugs = nullptr);
 };

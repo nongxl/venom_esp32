@@ -50,7 +50,7 @@ private:
     // 红色血丝脉动与充血相位
     float blood_pulse_phase = 0.0f;
 
-    void updateBlinking(float dt, bool is_sleep, bool is_sleep_peek, const PhysiologySystem &physiology);
+    void updateBlinking(float dt, bool is_sleep, bool is_sleep_peek, EmotionState emotion);
     void updatePupilPhysics(float dt, float target_dx, float target_dy, const PhysiologySystem &physiology);
     void drawBloodVeins(M5Canvas &canvas, int ex, int ey, int rx, int ry, const PhysiologySystem &physiology) const;
 };

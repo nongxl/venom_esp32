@@ -5,15 +5,16 @@
 #include "SkeletonSystem.h"
 #include "PhysiologySystem.h"
 
-// 爬行抓取与悬挂触手阶段
 enum GrappleStage {
     GRAPPLE_INACTIVE = 0,
-    GRAPPLE_SHOOT,      // 触手高速射出 (0.2s)
-    GRAPPLE_ANCHOR,     // 掌心爪盘拍击目的地并抓牢展开 (0.15s)
-    GRAPPLE_PULL,       // 强力收缩触手拉动身体质心 (0.5s)
-    GRAPPLE_HOLD,       // 头部抵达后手部继续死死吸附 1.0~2.5s 克服重力挂住！
-    GRAPPLE_FUSE,       // 融回重吸收 (0.2s)
-    GRAPPLE_SWING       // 高空悬挂荡秋千阶段 (持续单摆摇荡)
+    GRAPPLE_SHOOT,       // 触手高速射出 (0.2s)
+    GRAPPLE_ANCHOR,      // 掌心爪盘拍击目的地并抓牢展开 (0.15s)
+    GRAPPLE_PULL,        // 强力收缩触手拉动身体质心 (0.5s)
+    GRAPPLE_HOLD,        // 头部抵达后手部继续死死吸附 1.0~2.5s 克服重力挂住！
+    GRAPPLE_FUSE,        // 融回重吸收 (0.2s)
+    GRAPPLE_SWING_SHOOT, // 荡秋千前奏1：向上高速射出触手吸附天花板 (0.22s)
+    GRAPPLE_SWING_HOIST, // 荡秋千前奏2：强力收紧触手将身体平滑向上拉升至秋千高度 (0.45s)
+    GRAPPLE_SWING        // 高空悬挂荡秋千阶段 (持续单摆摇荡)
 };
 
 struct GrappleTendril {
@@ -89,6 +90,9 @@ public:
     // 启动天花板高空悬挂荡秋千
     void startCeilingSwing(float from_x, float from_y, float anchor_x, float anchor_y, float rope_length = SWING_ROPE_LENGTH);
     void endCeilingSwing();
+
+    // 凌空抽射/击球专用爆发触手
+    void triggerVolleyTentacle(float from_x, float from_y, float target_x, float target_y);
 
     bool isGrappling() const { return grapple.active; }
     GrappleStage getGrappleStage() const { return grapple.stage; }

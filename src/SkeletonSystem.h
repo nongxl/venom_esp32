@@ -32,7 +32,7 @@ public:
                 float crawl_force_x, float crawl_force_y,
                 float neuro_tension, float spike_intensity,
                 float respiration, bool is_upside_down,
-                float audio_low = 0.0f);
+                const float *spectrum_bands = nullptr);
 
     void applyImpulse(float ix, float iy);
     void triggerSlingThrow(float dir_x, float dir_y, float speed);
@@ -48,6 +48,25 @@ public:
     bool isHanging() const { return is_hanging; }
     void getHangingAnchor(float &ax, float &ay) const { ax = anchor_x; ay = anchor_y; }
     float getHangingRopeLength() const { return rope_len; }
+
+    void setRollingMode(bool active) { is_rolling = active; }
+    bool isRolling() const { return is_rolling; }
+
+    void setBouncingMode(bool active) { is_bouncing_ball = active; }
+    bool isBouncingMode() const { return is_bouncing_ball; }
+    void setBounceDeform(float squash_y, float stretch_x) {
+        bounce_squash_y = squash_y;
+        bounce_stretch_x = stretch_x;
+    }
+
+    void setBatHangMode(bool active) { is_bat_hang = active; }
+    bool isBatHang() const { return is_bat_hang; }
+
+    void setWakeStretchMode(bool active) { is_wake_stretching = active; }
+    bool isWakeStretching() const { return is_wake_stretching; }
+
+    void setSlouchLevel(float slouch) { slouch_level = slouch; }
+    float getSlouchLevel() const { return slouch_level; }
 
     const SkeletonNode& getNode(int idx) const { return nodes[idx]; }
     int getNodeCount() const { return SKELETON_NODE_COUNT; }
@@ -105,12 +124,22 @@ private:
     float anchor_y = 8.0f;
     float rope_len = SWING_ROPE_LENGTH;
     float swing_phase = 0.0f;
+    float swing_angle = 0.0f;
+    float swing_ang_vel = 0.0f;
+    bool is_rolling = false;
+    bool is_bouncing_ball = false;
+    float bounce_squash_y = 1.0f;
+    float bounce_stretch_x = 1.0f;
+    float roll_angle = 0.0f;
+    bool is_bat_hang = false;
 
     // 高速飞行抛体与黏性吸附状态
     float flying_timer = 0.0f;
     float sticky_clog_timer = 0.0f;
     float flip_cooldown = 0.0f;             // 原地调头翻身冷却，杜绝每帧高频震荡
     float creep_locomotion_phase = 0.0f;    // 尺蠖蠕动波浪相位
+    bool is_wake_stretching = false;        // 睡醒伸懒腰拉伸
+    float slouch_level = 0.0f;              // 疲惫/无聊瘫软度 [0.0, 1.0]
     bool impact_occurred = false;
     float last_impact_speed = 0.0f;
     float impact_hit_x = 120.0f;
@@ -119,5 +148,5 @@ private:
     void applyWallAdhesion(int i);
     void updateNodePhysics(int i, float dt, float gx, float gy, float cfx, float cfy, float tension, bool is_upside_down);
     void solveSpringConstraints(float tension);
-    void solveHangingConstraint(float dt);
+    void solveHangingConstraint(float dt, float gravity_x, float gravity_y);
 };

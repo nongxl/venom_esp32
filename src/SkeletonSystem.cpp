@@ -73,16 +73,23 @@ void SkeletonSystem::clearPullTarget() {
 }
 
 void SkeletonSystem::setHangingAnchor(float ax, float ay, float rope_length) {
-    if (flying_timer > 0.0f) return;
+    flying_timer = 0.0f;
     is_hanging = true;
     anchor_x = ax;
     anchor_y = ay;
     rope_len = rope_length;
     swing_phase = 0.0f;
+    swing_angle = 0.0f;
+    swing_ang_vel = 0.0f;
     clearPullTarget();
+    clearCreepingTarget();
+    Serial.printf("[SKELETON] setHangingAnchor: (%.1f, %.1f) len=%.1f\n", ax, ay, rope_length);
 }
 
 void SkeletonSystem::clearHangingAnchor() {
+    if (is_hanging) {
+        Serial.println("[SKELETON] clearHangingAnchor called!");
+    }
     is_hanging = false;
 }
 
@@ -133,6 +140,9 @@ void SkeletonSystem::applyWallAdhesion(int i) {
     n.contact_left = 0.0f;
     n.contact_right = 0.0f;
 
+    // 荡秋千/倒挂悬挂状态由单摆物理约束接管，不触发贴壁撞击事件
+    if (is_hanging) return;
+
     // 1. 底部地面撞击
     float dist_b = (SCREEN_H - 1) - n.y;
     if (dist_b < r) {
@@ -140,7 +150,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
         n.y -= penetration * 0.90f;
 
         // 仅在真实高速抛掷撞击 (flying_timer > 0 或 猛烈摔打冲击 > 25.0px/s) 时才触发拍扁撞击事件
-        if ((flying_timer > 0.0f && std::abs(n.vy) > 10.0f) || n.vy > 28.0f) {
+        if ((flying_timer > 0.0f && std::abs(n.vy) > 8.0f) || n.vy > 25.0f) {
             impact_occurred = true;
             last_impact_speed = std::max(last_impact_speed, n.vy);
             impact_hit_x = n.x;
@@ -150,7 +160,9 @@ void SkeletonSystem::applyWallAdhesion(int i) {
         }
 
         n.vy = 0.0f;
-        n.vx *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
+        if (flying_timer <= 0.0f) {
+            n.vx *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
+        }
         n.contact_bottom = std::min(1.0f, penetration / (r * 0.30f));
     }
 
@@ -160,7 +172,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
         float penetration = r - dist_t;
         n.y += penetration * 0.90f;
 
-        if ((flying_timer > 0.0f && std::abs(n.vy) > 10.0f) || n.vy < -28.0f) {
+        if ((flying_timer > 0.0f && std::abs(n.vy) > 8.0f) || n.vy < -25.0f) {
             impact_occurred = true;
             last_impact_speed = std::max(last_impact_speed, -n.vy);
             impact_hit_x = n.x;
@@ -170,7 +182,9 @@ void SkeletonSystem::applyWallAdhesion(int i) {
         }
 
         n.vy = 0.0f;
-        n.vx *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
+        if (flying_timer <= 0.0f) {
+            n.vx *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
+        }
         n.contact_top = std::min(1.0f, penetration / (r * 0.30f));
     }
 
@@ -180,7 +194,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
         float penetration = r - dist_l;
         n.x += penetration * 0.90f;
 
-        if ((flying_timer > 0.0f && std::abs(n.vx) > 10.0f) || n.vx < -28.0f) {
+        if ((flying_timer > 0.0f && std::abs(n.vx) > 8.0f) || n.vx < -25.0f) {
             impact_occurred = true;
             last_impact_speed = std::max(last_impact_speed, -n.vx);
             impact_hit_x = n.x;
@@ -189,7 +203,11 @@ void SkeletonSystem::applyWallAdhesion(int i) {
             flying_timer = 0.0f;
         }
 
-        n.vx = 0.0f;
+        if (is_rolling) {
+            n.vx = -n.vx * 0.85f;
+        } else {
+            n.vx = 0.0f;
+        }
         n.vy *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
         n.contact_left = std::min(1.0f, penetration / (r * 0.30f));
     }
@@ -200,7 +218,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
         float penetration = r - dist_r;
         n.x -= penetration * 0.90f;
 
-        if ((flying_timer > 0.0f && std::abs(n.vx) > 10.0f) || n.vx > 28.0f) {
+        if ((flying_timer > 0.0f && std::abs(n.vx) > 8.0f) || n.vx > 25.0f) {
             impact_occurred = true;
             last_impact_speed = std::max(last_impact_speed, n.vx);
             impact_hit_x = n.x;
@@ -209,7 +227,11 @@ void SkeletonSystem::applyWallAdhesion(int i) {
             flying_timer = 0.0f;
         }
 
-        n.vx = 0.0f;
+        if (is_rolling) {
+            n.vx = -n.vx * 0.85f;
+        } else {
+            n.vx = 0.0f;
+        }
         n.vy *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
         n.contact_right = std::min(1.0f, penetration / (r * 0.30f));
     }
@@ -220,17 +242,18 @@ void SkeletonSystem::updateNodePhysics(int i, float dt, float gx, float gy, floa
 
     // 头部（i=0）具有主动支撑抗力，中尾部（i>=2）自然感受真实重力拖拽下坠
     float muscle_resistance = 0.20f + tension * 0.35f;
-    if (i == 0 && has_pull_target) {
+    if (has_pull_target) {
+        // 触手攀爬中：全骨架壁面高附着抗重力支持（92% 重力消除，畅游蓝色背景）！
+        muscle_resistance = 0.92f;
+    } else if (is_creeping_motion) {
+        // 表皮小触手蠕动漫步中：壁面吸附力抵抗 85% 重力，支持全屏 2D 攀爬！
         muscle_resistance = 0.85f;
-    }
-    if (sticky_clog_timer > 0.0f) {
+    } else if (sticky_clog_timer > 0.0f) {
         muscle_resistance = 0.90f;
-    }
-    if (is_upside_down && i == 0) {
-        muscle_resistance = std::max(muscle_resistance, 0.65f);
-    }
-    if (is_hanging) {
+    } else if (is_hanging) {
         muscle_resistance = 0.95f; // 荡秋千时整体强力聚拢为牛顿摆球
+    } else if (is_upside_down && i == 0) {
+        muscle_resistance = std::max(muscle_resistance, 0.65f);
     } else if (i >= 2) {
         // 尾部肌肉抗力大幅降低，让尾巴沉实下垂拖拽！
         muscle_resistance = std::min(muscle_resistance, 0.18f);
@@ -245,39 +268,46 @@ void SkeletonSystem::updateNodePhysics(int i, float dt, float gx, float gy, floa
     n.vy += eff_gy * (g_scale / n.mass);
 
     if (flying_timer <= 0.0f) {
-        n.vx += cfx * (0.8f / n.mass);
-        n.vy += cfy * (0.8f / n.mass);
+        float c_lead = (i == 0) ? 1.25f : ((i == 1) ? 0.70f : ((i == 2) ? 0.35f : 0.10f));
+        n.vx += cfx * (c_lead * 0.8f / n.mass);
+        n.vy += cfy * (c_lead * 0.8f / n.mass);
     }
 
-    if (has_pull_target && i == 0 && flying_timer <= 0.0f) {
-        float dx = pull_target_x - n.x;
-        float dy = pull_target_y - n.y;
-        float dist = std::sqrt(dx * dx + dy * dy);
-        if (dist > 0.2f) {
-            // 平滑 PD 弹簧拉力（连续过渡，无阶跃突变）
-            float k_p = pull_strength * 2.5f;
-            n.vx += dx * k_p * dt * 30.0f;
-            n.vy += dy * k_p * dt * 30.0f;
-        }
-        if (dist < 5.0f) {
-            // 靠近抓取点时施加平滑临界阻尼刹车，稳稳吸附，绝不原地抖动！
-            float brake = 0.55f + (dist / 5.0f) * 0.35f;
-            n.vx *= brake;
-            n.vy *= brake;
-        }
-    }
-
-    // 表皮小触手全骨架 5 节点同步推地动力学 (推动全身整体平稳滑移，彻底克服阻尼与弹簧拉扯)
+    // 【表皮小触手物理驱动力】头部 Node 0 作为前导牵引核心，中尾部 Node 1..4 自然尾随
     if (is_creeping_motion && flying_timer <= 0.0f && !is_hanging) {
         float dx = creep_target_x - nodes[0].x;
         float dy = creep_target_y - nodes[0].y;
         float dist = std::sqrt(dx * dx + dy * dy);
-        if (dist > 3.0f) {
+        if (dist > 2.0f) {
             float nx = dx / dist;
             float ny = dy / dist;
-            float push = 18.0f * creep_speed_mult;
-            n.vx += nx * push * dt * 30.0f;
-            n.vy += ny * push * dt * 30.0f;
+            float creep_force = 16.0f * creep_speed_mult; // 充沛的 2D 蠕动力
+            
+            // 头部获得 1.25x 牵引力，尾部依次跟随，驱动全身体在蓝色背景上爬行
+            float lead_factor = (i == 0) ? 1.25f : ((i == 1) ? 0.85f : ((i == 2) ? 0.60f : 0.35f));
+            float wave = std::sin(millis() * 0.006f - (float)i * 1.0f);
+            float final_force = creep_force * lead_factor * (1.0f + 0.20f * wave);
+            
+            n.vx += nx * final_force * (1.0f / n.mass) * dt;
+            n.vy += ny * final_force * (1.0f / n.mass) * dt;
+        }
+    }
+
+    if (has_pull_target && flying_timer <= 0.0f) {
+        float dx = pull_target_x - n.x;
+        float dy = pull_target_y - n.y;
+        float dist = std::sqrt(dx * dx + dy * dy);
+        if (dist > 0.2f) {
+            // 前后梯度的 PD 牵引拉力，拉动整个肉身躯干向上攀爬！
+            float node_factor = 1.0f - (float)i * 0.16f;
+            float k_p = pull_strength * 3.2f * node_factor;
+            n.vx += dx * k_p * dt * 30.0f;
+            n.vy += dy * k_p * dt * 30.0f;
+        }
+        if (dist < 6.0f) {
+            float brake = 0.50f + (dist / 6.0f) * 0.40f;
+            n.vx *= brake;
+            n.vy *= brake;
         }
     }
 
@@ -301,6 +331,62 @@ void SkeletonSystem::updateNodePhysics(int i, float dt, float gx, float gy, floa
 }
 
 void SkeletonSystem::solveSpringConstraints(float tension) {
+    if (is_bouncing_ball) {
+        // 紧绷超弹球体模式 (Tight Superball Spheroid with Elastic Deformation)
+        // 整个身体 5 个节点以 Node 2 为核心紧密聚合成一个弹性球，绝不拖尾或分散！
+        float cx = nodes[2].x;
+        float cy = nodes[2].y;
+        float cvx = nodes[2].vx;
+        float cvy = nodes[2].vy;
+
+        float t_x[5] = {
+            cx,
+            cx - 7.5f * bounce_stretch_x,
+            cx,
+            cx + 7.5f * bounce_stretch_x,
+            cx
+        };
+        float t_y[5] = {
+            cy - 6.5f * bounce_squash_y,
+            cy + 1.0f * bounce_squash_y,
+            cy,
+            cy + 1.0f * bounce_squash_y,
+            cy + 6.5f * bounce_squash_y
+        };
+
+        for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
+            if (i == 2) continue;
+            nodes[i].x += (t_x[i] - nodes[i].x) * 0.85f;
+            nodes[i].y += (t_y[i] - nodes[i].y) * 0.85f;
+            nodes[i].vx = cvx;
+            nodes[i].vy = cvy;
+        }
+        return;
+    }
+
+    if (is_rolling) {
+        // 软体球形滚动模式
+        float cx = nodes[2].x;
+        float cy = nodes[2].y;
+        float cvx = nodes[2].vx;
+        float cvy = nodes[2].vy;
+        roll_angle += cvx * 0.012f;
+
+        for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
+            if (i == 2) continue;
+            float ang = roll_angle + (float)i * 1.57079f;
+            float tx = cx + std::cos(ang) * 8.5f;
+            float ty = cy + std::sin(ang) * 8.5f;
+            nodes[i].x += (tx - nodes[i].x) * 0.85f;
+            nodes[i].y += (ty - nodes[i].y) * 0.85f;
+            nodes[i].vx = cvx;
+            nodes[i].vy = cvy;
+        }
+        return;
+    }
+
+    float creep_wave_phase = millis() * 0.0075f;
+
     for (int i = 1; i < SKELETON_NODE_COUNT; ++i) {
         SkeletonNode &prev = nodes[i - 1];
         SkeletonNode &curr = nodes[i];
@@ -312,6 +398,13 @@ void SkeletonSystem::solveSpringConstraints(float tension) {
         float rest = rest_lengths[i - 1];
         if (has_pull_target || flying_timer > 0.0f) {
             rest *= 1.45f; // 高速飞行时受离心力拉长身躯
+        } else if (is_creeping_motion && !is_hanging) {
+            // 蠕行模式：沿身体传导的尺蠖波动 (Peristaltic Accordion Wave)
+            // 头部先向前伸展拉长，波浪传到中尾部时尾巴大幅收缩抽动跟进！
+            float seg_phase = creep_wave_phase - (float)(i - 1) * 1.35f;
+            float accordion = std::sin(seg_phase);
+            // 节段间距在 6.0px (缩短聚拢) 到 18.5px (拉长延展) 之间大幅呼吸律动！
+            rest = 12.0f + 6.5f * accordion;
         }
 
         if (dist > 0.01f) {
@@ -338,13 +431,39 @@ void SkeletonSystem::solveSpringConstraints(float tension) {
     }
 }
 
-void SkeletonSystem::solveHangingConstraint(float dt) {
+void SkeletonSystem::solveHangingConstraint(float dt, float gravity_x, float gravity_y) {
     if (!is_hanging) return;
 
-    // 【牛顿摆谐波物理单摆运动 (Newton's Cradle Pendulum Kinematics)】
-    swing_phase += dt * SWING_PUMP_FREQ;
-    float max_theta = 0.52f; // 最大摆角约 30 度 (大幅度优雅牛顿单摆)
-    float theta = max_theta * std::sin(swing_phase);
+    // 1. 计算设备倾斜的真实物理重力方向角 (rad)
+    // 倾斜向右: gravity_x > 0 -> target_tilt_angle > 0 (向右摆)
+    // 倾斜向左: gravity_x < 0 -> target_tilt_angle < 0 (向左摆)
+    float eff_gy = std::max(1.2f, gravity_y);
+    float target_tilt_angle = std::atan2(gravity_x, eff_gy);
+
+    if (!is_bat_hang) {
+        // 荡秋千玩耍模式：
+        // 毒液自身轻快自主蹬动节奏 (auto pump) + 用户倾斜重力力矩 (user gravity torque)
+        swing_phase += dt * 2.8f;
+        float auto_pump = std::sin(swing_phase) * 4.2f; // 自主摆动蹬动加速度
+        float torque_user_tilt = (target_tilt_angle - swing_angle) * 18.0f; // 重力倾斜驱动力矩
+
+        float angular_accel = torque_user_tilt + auto_pump;
+        swing_ang_vel += angular_accel * dt;
+        swing_ang_vel *= (1.0f - dt * 1.6f); // 自然空气阻尼
+        swing_angle += swing_ang_vel * dt;
+
+        // 摆角物理安全限制 ±75度 (±1.30 rad)
+        swing_angle = std::max(-1.30f, std::min(1.30f, swing_angle));
+    } else {
+        // 倒挂金钩模式：无自主摆动，纯粹随用户倾斜重力垂悬
+        float torque_user_tilt = (target_tilt_angle - swing_angle) * 14.0f;
+        swing_ang_vel += torque_user_tilt * dt;
+        swing_ang_vel *= (1.0f - dt * 3.2f); // 临界阻尼平稳垂直下垂
+        swing_angle += swing_ang_vel * dt;
+        swing_angle = std::max(-1.30f, std::min(1.30f, swing_angle));
+    }
+
+    float theta = swing_angle;
 
     // 计算单摆球心目标位置
     float bob_x = anchor_x + std::sin(theta) * rope_len;
@@ -354,23 +473,59 @@ void SkeletonSystem::solveHangingConstraint(float dt) {
     SkeletonNode &head = nodes[0];
     float h_dx = bob_x - head.x;
     float h_dy = bob_y - head.y;
-    head.x += h_dx * 0.85f;
-    head.y += h_dy * 0.85f;
-    head.vx = std::cos(theta) * max_theta * SWING_PUMP_FREQ * rope_len * std::cos(swing_phase);
-    head.vy = -std::sin(theta) * max_theta * SWING_PUMP_FREQ * rope_len * std::cos(swing_phase);
+    head.x += h_dx * 0.88f;
+    head.y += h_dy * 0.88f;
+    head.vx = swing_ang_vel * rope_len * std::cos(theta);
+    head.vy = -swing_ang_vel * rope_len * std::sin(theta);
 
-    // 【关键】：将后续 4 节骨架节点紧紧抱团聚拢在头部中心 (间距仅 2.5px)，形成浑圆的牛顿摆球！
-    // 彻底杜绝重力下拉散开形成的倒梯形斗篷！
-    for (int k = 1; k < SKELETON_NODE_COUNT; ++k) {
-        float angle_k = (float)k * 1.256f + swing_phase * 0.5f;
-        float radius_k = 2.5f + (float)k * 0.8f;
-        float target_k_x = head.x + std::cos(angle_k) * radius_k;
-        float target_k_y = head.y + std::sin(angle_k) * radius_k + 1.5f;
+    // 【单摆悬挂姿态（倒挂金钟）：上部圆润饱满，下部有自然松弛垂落的流体尾部】
+    if (!is_bat_hang) {
+        // 荡秋千单摆模式：
+        // 头部与上身（0, 1, 2）紧密聚拢形成圆润饱满的钟身主体
+        // 中下部与尾部（3, 4）沿重力/单摆轴向向下延伸，并带有轻微惯性摆尾延迟
+        for (int k = 1; k < SKELETON_NODE_COUNT; ++k) {
+            float dist_from_head = 0.0f;
+            float lag_phase = 0.0f;
+            float follow_rate = 0.85f;
 
-        nodes[k].x += (target_k_x - nodes[k].x) * 0.80f;
-        nodes[k].y += (target_k_y - nodes[k].y) * 0.80f;
-        nodes[k].vx = head.vx;
-        nodes[k].vy = head.vy;
+            if (k == 1) {
+                dist_from_head = 4.0f; // 紧贴头部形成圆润球顶
+                lag_phase = 0.06f;
+                follow_rate = 0.85f;
+            } else if (k == 2) {
+                dist_from_head = 8.5f; // 构成饱满钟身核心
+                lag_phase = 0.14f;
+                follow_rate = 0.80f;
+            } else if (k == 3) {
+                dist_from_head = 14.5f; // 向下松弛收窄
+                lag_phase = 0.26f;
+                follow_rate = 0.72f;
+            } else { // k == 4 (尾尖)
+                dist_from_head = 21.0f; // 优雅下垂的松弛尾梢
+                lag_phase = 0.40f;
+                follow_rate = 0.65f;
+            }
+
+            float k_theta = theta - swing_ang_vel * lag_phase * 0.22f;
+            float target_k_x = head.x + std::sin(k_theta) * dist_from_head;
+            float target_k_y = head.y + std::cos(k_theta) * dist_from_head;
+
+            nodes[k].x += (target_k_x - nodes[k].x) * follow_rate;
+            nodes[k].y += (target_k_y - nodes[k].y) * follow_rate;
+            nodes[k].vx = head.vx * (1.0f - (float)k * 0.10f);
+            nodes[k].vy = head.vy * (1.0f - (float)k * 0.10f);
+        }
+    } else {
+        // 【蝙蝠倒挂模式】：身体笔直垂直向下悬垂成深沉水滴状
+        for (int k = 1; k < SKELETON_NODE_COUNT; ++k) {
+            float target_k_x = head.x - std::sin(theta) * (float)k * 3.5f;
+            float target_k_y = head.y + std::cos(theta) * (float)k * 7.5f;
+
+            nodes[k].x += (target_k_x - nodes[k].x) * 0.75f;
+            nodes[k].y += (target_k_y - nodes[k].y) * 0.75f;
+            nodes[k].vx = head.vx * 0.5f;
+            nodes[k].vy = head.vy * 0.5f;
+        }
     }
 }
 
@@ -378,7 +533,7 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
                             float crawl_force_x, float crawl_force_y,
                             float neuro_tension, float spike_intensity,
                             float respiration, bool is_upside_down,
-                            float audio_low) {
+                            const float *spectrum_bands) {
     if (flying_timer > 0.0f) {
         flying_timer -= dt;
         if (flying_timer < 0.0f) flying_timer = 0.0f;
@@ -401,8 +556,8 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
     solveSpringConstraints(neuro_tension);
     solveSpringConstraints(neuro_tension);
 
-    // 单摆悬挂绳索约束与自主蹬秋千
-    solveHangingConstraint(dt);
+    // 单摆悬挂绳索约束与自主蹬秋千 (接收真实重力 X 与 Y 向量驱动倾斜互动)
+    solveHangingConstraint(dt, gravity_x, gravity_y);
 
     // 增加 pull_target 超时保护 (1.6秒看门狗自动释放，防止死锁)
     if (has_pull_target) {
@@ -412,9 +567,6 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         }
     }
 
-    // 低音重拍大鼓点脉动 (仅在超强低音 > 0.45 时产生微弱平滑膨胀，常态下严格为 0)
-    float bass_expansion = (audio_low > 0.45f) ? ((audio_low - 0.45f) * 2.2f) : 0.0f;
-
     for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
         SkeletonNode &n = nodes[i];
         // 鼓包平滑指数衰减回位 (平稳柔和，杜绝瞬移抽搐)
@@ -422,7 +574,35 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         n.bleb_offset_y *= 0.85f;
 
         // 极其平缓自然的深沉生命呼吸 (7.0秒悠长呼吸周期，起伏柔和平顺)
-        float r = (n.base_radius + bass_expansion) * (1.0f + respiration);
+        float peristalsis_volume_scale = 1.0f;
+        if (is_creeping_motion && !is_hanging && flying_timer <= 0.0f) {
+            float creep_wave_phase = millis() * 0.0075f;
+            float seg_phase = creep_wave_phase - (float)i * 1.35f;
+            float accordion = std::sin(seg_phase);
+            // 节段缩短 (accordion < 0) 时肉体鼓胀变粗 (1.35x)，伸长 (accordion > 0) 时肉体收缩变细 (0.72x)
+            float node_weight = (i >= 3) ? 0.38f : ((i >= 1) ? 0.28f : 0.18f);
+            peristalsis_volume_scale = 1.0f - node_weight * accordion;
+        }
+
+        // 音乐播放器 5 频段频谱均衡器律动 (5-Band Spectrum EQ Visualization)
+        // Node 0: Sub-Bass, Node 1: Bass, Node 2: Mid, Node 3: Presence, Node 4: Treble
+        float eq_band_energy = (spectrum_bands != nullptr) ? spectrum_bands[i] : 0.0f;
+        float node_eq_pulse = eq_band_energy * 6.5f; // 各节点沿身体随各自频段独立起伏脉动
+
+        if (eq_band_energy > 0.38f && (rand() % 100) < 25) {
+            triggerLocalBleb(i, 1.2f * eq_band_energy);
+        }
+
+        // 呼吸起伏胸腔仿生形变（非对称背腹起伏，告别水球式对称膨胀）
+        // Node 0 (Head): 轻微抬头/吸气
+        // Node 1 (Chest): 主要胸腔起伏，吸气时向上提拔舒展，呼气时平缓下沉
+        // Node 2 (Abdomen): 腹部跟随呼吸微颤
+        // Node 3, 4 (Tail): 尾部贴地自然松弛
+        float node_resp_gain = (i == 1) ? 1.0f : ((i == 2) ? 0.70f : ((i == 0) ? 0.45f : 0.15f));
+        float resp_rise_y = respiration * node_resp_gain * 0.35f;
+        float resp_narrow_x = -respiration * node_resp_gain * 0.15f;
+
+        float r = (n.base_radius + node_eq_pulse) * peristalsis_volume_scale;
 
         if (has_pull_target || flying_timer > 0.0f) {
             r *= 0.90f;
@@ -431,31 +611,62 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         float contact_y = std::max(n.contact_bottom, n.contact_top);
         float contact_x = std::max(n.contact_left, n.contact_right);
 
-        float flat_x = 1.0f;
-        float flat_y = 1.0f;
+        float flat_x = 1.0f + resp_narrow_x;
+        float flat_y = 1.0f + resp_rise_y;
 
-        // 贴边拍扁温和形变 (严格限制在安全区间，杜绝突变成方块横臂)
+        // 疲惫/无聊瘫软物理 (Slouching Puddle Effect)
+        if (slouch_level > 0.01f) {
+            flat_y -= slouch_level * 0.32f; // 像液态黑泥一样向地表瘫软变扁
+            flat_x += slouch_level * 0.28f; // 横向松弛摊开
+        }
+
+        // 睡醒伸懒腰拉伸 (Awake Stretch)
+        if (is_wake_stretching) {
+            flat_y += 0.45f;
+            flat_x -= 0.25f;
+        }
+
+        // 黏性撞击拍扁增强因子 (撞墙瞬间增强形变)
+        float stick_boost = (sticky_clog_timer > 0.0f) ? (1.0f + (sticky_clog_timer / 1.0f) * 1.5f) : 1.0f;
+
+        // 贴边拍扁温和形变与尾部瘫软 (尾部节点越来越扁)
         if (contact_y > 0.05f) {
-            float eff = std::min(1.0f, contact_y * 0.6f);
-            flat_y -= eff * 0.22f;
-            flat_x += eff * 0.25f;
+            float eff = std::min(1.0f, contact_y * 0.6f * stick_boost);
+            float tail_slouch = (i >= 1) ? (i * 0.10f) : 0.0f; // 0.1, 0.2, 0.3, 0.4
+            flat_y -= eff * (0.22f + tail_slouch);
+            flat_x += eff * (0.25f + tail_slouch * 0.6f);
         }
         if (contact_x > 0.05f) {
-            float eff = std::min(1.0f, contact_x * 0.6f);
-            flat_x -= eff * 0.22f;
-            flat_y += eff * 0.25f;
+            float eff = std::min(1.0f, contact_x * 0.6f * stick_boost);
+            flat_x -= eff * 0.35f;
+            flat_y += eff * 0.45f;
         }
 
         // 速度形变：基于速度主方向自然拉长成细线 (液态共生体拉丝行为)
-        float v_speed = std::sqrt(n.vx * n.vx + n.vy * n.vy);
-        if (v_speed > 0.6f) {
-            float stretch = std::min(2.0f, 1.0f + (v_speed - 0.6f) * 0.12f);
-            if (std::abs(n.vx) > std::abs(n.vy)) {
-                flat_x *= stretch;
-                flat_y /= std::sqrt(stretch);
+        // 注意：荡秋千与倒挂时采用“倒挂金钟”形态（上部饱满圆润，尾部自然收窄垂坠）
+        if (is_hanging) {
+            if (!is_bat_hang) {
+                // 倒挂金钟：头部与上身保持圆润(flat ≈ 1.0)，尾部自然松弛微垂(flat_x ≈ 0.88, flat_y ≈ 1.12)
+                float tail_relax = (i >= 3) ? ((float)(i - 2) * 0.08f) : 0.0f;
+                flat_x = 1.0f - tail_relax;
+                flat_y = 1.02f + tail_relax * 1.5f;
             } else {
-                flat_y *= stretch;
-                flat_x /= std::sqrt(stretch);
+                // 倒挂：纵向水滴垂感
+                float tail_relax = (i >= 2) ? ((float)(i - 1) * 0.06f) : 0.0f;
+                flat_x = 0.94f - tail_relax;
+                flat_y = 1.08f + tail_relax * 1.5f;
+            }
+        } else {
+            float v_speed = std::sqrt(n.vx * n.vx + n.vy * n.vy);
+            if (v_speed > 0.6f) {
+                float stretch = std::min(2.0f, 1.0f + (v_speed - 0.6f) * 0.12f);
+                if (std::abs(n.vx) > std::abs(n.vy)) {
+                    flat_x *= stretch;
+                    flat_y /= std::sqrt(stretch);
+                } else {
+                    flat_y *= stretch;
+                    flat_x /= std::sqrt(stretch);
+                }
             }
         }
 
@@ -480,29 +691,8 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         if (n.y < margin) { n.y = margin; n.vy = std::max(0.0f, n.vy); }
         if (n.y > (float)SCREEN_H - margin) { n.y = (float)SCREEN_H - margin; n.vy = std::min(0.0f, n.vy); }
     }
-
-    // 表皮小触手全骨架 5 节点直接整体平移位移 (100% 确保实打实向前移动，绝不卡在原地！)
-    if (is_creeping_motion && flying_timer <= 0.0f && !is_hanging) {
-        float dx = creep_target_x - nodes[0].x;
-        float dy = creep_target_y - nodes[0].y;
-        float dist = std::sqrt(dx * dx + dy * dy);
-        if (dist > 3.0f) {
-            float nx = dx / dist;
-            float ny = dy / dist;
-            float step_move = 22.0f * creep_speed_mult * dt;
-            creep_locomotion_phase += dt * 8.0f;
-
-            for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
-                float wave = std::sin(creep_locomotion_phase - (float)i * 0.85f);
-                float node_step = step_move * (1.0f + 0.25f * wave);
-                nodes[i].x += nx * node_step;
-                nodes[i].y += ny * node_step;
-                nodes[i].vx = nx * 10.0f;
-                nodes[i].vy = ny * 10.0f;
-            }
-        }
-    }
 }
+
 
 float SkeletonSystem::getHeadingAngle() const {
     // 身体主轴向量：从尾部 (nodes[4]) 指向头部 (nodes[0])
@@ -512,39 +702,52 @@ float SkeletonSystem::getHeadingAngle() const {
 }
 
 void SkeletonSystem::alignHeadingToTarget(float target_x, float target_y) {
-    if (is_hanging || flying_timer > 0.0f || flip_cooldown > 0.0f) return;
+    if (is_hanging || flying_timer > 0.0f || is_bouncing_ball || is_rolling) return;
 
+    float cx = nodes[2].x; // 身体质心
+    float cy = nodes[2].y;
+
+    float move_dx = target_x - cx;
+    float move_dy = target_y - cy;
+    float move_dist = std::sqrt(move_dx * move_dx + move_dy * move_dy);
+    if (move_dist < 8.0f) return;
+
+    // 【1. 智能平滑掉头（带 0.65s 防抖冷却，彻底消除高频瞬移与倒退走）】
+    if (flip_cooldown <= 0.0f && std::abs(move_dx) > 12.0f) {
+        bool target_on_left = (move_dx < 0.0f);
+        bool head_on_right = (nodes[0].x > nodes[2].x + 3.0f);
+        bool target_on_right = (move_dx > 0.0f);
+        bool head_on_left = (nodes[0].x < nodes[2].x - 3.0f);
+
+        if ((target_on_left && head_on_right) || (target_on_right && head_on_left)) {
+            // 需要调头！设置防抖冷却 0.65 秒，杜绝来回抽动
+            flip_cooldown = 0.65f;
+            float dir_sign = target_on_left ? -1.0f : 1.0f;
+            
+            // 物理平滑回旋：给予头部向前上方的翻转力矩，而非硬编码瞬间传送
+            nodes[0].vx = dir_sign * 16.0f;
+            nodes[0].vy = -3.5f;
+            nodes[1].vx = dir_sign * 9.0f;
+            nodes[1].vy = -1.5f;
+            
+            // 顺畅调整节点顺序排列（头部移至前进方向前沿）
+            float offset = 11.0f;
+            nodes[0].x = nodes[1].x + dir_sign * offset;
+            nodes[0].y = nodes[1].y - 2.0f;
+            triggerLocalBleb(0, 1.2f);
+        }
+    }
+
+    // 【2. 温和平滑前向牵引力引导头部】
     float hx = nodes[0].x;
     float hy = nodes[0].y;
-    float tx = nodes[4].x;
-    float ty = nodes[4].y;
-
-    float move_dx = target_x - hx;
-    float move_dy = target_y - hy;
-    float move_dist = std::sqrt(move_dx * move_dx + move_dy * move_dy);
-    if (move_dist < 12.0f) return;
-
-    // 身体向量 (尾 -> 头)
-    float body_dx = hx - tx;
-    float body_dy = hy - ty;
-    float body_len = std::sqrt(body_dx * body_dx + body_dy * body_dy);
-    if (body_len < 2.0f) return;
-
-    // 计算运动方向与身体朝向的点积
-    float dot = (move_dx * body_dx + move_dy * body_dy) / (move_dist * body_len);
-
-    // 仅当严重反向 (dot < -0.45 超过 116 度) 且冷却就绪时，触发一次干净利落的流体翻身调头！
-    if (dot < -0.45f) {
-        flip_cooldown = 1.6f; // 锁定 1.6 秒冷却，绝不每帧高频抽搐震荡
-        float norm_move_x = move_dx / move_dist;
-
-        // 头部向目标方向前突并轻柔跃起翻越
-        nodes[0].vx = norm_move_x * 7.5f;
-        nodes[0].vy = -3.5f;
-
-        // 中间节点顺向跟进拱起
-        nodes[1].vx = norm_move_x * 3.5f;
-        nodes[1].vy = -2.0f;
+    float t_dx = target_x - hx;
+    float t_dy = target_y - hy;
+    float t_dist = std::sqrt(t_dx * t_dx + t_dy * t_dy);
+    if (t_dist > 4.0f) {
+        float pull = std::min(4.5f, t_dist * 0.35f);
+        nodes[0].vx += (t_dx / t_dist) * pull * 0.12f;
+        nodes[0].vy += (t_dy / t_dist) * pull * 0.12f;
     }
 }
 
@@ -557,23 +760,27 @@ void SkeletonSystem::applyCreepingMotion(float dir_x, float dir_y, float speed, 
     float nx = dir_x / len;
     float ny = dir_y / len;
 
-    creep_locomotion_phase += dt * 7.5f; // 尺蠖前进波浪推进
+    creep_locomotion_phase += dt * 6.5f;
 
-    // 【1. 头部以稳健的向前滑移步速 (14.0 ~ 18.0 px/s) 实打实向前推进】
-    float head_creep_speed = 16.0f * speed;
-    nodes[0].x += nx * head_creep_speed * dt;
-    nodes[0].y += ny * head_creep_speed * dt;
-    nodes[0].vx = nx * head_creep_speed * 0.45f;
-    nodes[0].vy = ny * head_creep_speed * 0.45f;
+    // 尺蠖前进波浪：头部在前冲刺伸展，尾部随后跟进抽吸
+    float head_wave = std::max(0.0f, std::sin(creep_locomotion_phase));
 
-    // 【2. 身体各节依次产生波浪推进力与跟随滑移，彻底克服弹簧阻尼】
+    // 头部向前拉伸突进 (12 ~ 26 px/s)
+    float head_speed = (12.0f + 14.0f * head_wave) * speed;
+    nodes[0].x += nx * head_speed * dt;
+    nodes[0].y += ny * head_speed * dt;
+    nodes[0].vx = nx * head_speed * 0.5f;
+    nodes[0].vy = ny * head_speed * 0.5f;
+
+    // 身体各节依次滞后跟进推进，形成连贯蠕动
     for (int i = 1; i < SKELETON_NODE_COUNT; ++i) {
-        float wave = std::sin(creep_locomotion_phase - (float)i * 0.85f);
-        float node_speed = (14.0f - (float)i * 1.2f) * speed * (0.85f + 0.35f * wave);
+        float node_phase = creep_locomotion_phase - (float)i * 0.9f;
+        float wave_surge = std::max(0.0f, std::sin(node_phase));
+        float node_speed = (10.0f + 16.0f * wave_surge) * speed;
 
         nodes[i].x += nx * node_speed * dt;
         nodes[i].y += ny * node_speed * dt;
-        nodes[i].vx = nx * node_speed * 0.40f;
-        nodes[i].vy = ny * node_speed * 0.40f;
+        nodes[i].vx = nx * node_speed * 0.45f;
+        nodes[i].vy = ny * node_speed * 0.45f;
     }
 }

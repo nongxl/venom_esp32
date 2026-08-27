@@ -100,15 +100,27 @@ void PredatorSystem::updateSplatParticles(float dt) {
     }
 }
 
-bool PredatorSystem::tryTriggerHunt(PreyBugSystem &bugs, const SkeletonSystem &skeleton) {
+void PredatorSystem::cancelHunt(SkeletonSystem *skeleton) {
+    hunt.active = false;
+    hunt.action = HUNT_NONE;
+    hunt.phase = PHASE_IDLE;
+    hunt.is_reserve_snare = false;
+    if (skeleton) skeleton->clearPullTarget();
+}
+
+bool PredatorSystem::tryTriggerHunt(PreyBugSystem &bugs, const SkeletonSystem &skeleton, const PhysiologySystem &physiology) {
     if (hunt.active) return false;
 
     float hx, hy;
     skeleton.getHeadPos(hx, hy);
 
+    float energy = physiology.getEnergy();
+    bool is_satiated = (energy >= 0.70f); // 饱腹状态：能量高时不急着吃
+
     float bx, by;
     BugState state;
-    int bug_idx = bugs.getNearestBug(hx, hy, bx, by, state);
+    // 饥饿时优先去吃蛛网定身的储备粮；饱腹时找任意活虫
+    int bug_idx = bugs.getNearestBug(hx, hy, bx, by, state, !is_satiated);
     if (bug_idx < 0 || state == BUG_DEAD || state == BUG_CAUGHT) return false;
 
     float dx = bx - hx;
@@ -129,26 +141,49 @@ bool PredatorSystem::tryTriggerHunt(PreyBugSystem &bugs, const SkeletonSystem &s
     hunt.tip_y = hy;
     hunt.progress = 0.0f;
     hunt.trail_spawn_timer = 0.0f;
+    hunt.is_reserve_snare = false;
 
-    // 【三大进食动作智能防重复轮换决策机制】
-    // 彻底杜绝单一连续蛛网，大幅提高舌头与触手出镜率 (合占 75%+)
-    int roll = rand() % 100;
-    if (last_hunt_action == HUNT_MUCUS) {
-        // 上次使用了黏液弹 -> 本次 100% 在舌头和触手之间交替！
-        hunt.action = (roll < 50) ? HUNT_TONGUE : HUNT_TENTACLE;
-    } else if (last_hunt_action == HUNT_TONGUE) {
-        // 上次使用了舌头 -> 本次在触手 (60%) 与黏液弹 (40%) 中挑选
-        hunt.action = (roll < 60) ? HUNT_TENTACLE : HUNT_MUCUS;
-    } else if (last_hunt_action == HUNT_TENTACLE) {
-        // 上次使用了触手 -> 本次在长舌 (60%) 与黏液弹 (40%) 中挑选
-        hunt.action = (roll < 60) ? HUNT_TONGUE : HUNT_MUCUS;
-    } else {
-        if (roll < 40) {
-            hunt.action = HUNT_TONGUE;      // 40% 变色龙闪电长舌
-        } else if (roll < 80) {
-            hunt.action = HUNT_TENTACLE;    // 40% 暗黑触手抓取
+    // 【多层次饥饿与生态互动行为决策】
+    if (is_satiated) {
+        // 饱腹状态 (energy >= 0.70)：
+        // 65% 概率喷射蛛网黏住虫子留作储备粮（不吃），35% 放弃捕食交由 AI 环绕观察
+        int roll = rand() % 100;
+        if (roll < 65 && state != BUG_SNARED) {
+            hunt.action = HUNT_MUCUS;
+            hunt.is_reserve_snare = true; // 储备粮标记
         } else {
-            hunt.action = HUNT_MUCUS;       // 20% 黑色黏液定身
+            // 不进行捕食，交由 AI 纯纯观察或绕虫巡游
+            hunt.active = false;
+            hunt_decision_cooldown = 4.0f;
+            return false;
+        }
+    } else {
+        // 饥饿状态 (energy < 0.70)：
+        if (state == BUG_SNARED) {
+            // 目标已在蛛网中：直接爬过去吞噬包覆，或触手抓回！
+            int roll = rand() % 100;
+            if (roll < 55) {
+                hunt.action = HUNT_TENTACLE;
+            } else {
+                hunt.action = HUNT_MUCUS;
+                hunt.phase = PHASE_CRAWL_ENGULF; // 直接大步爬行过去包覆吞噬
+                last_hunt_action = hunt.action;
+                return true;
+            }
+        } else {
+            // 正常捕食：长舌 (45%)、触手 (45%)、黏液 (10%)
+            int roll = rand() % 100;
+            if (last_hunt_action == HUNT_MUCUS) {
+                hunt.action = (roll < 50) ? HUNT_TONGUE : HUNT_TENTACLE;
+            } else if (last_hunt_action == HUNT_TONGUE) {
+                hunt.action = (roll < 60) ? HUNT_TENTACLE : HUNT_MUCUS;
+            } else if (last_hunt_action == HUNT_TENTACLE) {
+                hunt.action = (roll < 60) ? HUNT_TONGUE : HUNT_MUCUS;
+            } else {
+                if (roll < 45) hunt.action = HUNT_TONGUE;
+                else if (roll < 90) hunt.action = HUNT_TENTACLE;
+                else hunt.action = HUNT_MUCUS;
+            }
         }
     }
     last_hunt_action = hunt.action;
@@ -313,12 +348,21 @@ void PredatorSystem::updateMucusSnare(float dt, PreyBugSystem &bugs, SkeletonSys
                                       PhysiologySystem &physiology, MetaballSystem &metaballs) {
     hunt.timer += dt;
     float hx, hy;
-    skeleton.getHeadPos(hx, hy);
-    hunt.start_x = hx;
-    hunt.start_y = hy;
+    const PreyBug &b = bugs.getBug(hunt.target_bug_idx);
+    if (b.active && b.state != BUG_DEAD && hunt.phase == PHASE_SHOOT) {
+        hunt.target_x = b.x;
+        hunt.target_y = b.y;
+        float mdx = hunt.target_x - hunt.mucus_x;
+        float mdy = hunt.target_y - hunt.mucus_y;
+        float mdist = std::sqrt(mdx * mdx + mdy * mdy);
+        if (mdist > 1.0f) {
+            hunt.mucus_vx = (mdx / mdist) * 440.0f;
+            hunt.mucus_vy = (mdy / mdist) * 440.0f;
+        }
+    }
 
     if (hunt.phase == PHASE_SHOOT) {
-        // 极速纯黑黏液弹飞行 (420px/s)
+        // 极速纯黑黏液弹飞行 (440px/s)
         hunt.mucus_x += hunt.mucus_vx * dt;
         hunt.mucus_y += hunt.mucus_vy * dt;
 
@@ -360,8 +404,17 @@ void PredatorSystem::updateMucusSnare(float dt, PreyBugSystem &bugs, SkeletonSys
         skeleton.clearPullTarget();
 
         if (hunt.timer >= hunt.observe_duration) {
-            hunt.phase = PHASE_CRAWL_ENGULF;
-            hunt.timer = 0.0f;
+            if (hunt.is_reserve_snare) {
+                // 作为储备粮成功定身：不爬过去吃，毒液心满意足结束捕食，留作日后饥饿时再享用！
+                hunt.active = false;
+                hunt.action = HUNT_NONE;
+                hunt.phase = PHASE_IDLE;
+                hunt.is_reserve_snare = false;
+                hunt_decision_cooldown = 18.0f + (rand() % 100) * 0.1f;
+            } else {
+                hunt.phase = PHASE_CRAWL_ENGULF;
+                hunt.timer = 0.0f;
+            }
         }
     } else if (hunt.phase == PHASE_CRAWL_ENGULF) {
         // 【从容爬行包覆吞噬阶段】
@@ -385,15 +438,28 @@ void PredatorSystem::updateMucusSnare(float dt, PreyBugSystem &bugs, SkeletonSys
 }
 
 void PredatorSystem::update(float dt, PreyBugSystem &bugs, SkeletonSystem &skeleton,
-                            PhysiologySystem &physiology, MetaballSystem &metaballs) {
+                            PhysiologySystem &physiology, MetaballSystem &metaballs,
+                            bool is_sleeping) {
     // 更新所有飞溅微粒物理
     updateSplatParticles(dt);
+
+    // 睡眠/闭眼状态下绝对停止捕食与抓虫
+    if (is_sleeping) {
+        if (hunt.active && hunt.phase != PHASE_DIGEST) {
+            hunt.active = false;
+            hunt.action = HUNT_NONE;
+            hunt.phase = PHASE_IDLE;
+            skeleton.clearPullTarget();
+        }
+        hunt_decision_cooldown = 1.5f;
+        return;
+    }
 
     if (!hunt.active) {
         hunt_decision_cooldown -= dt;
         if (hunt_decision_cooldown <= 0.0f) {
             hunt_decision_cooldown = 0.4f;
-            tryTriggerHunt(bugs, skeleton);
+            tryTriggerHunt(bugs, skeleton, physiology);
         }
         return;
     }

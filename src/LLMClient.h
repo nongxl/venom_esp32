@@ -63,5 +63,6 @@ private:
 
     bool sendHTTPRequest(const String &json_payload);
     void parseV3Response(const String &response_text);
-    void runLocalHeuristicFallback(float stress, float curiosity, float comfort, float attachment);
+    void runLocalHeuristicFallback(float stress, float curiosity, float comfort, float attachment,
+                                   const char *behavior = "", const char *events = "");
 };

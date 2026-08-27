@@ -9,6 +9,7 @@ void PhysiologySystem::init() {
     curiosity  = 0.50f;
     comfort    = 0.80f;
     attachment = 0.20f;
+    boredom    = 0.0f;
     current_emotion = EMOTION_CALM;
 }
 
@@ -24,12 +25,6 @@ const char* PhysiologySystem::getEmotionName() const {
     }
 }
 
-void PhysiologySystem::feedAudioBands(float low, float mid, float high) {
-    raw_audio_low  = low;
-    raw_audio_mid  = mid;
-    raw_audio_high = high;
-}
-
 void PhysiologySystem::triggerShock(float amount) {
     stress = std::min(1.0f, stress + amount);
     comfort = std::max(0.0f, comfort - amount * 0.7f);
@@ -37,10 +32,18 @@ void PhysiologySystem::triggerShock(float amount) {
 }
 
 void PhysiologySystem::updateInternalDynamics(float dt) {
-    // 1. 音频能量的攻击与长释放包络（情绪惯性与残留）
-    smoothed_audio_low  = smoothed_audio_low  * 0.70f + raw_audio_low  * 0.30f;
-    smoothed_audio_mid  = smoothed_audio_mid  * 0.75f + raw_audio_mid  * 0.25f;
-    smoothed_audio_high = smoothed_audio_high * 0.85f + raw_audio_high * 0.15f;
+    // 1. 5 频段专业音乐频谱均衡器快攻慢释 (Fast-Attack Peak-Hold & Smooth Decay)
+    for (int i = 0; i < 5; ++i) {
+        if (raw_spectrum_bands[i] > smoothed_spectrum_bands[i]) {
+            smoothed_spectrum_bands[i] = smoothed_spectrum_bands[i] * 0.35f + raw_spectrum_bands[i] * 0.65f; // 极速瞬态爆发
+        } else {
+            smoothed_spectrum_bands[i] = smoothed_spectrum_bands[i] * 0.82f + raw_spectrum_bands[i] * 0.18f; // 优雅阻尼回落
+        }
+    }
+
+    smoothed_audio_low  = std::max(smoothed_spectrum_bands[0], smoothed_spectrum_bands[1]);
+    smoothed_audio_mid  = smoothed_spectrum_bands[2];
+    smoothed_audio_high = std::max(smoothed_spectrum_bands[3], smoothed_spectrum_bands[4]);
 
     // 极高频突发巨响/尖锐冲击激发 stress，音乐旋律与低频重音激发好奇探究 (CURIOSITY)
     if (raw_audio_high > 0.65f) {
@@ -70,48 +73,46 @@ void PhysiologySystem::updateInternalDynamics(float dt) {
         comfort = std::max(0.0f, comfort - dt * 0.12f);
     }
 
-    // 好奇心在平静时积累
+    // 好奇心在平静时适度积累
     if (comfort > 0.6f && stress < 0.2f) {
-        curiosity = std::min(1.0f, curiosity + dt * 0.04f);
-    } else if (stress > 0.5f) {
-        curiosity = std::max(0.1f, curiosity - dt * 0.15f);
+        curiosity = std::min(1.0f, curiosity + dt * 0.035f);
+    } else if (stress > 0.45f) {
+        curiosity = std::max(0.05f, curiosity - dt * 0.12f);
     }
 
-    // 基础代谢自然缓慢消耗能量 (每分钟消耗约 0.35)
-    energy = std::max(0.05f, energy - dt * 0.006f);
+    // 基础代谢自然消耗能量 (每秒 0.0025，剧烈活动加速消耗)
+    energy = std::max(0.02f, energy - dt * 0.0025f);
 }
 
 void PhysiologySystem::updateEmotionState() {
-    // 基于宽区间滞后门限 (Hysteresis) 的纯自然生物情绪演化 (彻底无需硬编码时间)
+    // 基于宽区间滞后门限 (Hysteresis) 的纯自然生物情绪演化
     switch (current_emotion) {
         case EMOTION_CALM:
-            if (energy < 0.20f) {
+            if (energy < 0.25f) {
                 current_emotion = EMOTION_EXHAUSTED;
             } else if (stress > 0.45f) {
                 current_emotion = (smoothed_audio_high > 0.6f || neuro_tension > 0.7f) ? EMOTION_ANGER : EMOTION_STRESS;
-            } else if (curiosity > 0.65f && comfort > 0.45f) {
+            } else if (curiosity > 0.55f && comfort > 0.45f) {
                 current_emotion = EMOTION_CURIOSITY;
             }
             break;
 
         case EMOTION_CURIOSITY:
-            if (energy < 0.20f) {
+            if (energy < 0.25f) {
                 current_emotion = EMOTION_EXHAUSTED;
             } else if (stress > 0.45f) {
                 current_emotion = EMOTION_STRESS;
-            } else if (curiosity < 0.35f || comfort < 0.30f) {
-                // 好奇心随时间自然降温，平缓回归平静
+            } else if (curiosity < 0.30f || comfort < 0.25f) {
                 current_emotion = EMOTION_CALM;
             }
             break;
 
         case EMOTION_STRESS:
-            if (energy < 0.15f) {
+            if (energy < 0.20f) {
                 current_emotion = EMOTION_EXHAUSTED;
             } else if (stress > 0.70f) {
                 current_emotion = (smoothed_audio_high > 0.6f || neuro_tension > 0.75f) ? EMOTION_ANGER : EMOTION_FEAR;
             } else if (stress < 0.20f) {
-                // 压力完全释放，平稳回归平静
                 current_emotion = EMOTION_CALM;
             }
             break;
@@ -119,13 +120,13 @@ void PhysiologySystem::updateEmotionState() {
         case EMOTION_FEAR:
         case EMOTION_ANGER:
             if (stress < 0.35f) {
-                current_emotion = EMOTION_STRESS; // 暴躁/恐惧渐进式降温回落
+                current_emotion = EMOTION_STRESS;
             }
             break;
 
         case EMOTION_EXHAUSTED:
-            if (energy > 0.40f) {
-                current_emotion = EMOTION_CALM; // 体力充分恢复后苏醒
+            if (energy > 0.60f) {
+                current_emotion = EMOTION_CALM; // 睡醒且体力充沛苏醒
             }
             break;
     }
@@ -150,10 +151,13 @@ void PhysiologySystem::update(float dt, float imu_shake, bool is_upside_down, bo
 }
 
 float PhysiologySystem::getSpikeIntensity() const {
+    float base_spike = 0.0f;
     if (current_emotion == EMOTION_ANGER) {
-        return 0.8f + smoothed_audio_high * 0.2f;
+        base_spike = 0.85f + smoothed_audio_high * 0.15f;
     } else if (current_emotion == EMOTION_FEAR || current_emotion == EMOTION_STRESS) {
-        return 0.35f + smoothed_audio_high * 0.3f;
+        base_spike = 0.45f + smoothed_audio_high * 0.35f;
     }
-    return smoothed_audio_high * 0.2f;
+    // 音乐节拍与强声压激发尖刺律动 (即使在平静/好奇听音乐状态下，尖刺也会随音乐重音猛烈爆发)
+    float music_spike = std::max(raw_audio_low * 0.95f, raw_audio_high * 1.15f) * (0.6f + sound_excitation * 0.4f);
+    return std::min(1.0f, std::max(base_spike, music_spike));
 }

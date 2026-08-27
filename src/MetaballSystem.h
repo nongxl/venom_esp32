@@ -40,7 +40,8 @@ public:
     void update(float dt, const SkeletonSystem &skeleton, float gravity_x, float gravity_y, const PhysiologySystem &physiology);
 
     void computeField(const SkeletonSystem &skeleton, const PhysiologySystem &physiology,
-                      const FluidSymbolSystem &fluid_symbols, float gx, float gy);
+                      const FluidSymbolSystem &fluid_symbols, float gx, float gy,
+                      float ball_x = -1.0f, float ball_y = -1.0f, float ball_r = 0.0f);
 
     const uint8_t* getFieldBuffer() const { return field_buffer; }
 

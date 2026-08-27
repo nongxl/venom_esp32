@@ -35,8 +35,9 @@ private:
     String currentType = "";
 
     void addPoint(float x, float y, float r = 4.0f);
+    void addPointWithVel(float x, float y, float r, float vx, float vy);
 
-    // 8 大经典流体墨迹符号生成器 (基于指定开阔中心点生成)
+    // 经典流体墨迹符号生成器 (基于指定开阔中心点生成)
     void genX(float cx, float cy);
     void genO(float cx, float cy);
     void genQUESTION(float cx, float cy);
@@ -45,4 +46,7 @@ private:
     void genHEART(float cx, float cy);
     void genWARNING(float cx, float cy);
     void genSPLASH(float cx, float cy);
+    void genZz(float cx, float cy);
+    void genDIZZY(float cx, float cy);
+    void genBITE(float cx, float cy);
 };

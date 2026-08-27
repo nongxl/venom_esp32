@@ -142,6 +142,16 @@ void ExpressionLayer::evaluateAutonomousExpressions(float dt, const Consciousnes
             return;
         }
 
+        // [符号 9: 剧毒咬痕 "bite"] 怨念威慑或饥饿捕食兽性
+        if (resentment > 0.35f || (stress > 0.45f && energy < 0.40f)) {
+            if ((rand() % 100) < 35) {
+                fluid_symbols.trigger("bite", sym_cx, sym_cy);
+                triggerExpression(EXPR_WARNING, 4.0f);
+                symbol_cooldown = 16.0f;
+                return;
+            }
+        }
+
         // LLM 远程意图直通支持
         if (urge > 0.60f) {
             if (curiosity > 0.50f) {

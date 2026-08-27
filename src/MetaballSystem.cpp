@@ -71,15 +71,16 @@ void MetaballSystem::spawnRandomSpike(const PhysiologySystem &physiology) {
 
             float tension = physiology.getNeuroTension();
             float spike_int = physiology.getSpikeIntensity();
+            float sound_ex = physiology.getSoundExcitation();
 
-            // 尖刺突刺最大长度 (4.5px ~ 14.0px 丰富长短)
-            sp.max_len = 5.0f + (rand() % 45) * 0.1f + tension * 4.0f + spike_int * 5.0f;
+            // 尖刺突刺最大长度 (大幅加长到 14.0px ~ 28.0px，利刃般突出！)
+            sp.max_len = 12.0f + (rand() % 70) * 0.1f + tension * 5.0f + spike_int * 9.0f + sound_ex * 5.0f;
             if (sp.node_idx == 1 || sp.node_idx == 2) {
-                sp.max_len *= 1.3f;
+                sp.max_len *= 1.35f;
             }
 
-            sp.duration = 0.28f + (rand() % 16) * 0.01f;
-            sp.attack_time = 0.05f + (rand() % 3) * 0.01f;
+            sp.duration = 0.32f + (rand() % 16) * 0.01f;
+            sp.attack_time = 0.04f + (rand() % 2) * 0.01f; // 40ms 极速刺出
             break;
         }
     }
@@ -94,9 +95,9 @@ void MetaballSystem::triggerSpikeBurst(int count, float max_len_boost) {
                 sp.age = 0.0f;
                 sp.node_idx = rand() % SKELETON_NODE_COUNT;
                 sp.angle = (k * (360.0f / count) + (rand() % 25 - 12)) * 0.017453f;
-                sp.max_len = (6.0f + (rand() % 60) * 0.1f) * max_len_boost;
-                sp.duration = 0.32f + (rand() % 12) * 0.01f;
-                sp.attack_time = 0.05f;
+                sp.max_len = (10.0f + (rand() % 80) * 0.1f) * max_len_boost;
+                sp.duration = 0.34f + (rand() % 12) * 0.01f;
+                sp.attack_time = 0.04f;
                 break;
             }
         }
@@ -114,20 +115,53 @@ void MetaballSystem::updateSpikes(float dt, const PhysiologySystem &physiology) 
         }
     }
 
-    // 2. 尖刺激发条件严格收敛：仅在真正的愤怒形态 (ANGER) 或 音乐强重音时激发，常态下 100% 保持光洁流体
-    EmotionState emo = physiology.getEmotion();
-    float tension = physiology.getNeuroTension();
-    float raw_low  = physiology.getRawAudioLow();
+    // 2. 【音乐播放器 5 频段背脊频谱柱状尖刺系统 (5-Band Spine Equalizer Visualizer)】
+    // Node 0: Sub-Bass, Node 1: Bass, Node 2: Mid, Node 3: Presence, Node 4: Treble
+    for (int n = 0; n < SKELETON_NODE_COUNT; ++n) {
+        float band_e = physiology.getSpectrumBand(n);
+        if (band_e > 0.14f) {
+            // 检查该节点当前是否已有活动尖刺
+            bool has_node_spike = false;
+            for (int k = 0; k < MAX_SPIKE_ERUPTIONS; ++k) {
+                if (spikes[k].active && spikes[k].node_idx == n) {
+                    has_node_spike = true;
+                    // 动态跟随频谱柱高度
+                    float desired_len = 8.0f + band_e * 18.0f;
+                    if (desired_len > spikes[k].max_len) {
+                        spikes[k].max_len = desired_len;
+                    }
+                    break;
+                }
+            }
 
-    // 音乐低频大重音瞬间：触发短促微尖刺律动 (45% 概率)
-    if (raw_low > 0.48f && (rand() % 100) < 45) {
-        spawnRandomSpike(physiology);
+            if (!has_node_spike) {
+                for (int k = 0; k < MAX_SPIKE_ERUPTIONS; ++k) {
+                    if (!spikes[k].active) {
+                        SpikeEruption &sp = spikes[k];
+                        sp.active = true;
+                        sp.age = 0.0f;
+                        sp.node_idx = n;
+                        // 背部向外侧斜上方刺出
+                        float side_angle = (n % 2 == 0) ? -1.57f : -1.25f;
+                        sp.angle = side_angle + ((rand() % 24) - 12) * 0.017453f;
+
+                        // 尖刺长度直接对应频段 EQ 柱状高度 (8.0px ~ 24.0px)
+                        sp.max_len = 8.0f + band_e * 18.0f;
+                        sp.duration = 0.16f + (rand() % 6) * 0.01f; // 极速灵动随音乐跳动
+                        sp.attack_time = 0.03f;
+                        break;
+                    }
+                }
+            }
+        }
     }
 
-    // 仅在愤怒形态且神经张力极高时自主长刺防御
-    if (emo == EMOTION_ANGER && tension > 0.55f) {
+    // 3. 愤怒与惊吓防御尖刺
+    EmotionState emo = physiology.getEmotion();
+    float tension = physiology.getNeuroTension();
+    if (emo == EMOTION_ANGER && tension > 0.50f) {
         spike_spawn_timer += dt;
-        if (spike_spawn_timer >= 0.40f) {
+        if (spike_spawn_timer >= 0.22f) {
             spike_spawn_timer = 0.0f;
             spawnRandomSpike(physiology);
         }
@@ -248,7 +282,8 @@ void MetaballSystem::addMetaballToField(float cx, float cy, float rx, float ry, 
 }
 
 void MetaballSystem::computeField(const SkeletonSystem &skeleton, const PhysiologySystem &physiology,
-                                  const FluidSymbolSystem &fluid_symbols, float gx, float gy) {
+                                  const FluidSymbolSystem &fluid_symbols, float gx, float gy,
+                                  float ball_x, float ball_y, float ball_r) {
     memset(field_buffer, 0, sizeof(field_buffer));
 
     // 1. 骨架主球坚实融合 (无连续旋转变形，纯正饱满水滴长条)
@@ -296,8 +331,8 @@ void MetaballSystem::computeField(const SkeletonSystem &skeleton, const Physiolo
         float r_edge = std::sqrt(node.radius_x * cos_a * node.radius_x * cos_a +
                                  node.radius_y * sin_a * node.radius_y * sin_a);
 
-        // 沿突刺方向在 field_buffer 注入能量 (步长优化为 1.4f，大幅减少内层开销)
-        for (float l = 0.0f; l <= current_len; l += 1.4f) {
+        // 沿突刺方向在 field_buffer 注入能量 (细密锋利利刃：根部 1.65px 渐变至针尖 0.50px)
+        for (float l = 0.0f; l <= current_len; l += 1.3f) {
             float dist_from_center = r_edge + l;
             float world_x = node.x + cos_a * dist_from_center;
             float world_y = node.y + sin_a * dist_from_center;
@@ -305,10 +340,12 @@ void MetaballSystem::computeField(const SkeletonSystem &skeleton, const Physiolo
             float g_px = world_x / (float)GRID_SCALE;
             float g_py = world_y / (float)GRID_SCALE;
 
-            float current_r = (1.0f - (l / current_len) * 0.40f) * tip_radius / (float)GRID_SCALE;
-            if (current_r < 0.6f) current_r = 0.6f;
+            // 细致修长利刃：根部 1.65px 递减至针尖 0.50px
+            float progress = (current_len > 0.1f) ? (l / current_len) : 0.0f;
+            float current_r = (1.65f - progress * 1.15f) * tip_radius / (float)GRID_SCALE;
+            if (current_r < 0.72f) current_r = 0.72f;
 
-            float inv_r2 = 1.0f / (current_r * current_r * 2.25f);
+            float inv_r2 = 1.0f / (current_r * current_r * 2.2f);
 
             int min_gx = std::max(0, (int)std::floor(g_px - current_r * 1.5f));
             int max_gx = std::min(GRID_W - 1, (int)std::ceil(g_px + current_r * 1.5f));
@@ -323,7 +360,7 @@ void MetaballSystem::computeField(const SkeletonSystem &skeleton, const Physiolo
                     float dx = (float)gx - g_px;
                     float d2 = (dx * dx + dy * dy) * inv_r2;
                     if (d2 < 1.0f) {
-                        float v = (1.0f - d2) * 190.0f * spike_energy;
+                        float v = (1.0f - d2) * 215.0f * spike_energy;
                         int cur = field_buffer[row_offset + gx] + (int)v;
                         field_buffer[row_offset + gx] = (cur > 255) ? 255 : (uint8_t)cur;
                     }
@@ -337,6 +374,11 @@ void MetaballSystem::computeField(const SkeletonSystem &skeleton, const Physiolo
         if (droplets[i].active) {
             addMetaballToField(droplets[i].x, droplets[i].y, droplets[i].radius, droplets[i].radius, 120, 0, 0, 0, 0);
         }
+    }
+
+    // 3.1 自体分裂弹球累加 (饱满液态球体)
+    if (ball_r > 0.5f) {
+        addMetaballToField(ball_x, ball_y, ball_r, ball_r, 220, 0, 0, 0, 0);
     }
 
     // 4. 符号粒子流体势能注入

@@ -37,11 +37,12 @@ struct PreyBug {
 
     // 定身与被抓取信息
     float snare_timer = 0.0f;
+    float snare_duration = 45.0f; // 蛛网自然挣扎脱困时限
 };
 
 class PreyBugSystem {
 public:
-    static constexpr int MAX_BUGS = 1;
+    static constexpr int MAX_BUGS = 4; // 支持场上同时存在多只小虫
 
     PreyBugSystem();
 
@@ -49,8 +50,8 @@ public:
     void update(float dt, float venom_hx, float venom_hy);
     void draw(M5Canvas &canvas) const;
 
-    // 查询距离毒液最近的可用活虫子
-    int getNearestBug(float x, float y, float &bug_x, float &bug_y, BugState &state) const;
+    // 查询可用活虫子 (支持优先查询被蛛网定身的储备粮)
+    int getNearestBug(float x, float y, float &bug_x, float &bug_y, BugState &state, bool prefer_snared = false) const;
 
     // 捕食状态干预
     void snareBug(int idx);
@@ -58,6 +59,8 @@ public:
     void killBug(int idx);
 
     bool hasActiveBug() const;
+    int getActiveBugCount() const;
+    void spawnBugImmediate();
     const PreyBug& getBug(int idx) const { return bugs[idx]; }
 
 private:

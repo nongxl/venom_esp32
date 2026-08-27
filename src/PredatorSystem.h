@@ -61,6 +61,7 @@ struct HuntContext {
     float mucus_vy = 0.0f;
     float trail_spawn_timer = 0.0f;
     float saliva_spray_timer = 0.0f;
+    bool is_reserve_snare = false; // 饱腹时仅喷网定身作为储备粮，不立刻吃
 };
 
 class PredatorSystem {
@@ -71,11 +72,13 @@ public:
 
     void init();
     void update(float dt, PreyBugSystem &bugs, SkeletonSystem &skeleton,
-                PhysiologySystem &physiology, MetaballSystem &metaballs);
+                PhysiologySystem &physiology, MetaballSystem &metaballs,
+                bool is_sleeping = false);
     void draw(M5Canvas &canvas) const;
 
-    // 触发自主捕食
-    bool tryTriggerHunt(PreyBugSystem &bugs, const SkeletonSystem &skeleton);
+    // 触发自主捕食 (接收生理饥饿度与储备粮判定)
+    bool tryTriggerHunt(PreyBugSystem &bugs, const SkeletonSystem &skeleton, const PhysiologySystem &physiology);
+    void cancelHunt(SkeletonSystem *skeleton = nullptr);
 
     bool isHunting() const { return hunt.active; }
     HuntAction getCurrentAction() const { return hunt.action; }

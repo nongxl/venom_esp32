@@ -235,34 +235,53 @@ static void processAudioBands() {
                 smoothed_mic_db = smoothed_mic_db * 0.75f + raw_db * 0.25f; // 平稳迅速回落
             }
 
-            // 7. 三频段纯净有效能量提取 (基于 net_rms，安静时全部归零 0.0)
-            float low_energy = 0.0f;
-            float mid_energy = 0.0f;
-            float high_energy = 0.0f;
+            // 7. 5 频段 Goertzel DFT 精密音频频谱分析 (Music Visualizer 5-Band Spectrum EQ)
+            // 采样率 8000Hz, N=128 点, 分辨率 62.5Hz
+            // Band 0 (Sub-Bass 125Hz, k=2): 鼓点与超低音 (对应 Node 0 头部)
+            // Band 1 (Bass 375Hz, k=6): 贝斯与低频律动 (对应 Node 1 颈部)
+            // Band 2 (Mid 1125Hz, k=18): 人声与主旋律 (对应 Node 2 中躯)
+            // Band 3 (Presence 2250Hz, k=36): 高音旋律与吉他 (对应 Node 3 下躯)
+            // Band 4 (Treble 3375Hz, k=54): 镲片与高频打击 (对应 Node 4 尾部)
+            static const float GOERTZEL_COEFF[5] = {
+                1.990369f, // 2*cos(2*PI*2/128)  k=2
+                1.913886f, // 2*cos(2*PI*6/128)  k=6
+                1.213360f, // 2*cos(2*PI*18/128) k=18
+                -0.382683f, // 2*cos(2*PI*36/128) k=36
+                -1.662939f  // 2*cos(2*PI*54/128) k=54
+            };
 
-            if (net_rms > 0.005f) {
-                float intensity = std::min(1.0f, net_rms * 14.0f);
-                if (zero_crossings < 18) {
-                    low_energy = intensity * 1.3f;
-                    mid_energy = intensity * 0.6f;
-                } else if (zero_crossings < 32) {
-                    low_energy = intensity * 0.5f;
-                    mid_energy = intensity * 1.1f;
-                    high_energy = intensity * 0.4f;
-                } else {
-                    mid_energy = intensity * 0.5f;
-                    high_energy = intensity * 1.2f;
+            float bands[5] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+
+            if (net_rms > 0.003f) {
+                float ac_buf[128];
+                for (int i = 0; i < 128; ++i) {
+                    ac_buf[i] = ((float)mic_raw_buffer[i] - dc_mean) / 32768.0f;
                 }
-                low_energy  = std::min(1.0f, low_energy);
-                mid_energy  = std::min(1.0f, mid_energy);
-                high_energy = std::min(1.0f, high_energy);
+
+                for (int b = 0; b < 5; ++b) {
+                    float coeff = GOERTZEL_COEFF[b];
+                    float q1 = 0.0f, q2 = 0.0f;
+                    for (int i = 0; i < 128; ++i) {
+                        float q0 = coeff * q1 - q2 + ac_buf[i];
+                        q2 = q1;
+                        q1 = q0;
+                    }
+                    float p_sq = q1 * q1 + q2 * q2 - q1 * q2 * coeff;
+                    float mag = std::sqrt(std::max(0.0f, p_sq)) / 128.0f;
+
+                    // 均衡频段动态增益
+                    static const float BAND_GAIN[5] = {28.0f, 24.0f, 20.0f, 18.0f, 16.0f};
+                    float val = std::min(1.0f, mag * BAND_GAIN[b]);
+                    val *= (0.35f + (net_rms / (net_rms + 0.025f)) * 0.65f);
+                    bands[b] = std::min(1.0f, val);
+                }
             }
 
             if (p2p_ratio > 0.35f) {
-                high_energy = std::min(1.0f, high_energy + (p2p_ratio - 0.35f) * 2.0f);
+                bands[4] = std::min(1.0f, bands[4] + (p2p_ratio - 0.35f) * 2.0f);
             }
 
-            physiology.feedAudioBands(low_energy, mid_energy, high_energy);
+            physiology.feedSpectrumBands(bands[0], bands[1], bands[2], bands[3], bands[4]);
             physiology.feedMicDecibels(smoothed_mic_db);
         }
     }
@@ -362,35 +381,121 @@ void loop() {
     float gy = (std::abs(imu_lpf_y) > 0.8f) ? (imu_lpf_y * 0.45f) : 0.0f;
     bool is_upside_down = (imu_lpf_y < -3.5f);
 
-    // 1.1 甩动抛体干脆甩飞系统 (Dynamic Accel Shake Sling Physics)
-    float acc_mag = std::sqrt(raw_ax * raw_ax + raw_ay * raw_ay + raw_az * raw_az);
-    float dynamic_g = std::max(0.0f, acc_mag - 1.0f);
+    // 1.1 甩动抛体与晕眩累积系统 (Dynamic Accel Shake Sling Physics & Dizzy Accumulation)
+    static float dizzy_shake_meter = 0.0f;
+    static unsigned long last_dizzy_trigger_ms = 0;
     static unsigned long last_sling_time_ms = 0;
 
-    // 当用户用力甩动设备时 (动态合加速度 > 0.50g 即可 100% 灵敏触发)
-    if (dynamic_g > 0.50f && (millis() - last_sling_time_ms > 250)) {
-        last_sling_time_ms = millis();
+    float acc_mag = std::sqrt(raw_ax * raw_ax + raw_ay * raw_ay + raw_az * raw_az);
+    float dynamic_g = std::max(0.0f, acc_mag - 1.0f);
 
-        // 确定甩掷方向: 横屏模式下向右甩动 raw_ax < 0 -> dir_x > 0; 向上甩动 raw_ay < 0 -> dir_y < 0
-        float dir_x = -raw_ax;
-        float dir_y = raw_ay;
-        float dir_len = std::sqrt(dir_x * dir_x + dir_y * dir_y);
+    // 晃动能量自然衰减
+    dizzy_shake_meter = std::max(0.0f, dizzy_shake_meter - dt * 0.85f);
+    if (dynamic_g > 0.30f) {
+        dizzy_shake_meter += dt * (2.0f + dynamic_g * 3.8f);
+    }
 
-        if (dir_len > 0.12f) {
-            dir_x /= dir_len;
-            dir_y /= dir_len;
-        } else {
-            dir_x = (rand() % 2 == 0) ? 1.0f : -1.0f;
-            dir_y = 0.0f;
+    // 甩飞物理 (保护：荡秋千与倒挂等悬挂玩耍模式下不打断)
+    if (ai.getState() != STATE_SWING && ai.getState() != STATE_BAT_HANG) {
+        if (dynamic_g > 0.40f && (millis() - last_sling_time_ms > 350)) {
+            last_sling_time_ms = millis();
+            dizzy_shake_meter += 1.35f; // 每次猛烈甩飞累加晕眩值
+
+            // 确定甩掷方向: 横屏模式下向右甩动 raw_ax < 0 -> dir_x > 0; 向上甩动 raw_ay < 0 -> dir_y < 0
+            float dir_x = -raw_ax;
+            float dir_y = raw_ay;
+            float dir_len = std::sqrt(dir_x * dir_x + dir_y * dir_y);
+
+            if (dir_len > 0.12f) {
+                dir_x /= dir_len;
+                dir_y /= dir_len;
+            } else {
+                dir_x = (rand() % 2 == 0) ? 1.0f : -1.0f;
+                dir_y = 0.0f;
+            }
+
+            // 初速度 46.0 ~ 68.0 px/s (极速横跨屏幕直冲边界！)
+            float throw_speed = 46.0f + dynamic_g * 18.0f;
+            if (throw_speed > 68.0f) throw_speed = 68.0f;
+
+            skeleton.triggerSlingThrow(dir_x, dir_y, throw_speed);
+            tentacles.reset(); // 打断爪盘与触手
+            predator.cancelHunt(&skeleton); // 打断捕食，防残留死锁
+            ai.triggerStartle(1.5f); // 受到惊吓，紧缩硬化飞行
+            haptics.trigger(HAPTIC_SLING); // 甩飞轻盈离手感
         }
+    }
 
-        // 初速度 38.0 ~ 58.0 px/s (极速横跨屏幕直冲边界！)
-        float throw_speed = 38.0f + dynamic_g * 14.0f;
-        if (throw_speed > 58.0f) throw_speed = 58.0f;
+    // 触发头晕吐蚊香符号判定 (摇晃累积达到 3.5 且冷却间隔 > 4.5s)
+    if (dizzy_shake_meter >= 3.5f && (millis() - last_dizzy_trigger_ms > 4500)) {
+        last_dizzy_trigger_ms = millis();
+        dizzy_shake_meter = 0.0f;
 
-        skeleton.triggerSlingThrow(dir_x, dir_y, throw_speed);
-        tentacles.reset(); // 打断爪盘与触手
-        haptics.trigger(HAPTIC_SLING); // 甩飞轻盈离手感
+        float hx, hy;
+        skeleton.getHeadPos(hx, hy);
+        float sym_x = std::max(25.0f, std::min((float)SCREEN_W - 35.0f, hx));
+        float sym_y = std::max(28.0f, std::min((float)SCREEN_H - 25.0f, hy - 18.0f));
+
+        fluid_symbols.trigger("dizzy", sym_x, sym_y);
+        ai.triggerStartle(1.2f);
+        haptics.trigger(HAPTIC_TICK);
+        Serial.println(">>> [SHAKE] Device shaken excessively! Spat out DIZZY (mosquito-coil) symbol! <<<");
+    }
+
+    // 1.2 高频瞬态敲击检测器 (High-Pass Jerk & Multi-Tap Detection)
+    static float prev_raw_ax = 0.0f, prev_raw_ay = 0.0f, prev_raw_az = 0.0f;
+    static unsigned long last_tap_pulse_ms = 0;
+    static int tap_counter = 0;
+
+    float d_ax = raw_ax - prev_raw_ax;
+    float d_ay = raw_ay - prev_raw_ay;
+    float d_az = raw_az - prev_raw_az;
+    prev_raw_ax = raw_ax;
+    prev_raw_ay = raw_ay;
+    prev_raw_az = raw_az;
+
+    float jerk_mag = std::sqrt(d_ax * d_ax + d_ay * d_ay + d_az * d_az);
+
+    // 调试辅助：当检测到任何微小加加速度突变时打印
+    if (jerk_mag > 0.10f) {
+        Serial.printf("[IMU-PULSE] jerk=%.3f (dx=%.2f dy=%.2f dz=%.2f)\n", jerk_mag, d_ax, d_ay, d_az);
+    }
+
+    // 敲击脉冲判定 (超灵敏门限 jerk > 0.13g 且距离上次脉冲 > 60ms 去抖)
+    if (jerk_mag > 0.13f && (millis() - last_tap_pulse_ms > 60)) {
+        unsigned long now_ms = millis();
+        if (now_ms - last_tap_pulse_ms > 1000) {
+            tap_counter = 1;
+        } else {
+            tap_counter++;
+        }
+        last_tap_pulse_ms = now_ms;
+
+        Serial.printf("[TAP-PULSE] Triggered! jerk=%.3f -> count=%d\n", jerk_mag, tap_counter);
+
+        // 触觉轻微敲击反响
+        haptics.trigger(HAPTIC_TICK);
+
+        if (tap_counter >= 3) {
+            // 【3. 连续敲击激惹 (Multi-Tap Irritate)】
+            Serial.println("[TAP-ACTION] Multi-Tap Irritate Triggered (Anger & Cyan Glow)!");
+            ai.handleMultiTapIrritate(fluid_symbols, expression, physiology, skeleton);
+            tap_counter = 0;
+        }
+    }
+
+    // 敲击窗口结算 (处理单击与双击，520ms 舒适手感窗口)
+    if (tap_counter > 0 && (millis() - last_tap_pulse_ms > 520)) {
+        if (tap_counter == 2) {
+            // 【1. 双击 (Double Tap)】：主动荡秋千(延长至22s) / 喷出爱心 / 问号
+            Serial.println("[TAP-ACTION] Double Tap Triggered (Swing 22s / Heart / ?)");
+            ai.handleDoubleTap(fluid_symbols, expression, physiology, skeleton, tentacles);
+        } else if (tap_counter == 1) {
+            // 【2. 单击 (Single Tap)】：睡眠时半睁眼微眯观察 / 醒着时好奇注视
+            Serial.printf("[TAP-ACTION] Single Tap Triggered (sleeping=%d)\n", ai.isSleeping() ? 1 : 0);
+            ai.handleSingleTap(fluid_symbols, expression, physiology);
+        }
+        tap_counter = 0;
     }
 
     // 2. 音频分析与节拍检测
@@ -435,18 +540,59 @@ void loop() {
             String sym = cmd.substring(6);
             sym.trim();
             fluid_symbols.trigger(sym);
+        } else if (cmd.equalsIgnoreCase("bug") || cmd.equalsIgnoreCase("spawn")) {
+            prey_bugs.spawnBugImmediate();
+            Serial.printf(">>> [BUG] Spawned new bug! Active bugs count: %d\n", prey_bugs.getActiveBugCount());
+        } else if (cmd.equalsIgnoreCase("bounce")) {
+            float hx, hy; skeleton.getHeadPos(hx, hy);
+            ai.triggerActionState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy);
+            Serial.println(">>> [ACTION] Trampoline Bounce triggered!");
+        } else if (cmd.equalsIgnoreCase("roll")) {
+            float hx, hy; skeleton.getHeadPos(hx, hy);
+            ai.triggerActionState(STATE_ROLL, &tentacles, &skeleton, hx, hy);
+            Serial.println(">>> [ACTION] Sonic Roll triggered!");
+        } else if (cmd.equalsIgnoreCase("dust") || cmd.equalsIgnoreCase("catch")) {
+            float hx, hy; skeleton.getHeadPos(hx, hy);
+            ai.triggerActionState(STATE_CATCH_DUST, &tentacles, &skeleton, hx, hy);
+            Serial.println(">>> [ACTION] Glowing Dust Pounce triggered!");
+        } else if (cmd.equalsIgnoreCase("ball")) {
+            float hx, hy; skeleton.getHeadPos(hx, hy);
+            ai.triggerActionState(STATE_BALL_PLAY, &tentacles, &skeleton, hx, hy);
+            Serial.println(">>> [ACTION] Ball Juggling triggered!");
+        } else if (cmd.equalsIgnoreCase("swing")) {
+            float hx, hy; skeleton.getHeadPos(hx, hy);
+            ai.triggerActionState(STATE_SWING, &tentacles, &skeleton, hx, hy);
+            Serial.println(">>> [ACTION] Ceiling Swing triggered!");
+        } else if (cmd.equalsIgnoreCase("sleep")) {
+            float hx, hy; skeleton.getHeadPos(hx, hy);
+            ai.triggerActionState(STATE_SLEEP, &tentacles, &skeleton, hx, hy);
+            Serial.println(">>> [ACTION] Deep Sleep triggered!");
+        } else if (cmd.equalsIgnoreCase("yawn")) {
+            float hx, hy; skeleton.getHeadPos(hx, hy);
+            ai.triggerActionState(STATE_YAWN, &tentacles, &skeleton, hx, hy);
+            Serial.println(">>> [ACTION] Yawn triggered!");
+        } else if (cmd.equalsIgnoreCase("stretch")) {
+            float hx, hy; skeleton.getHeadPos(hx, hy);
+            ai.triggerActionState(STATE_STRETCH, &tentacles, &skeleton, hx, hy);
+            Serial.println(">>> [ACTION] Awake Stretch triggered!");
+        } else if (cmd.equalsIgnoreCase("tired")) {
+            physiology.consumeEnergy(0.70f);
+            Serial.printf(">>> [PHYSIOLOGY] Energy drained! Current energy: %.2f\n", physiology.getEnergy());
         } else if (cmd.equalsIgnoreCase("theme")) {
             renderer.nextTheme();
         }
     }
 
-    // 5. LLM 意识系统异步请求与意图更新 (平稳 50 秒基础周期，保护 API 配额)
-    if (millis() - last_llm_request_ms >= 50000) {
+    // 5. LLM 意识系统异步请求与意图更新 (常态 180s 周期；睡眠中保持 90s 低频母星蜂巢意识深度同调)
+    bool is_sleeping = ai.isSleeping();
+    unsigned long llm_interval = is_sleeping ? 90000 : 180000;
+    if (millis() - last_llm_request_ms >= llm_interval) {
         last_llm_request_ms = millis();
+        const char *stimulus = is_sleeping ? "klyntar_hivemind_communion" : ((total_g_shake > 0.4f) ? "shake" : "calm");
         llm.requestConsciousnessUpdate(physiology.getEnergy(), physiology.getStress(),
                                        physiology.getCuriosity(), physiology.getComfort(),
                                        physiology.getAttachment(), ai.getStateName(),
-                                       (total_g_shake > 0.4f) ? "shake" : "calm", false);
+                                       stimulus, is_sleeping);
     }
 
     ConsciousnessStateV3 v3_state = llm.getLatestState();
@@ -467,38 +613,42 @@ void loop() {
     skeleton.getHeadPos(hx, hy);
     fluid_symbols.wipePoints(hx, hy, 22.0f);
 
-    // 8.1 活体小虫子生态与捕食进食系统更新
+    // 8.1 活体小虫子生态与捕食进食系统更新 (睡觉时绝对停止捕食)
     prey_bugs.update(dt, hx, hy);
-    predator.update(dt, prey_bugs, skeleton, physiology, metaballs);
+    predator.update(dt, prey_bugs, skeleton, physiology, metaballs, is_sleeping);
 
-    // 9. AI 行为状态机更新 (注入猎物注视感知)
+    // 9. AI 行为状态机更新 (注入猎物注视感知与流体墨迹符号系统)
     ai.updateSensors(raw_ax, raw_ay, raw_az, physiology, btn_a_pressed);
-    ai.update(dt, skeleton, metaballs, tentacles, physiology, relationship, expression, v3_state, &prey_bugs);
+    ai.update(dt, skeleton, metaballs, tentacles, physiology, relationship, expression, v3_state, &prey_bugs, &fluid_symbols);
 
     // 10. 骨架动力学更新 (注入低频重音脉动与节拍鼓包)
     float crawl_bx, crawl_by;
     ai.getCrawlBias(crawl_bx, crawl_by);
+    float spec_bands[5];
+    for (int b = 0; b < 5; ++b) spec_bands[b] = physiology.getSmoothedSpectrumBand(b);
     skeleton.update(dt, gx, gy, crawl_bx, crawl_by,
                     physiology.getNeuroTension(), physiology.getSpikeIntensity(),
                     ai.getRespiration(), is_upside_down,
-                    physiology.getRawAudioLow());
+                    spec_bands);
 
     // 10.1 撞击“啪嗒”事件检测与触觉/飞溅联动 (Sticky Splat Feedback)
     float imp_spd, hit_x, hit_y;
     if (skeleton.checkAndConsumeImpactEvent(imp_spd, hit_x, hit_y)) {
-        // “啪嗒”拍在玻璃上的渐弱软泥微震反馈 (绝不震手手麻)
-        haptics.trigger(HAPTIC_SPLAT);
-        // 瞬间向外爆射 6 根应力尖刺
-        metaballs.triggerSpikeBurst(6, 1.35f);
-        // 飞溅 3 颗微小黏液滴
-        for (int k = 0; k < 3; ++k) {
-            float sp_vx = ((rand() % 80) - 40) * 0.08f;
-            float sp_vy = ((rand() % 80) - 40) * 0.08f;
-            metaballs.spawnDroplet(hit_x + sp_vx * 2.0f, hit_y + sp_vy * 2.0f, sp_vx, sp_vy, 2.5f, true);
-        }
+        if (ai.getState() != STATE_SWING && ai.getState() != STATE_BAT_HANG) {
+            // “啪嗒”拍在玻璃上的渐弱软泥微震反馈 (绝不震手手麻)
+            haptics.trigger(HAPTIC_SPLAT);
+            // 瞬间向外爆射 6 根应力尖刺
+            metaballs.triggerSpikeBurst(6, 1.35f);
+            // 飞溅 3 颗微小黏液滴
+            for (int k = 0; k < 3; ++k) {
+                float sp_vx = ((rand() % 80) - 40) * 0.08f;
+                float sp_vy = ((rand() % 80) - 40) * 0.08f;
+                metaballs.spawnDroplet(hit_x + sp_vx * 2.0f, hit_y + sp_vy * 2.0f, sp_vx, sp_vy, 2.5f, true);
+            }
 
-        // 撞击贴壁后瞬间激发狂暴反弹爬行，立刻射出触手向开阔地带挣脱爬行！
-        ai.triggerReactiveCrawl(skeleton, tentacles);
+            // 撞击贴壁后瞬间激发狂暴反弹爬行，立刻射出触手向开阔地带挣脱爬行！
+            ai.triggerReactiveCrawl(skeleton, tentacles);
+        }
     }
 
     // 11. Voronoi 细胞与标量场（含符号粒子融合）更新
@@ -506,11 +656,15 @@ void loop() {
     ai.getLookTarget(look_x, look_y);
     voronoi.update(dt, skeleton, physiology, look_x, look_y);
     metaballs.update(dt, skeleton, gx, gy, physiology);
-    metaballs.computeField(skeleton, physiology, fluid_symbols, gx, gy);
+    float ball_x = -1.0f, ball_y = -1.0f, ball_r = 0.0f;
+    if (ai.hasActiveBall()) {
+        ai.getBallPos(ball_x, ball_y, ball_r);
+    }
+    metaballs.computeField(skeleton, physiology, fluid_symbols, gx, gy, ball_x, ball_y, ball_r);
 
     // 12. 触手与眼睛系统更新
     tentacles.update(dt, skeleton, physiology, is_upside_down);
-    eye.update(dt, skeleton, physiology, look_x, look_y, ai.isSleeping());
+    eye.update(dt, skeleton, physiology, look_x, look_y, ai.isSleeping(), ai.isSleepPeeking());
 
     // 13. 渲染输出 (包含小虫子与捕食进食视觉)
     renderer.render(skeleton, metaballs, eye, tentacles, ai, physiology,

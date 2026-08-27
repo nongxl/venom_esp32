@@ -13,7 +13,7 @@ void PreyBugSystem::init() {
         bugs[i].active = false;
         bugs[i].state = BUG_DEAD;
     }
-    spawn_cooldown = 1.2f;
+    spawn_cooldown = 20.0f + (rand() % 150) * 0.1f;
 }
 
 void PreyBugSystem::spawnNewBug() {
@@ -51,20 +51,33 @@ void PreyBugSystem::updateCrawler(PreyBug &b, float dt, float v_hx, float v_hy) 
     if (b.state == BUG_SNARED) {
         b.snare_timer += dt;
         b.leg_phase += dt * 25.0f; // 拼命挣扎抖腿
+        // 蛛网时效到期：虫子挣脱蛛网定身并加速逃逸，绝不在屏幕永久静止死锁！
+        if (b.snare_timer >= b.snare_duration) {
+            b.state = BUG_FREE;
+            b.snare_timer = 0.0f;
+            b.current_speed = b.base_speed * 1.8f;
+        }
         return;
     }
     if (b.state == BUG_CAUGHT) {
         return;
     }
 
-    // 1. 危险感知逃逸：如果毒液靠近 35px，立即惊慌加速暴走
+    // 1. 敏捷危险感知与极速逃逸闪避：如果毒液靠近或飞扑，立即惊慌蛇形逃逸！
     float dx = b.x - v_hx;
     float dy = b.y - v_hy;
     float dist_v = std::sqrt(dx * dx + dy * dy);
-    if (dist_v < 38.0f && dist_v > 0.1f) {
+    if (dist_v < 55.0f && dist_v > 0.1f) {
         float flee_angle = std::atan2(dy, dx);
-        b.angle = flee_angle + ((rand() % 40) - 20) * 0.0174f;
-        b.current_speed = b.base_speed * 1.85f;
+        b.angle = flee_angle + std::sin(b.state_timer * 16.0f) * 0.40f;
+        if (dist_v < 38.0f) {
+            // 毒液极近距离逼近或身体飞扑：极速蛇形暴走闪避 (2.6x 速度)
+            b.current_speed = b.base_speed * 2.6f;
+            b.leg_phase += dt * 38.0f;
+        } else {
+            b.current_speed = b.base_speed * 1.85f;
+            b.leg_phase += dt * 25.0f;
+        }
     } else {
         // 2. 正常变速爬行与偶发停顿触角微颤
         b.speed_change_timer -= dt;
@@ -106,19 +119,32 @@ void PreyBugSystem::updateFlyer(PreyBug &b, float dt, float v_hx, float v_hy) {
 
     if (b.state == BUG_SNARED) {
         b.snare_timer += dt;
+        // 蛛网时效到期：飞虫挣脱蛛网并加速飞走
+        if (b.snare_timer >= b.snare_duration) {
+            b.state = BUG_FREE;
+            b.snare_timer = 0.0f;
+            b.current_speed = b.base_speed * 1.8f;
+        }
         return;
     }
     if (b.state == BUG_CAUGHT) {
         return;
     }
 
-    // 1. 危险逃逸
+    // 1. 飞行敏捷预警逃逸闪避
     float dx = b.x - v_hx;
     float dy = b.y - v_hy;
     float dist_v = std::sqrt(dx * dx + dy * dy);
-    if (dist_v < 42.0f && dist_v > 0.1f) {
-        b.angle = std::atan2(dy, dx) + ((rand() % 60) - 30) * 0.0174f;
-        b.current_speed = b.base_speed * 1.9f;
+    if (dist_v < 62.0f && dist_v > 0.1f) {
+        float flee_angle = std::atan2(dy, dx);
+        b.angle = flee_angle + std::sin(b.state_timer * 20.0f) * 0.45f;
+        if (dist_v < 42.0f) {
+            b.current_speed = b.base_speed * 2.5f; // 极速急转弯闪避
+            b.wing_phase += dt * 70.0f;
+        } else {
+            b.current_speed = b.base_speed * 1.8f;
+            b.wing_phase += dt * 50.0f;
+        }
     } else {
         // 2. 空中优雅盘旋与正弦穿梭
         b.speed_change_timer -= dt;
@@ -147,10 +173,10 @@ void PreyBugSystem::updateFlyer(PreyBug &b, float dt, float v_hx, float v_hy) {
 }
 
 void PreyBugSystem::update(float dt, float venom_hx, float venom_hy) {
-    bool has_active = false;
+    int active_count = 0;
     for (int i = 0; i < MAX_BUGS; ++i) {
         if (bugs[i].active && bugs[i].state != BUG_DEAD) {
-            has_active = true;
+            active_count++;
             if (bugs[i].type == BUG_CRAWLER) {
                 updateCrawler(bugs[i], dt, venom_hx, venom_hy);
             } else {
@@ -159,22 +185,56 @@ void PreyBugSystem::update(float dt, float venom_hx, float venom_hy) {
         }
     }
 
-    // 自动刷新机制：稀疏自然生态，若场上无虫，则隔 28~55 秒偶尔诞生一只小虫
-    if (!has_active) {
-        spawn_cooldown -= dt;
+    // 多虫动态生态刷新：适度稀缺生成 (场上无虫时 45~80s 刷新一只；场上已有 1 只时 90~160s 刷新；最多 2 只)
+    if (active_count < 2) {
+        float spawn_rate = (active_count == 0) ? 1.0f : 0.45f;
+        spawn_cooldown -= dt * spawn_rate;
         if (spawn_cooldown <= 0.0f) {
             spawnNewBug();
-            spawn_cooldown = 28.0f + (rand() % 270) * 0.1f;
+            spawn_cooldown = 45.0f + (rand() % 350) * 0.1f;
         }
     }
 }
 
-int PreyBugSystem::getNearestBug(float x, float y, float &bug_x, float &bug_y, BugState &state) const {
+int PreyBugSystem::getActiveBugCount() const {
+    int count = 0;
+    for (int i = 0; i < MAX_BUGS; ++i) {
+        if (bugs[i].active && bugs[i].state != BUG_DEAD) count++;
+    }
+    return count;
+}
+
+void PreyBugSystem::spawnBugImmediate() {
+    spawnNewBug();
+}
+
+int PreyBugSystem::getNearestBug(float x, float y, float &bug_x, float &bug_y, BugState &state, bool prefer_snared) const {
     int best_idx = -1;
     float min_dist = 99999.0f;
 
+    // 优先寻找被蛛网定身的储备粮
+    if (prefer_snared) {
+        for (int i = 0; i < MAX_BUGS; ++i) {
+            if (bugs[i].active && bugs[i].state == BUG_SNARED) {
+                float dx = bugs[i].x - x;
+                float dy = bugs[i].y - y;
+                float d = std::sqrt(dx * dx + dy * dy);
+                if (d < min_dist) {
+                    min_dist = d;
+                    best_idx = i;
+                    bug_x = bugs[i].x;
+                    bug_y = bugs[i].y;
+                    state = bugs[i].state;
+                }
+            }
+        }
+        if (best_idx >= 0) return best_idx;
+    }
+
+    // 寻找最近的任意可用小虫
+    min_dist = 99999.0f;
     for (int i = 0; i < MAX_BUGS; ++i) {
-        if (bugs[i].active && bugs[i].state != BUG_DEAD) {
+        if (bugs[i].active && bugs[i].state != BUG_DEAD && bugs[i].state != BUG_CAUGHT) {
             float dx = bugs[i].x - x;
             float dy = bugs[i].y - y;
             float d = std::sqrt(dx * dx + dy * dy);

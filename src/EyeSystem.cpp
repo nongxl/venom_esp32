@@ -27,29 +27,39 @@ void EyeSystem::triggerBlink() {
     }
 }
 
-void EyeSystem::updateBlinking(float dt, bool is_sleep, EmotionState emotion) {
+void EyeSystem::updateBlinking(float dt, bool is_sleep, bool is_sleep_peek, const PhysiologySystem &physiology) {
+    EmotionState emotion = physiology.getEmotion();
+    float energy = physiology.getEnergy();
+
     if (is_sleep) {
-        eyelid_close = eyelid_close * 0.85f + 1.0f * 0.15f;
+        // 睡眠中深睡完全闭合 (1.0f)；微醒半眯 (0.50f)
+        float target_close = is_sleep_peek ? 0.50f : 1.0f;
+        eyelid_close = eyelid_close * 0.85f + target_close * 0.15f;
         return;
     }
 
+    // 疲劳与困倦眼皮耷拉基线 (Drowsy Droop)
+    float base_droop = 0.0f;
+    if (energy < 0.38f) {
+        base_droop = (0.38f - energy) / 0.16f * 0.65f; // 0.38 -> 0.0, 0.22 -> 0.65 耷拉眼皮
+    }
+
     if (is_blinking) {
-        float blink_speed = (emotion == EMOTION_FEAR || emotion == EMOTION_STRESS) ? 18.0f : 12.0f;
+        float blink_speed = (emotion == EMOTION_FEAR || emotion == EMOTION_STRESS) ? 18.0f : ((energy < 0.38f) ? 8.0f : 12.0f);
         blink_phase += dt * blink_speed;
         if (blink_phase < 1.0f) {
-            eyelid_close = blink_phase;
+            eyelid_close = base_droop + (1.0f - base_droop) * blink_phase;
         } else if (blink_phase < 2.0f) {
-            eyelid_close = 2.0f - blink_phase;
+            eyelid_close = base_droop + (1.0f - base_droop) * (2.0f - blink_phase);
         } else {
-            eyelid_close = 0.0f;
+            eyelid_close = base_droop;
             is_blinking = false;
             blink_timer = 0.0f;
-            float base_int = (emotion == EMOTION_STRESS) ? 1.5f : ((emotion == EMOTION_CURIOSITY) ? 4.5f : 3.0f);
+            float base_int = (energy < 0.38f) ? 6.5f : ((emotion == EMOTION_STRESS) ? 1.5f : ((emotion == EMOTION_CURIOSITY) ? 4.5f : 3.0f));
             next_blink_interval = base_int + (rand() % 150) * 0.01f;
         }
     } else {
-        eyelid_close = eyelid_close * 0.65f;
-        if (eyelid_close < 0.02f) eyelid_close = 0.0f;
+        eyelid_close = eyelid_close * 0.75f + base_droop * 0.25f;
         blink_timer += dt;
         if (blink_timer >= next_blink_interval) {
             triggerBlink();
@@ -75,6 +85,10 @@ void EyeSystem::updatePupilPhysics(float dt, float target_dx, float target_dy, c
     if (emotion == EMOTION_FEAR || emotion == EMOTION_STRESS) {
         saccade_offset_x = ((rand() % 60) - 30) * 0.08f * tension;
         saccade_offset_y = ((rand() % 60) - 30) * 0.08f * tension;
+    } else if (physiology.isCurious()) {
+        // 好奇时眼球伴随灵敏的微对焦震颤扫视
+        saccade_offset_x = ((rand() % 40) - 20) * 0.04f;
+        saccade_offset_y = ((rand() % 40) - 20) * 0.04f;
     }
 
     desired_x += saccade_offset_x;
@@ -100,19 +114,23 @@ void EyeSystem::updatePupilPhysics(float dt, float target_dx, float target_dy, c
         current_eye_rx = current_eye_rx * 0.8f + (base_eye_radius * 1.1f) * 0.2f;
         current_eye_ry = current_eye_ry * 0.8f + (base_eye_radius * 0.75f) * 0.2f;
         current_pupil_radius = current_pupil_radius * 0.8f + 3.2f * 0.2f;
-    } else if (emotion == EMOTION_CURIOSITY) {
-        current_eye_rx = current_eye_rx * 0.85f + base_eye_radius * 0.15f;
-        current_eye_ry = current_eye_ry * 0.85f + base_eye_radius * 0.15f;
-        current_pupil_radius = current_pupil_radius * 0.85f + 5.5f * 0.15f;
+    } else if (emotion == EMOTION_CURIOSITY || physiology.isCurious()) {
+        current_eye_rx = current_eye_rx * 0.85f + (base_eye_radius * 1.15f) * 0.15f;
+        current_eye_ry = current_eye_ry * 0.85f + (base_eye_radius * 1.15f) * 0.15f;
+        current_pupil_radius = current_pupil_radius * 0.85f + 6.2f * 0.15f; // 好奇瞳孔明显放大！
+    } else if (physiology.isBored()) {
+        current_eye_rx = current_eye_rx * 0.85f + (base_eye_radius * 0.95f) * 0.15f;
+        current_eye_ry = current_eye_ry * 0.85f + (base_eye_radius * 0.90f) * 0.15f;
+        current_pupil_radius = current_pupil_radius * 0.85f + 4.2f * 0.15f;
     } else {
         current_eye_rx = current_eye_rx * 0.85f + base_eye_radius * 0.15f;
         current_eye_ry = current_eye_ry * 0.85f + base_eye_radius * 0.15f;
-        current_pupil_radius = current_pupil_radius * 0.85f + 4.6f * 0.15f;
+        current_pupil_radius = current_pupil_radius * 0.85f + 4.8f * 0.15f;
     }
 }
 
 void EyeSystem::update(float dt, const SkeletonSystem &skeleton, const PhysiologySystem &physiology,
-                       float target_look_world_x, float target_look_world_y, bool is_sleep) {
+                       float target_look_world_x, float target_look_world_y, bool is_sleep, bool is_sleep_peek) {
     const SkeletonNode &head = skeleton.getNode(0);
     const SkeletonNode &neck = skeleton.getNode(1);
 
@@ -133,7 +151,6 @@ void EyeSystem::update(float dt, const SkeletonSystem &skeleton, const Physiolog
     current_eye_x = current_eye_x * 0.70f + eye_target_x * 0.30f;
     current_eye_y = current_eye_y * 0.70f + eye_target_y * 0.30f;
 
-    EmotionState emotion = physiology.getEmotion();
     float tension = physiology.getNeuroTension();
 
     // 推进血丝呼吸脉动
@@ -154,7 +171,7 @@ void EyeSystem::update(float dt, const SkeletonSystem &skeleton, const Physiolog
     float target_dx = target_look_world_x - current_eye_x;
     float target_dy = target_look_world_y - current_eye_y;
 
-    updateBlinking(dt, is_sleep, emotion);
+    updateBlinking(dt, is_sleep, is_sleep_peek, physiology);
     updatePupilPhysics(dt, target_dx, target_dy, physiology);
 }
 

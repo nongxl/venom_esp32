@@ -123,7 +123,7 @@ void TentacleRenderer::startGrappleCrawl(float from_x, float from_y, float to_x,
 
 void TentacleRenderer::startCeilingSwing(float from_x, float from_y, float anchor_x, float anchor_y, float rope_length) {
     grapple.active = true;
-    grapple.stage = GRAPPLE_SWING;
+    grapple.stage = GRAPPLE_SWING_SHOOT;
     grapple.timer = 0.0f;
 
     grapple.start_x = from_x;
@@ -131,9 +131,9 @@ void TentacleRenderer::startCeilingSwing(float from_x, float from_y, float ancho
     grapple.target_x = anchor_x;
     grapple.target_y = anchor_y;
 
-    grapple.hand_x = anchor_x;
-    grapple.hand_y = anchor_y;
-    grapple.palm_spread = 1.0f;
+    grapple.hand_x = from_x;
+    grapple.hand_y = from_y;
+    grapple.palm_spread = 0.0f;
     grapple.rope_length = rope_length;
 
     grapple.ctrl_offset_x = 0.0f;
@@ -141,7 +141,7 @@ void TentacleRenderer::startCeilingSwing(float from_x, float from_y, float ancho
 }
 
 void TentacleRenderer::endCeilingSwing() {
-    if (grapple.stage == GRAPPLE_SWING) {
+    if (grapple.stage == GRAPPLE_SWING || grapple.stage == GRAPPLE_SWING_HOIST || grapple.stage == GRAPPLE_SWING_SHOOT) {
         grapple.stage = GRAPPLE_FUSE;
         grapple.timer = 0.0f;
     }
@@ -203,7 +203,7 @@ void TentacleRenderer::updateGrappleCrawl(float dt, SkeletonSystem &skeleton, co
             float dy = grapple.target_y - hy;
             float dist = std::sqrt(dx * dx + dy * dy);
 
-            // 当头部接近抓取点，进入 GRAPPLE_HOLD 阶段（继续吸住 0.8~1.5s 保持吸力抵抗重力！）
+            // 当头部接近抓取点，进入 GRAPPLE_HOLD 阶段
             if (dist < 10.0f || grapple.timer >= DURATION) {
                 grapple.stage = GRAPPLE_HOLD;
                 grapple.timer = 0.0f;
@@ -227,15 +227,60 @@ void TentacleRenderer::updateGrappleCrawl(float dt, SkeletonSystem &skeleton, co
             break;
         }
 
-        case GRAPPLE_SWING: {
-            // 高空秋千悬挂状态：掌心死死锚定在天花板
+        case GRAPPLE_SWING_SHOOT: {
+            // 【荡秋千第1阶段：极速向上射出触手吸附天花板 (0.22s)】
+            constexpr float DURATION = 0.22f;
+            float t = std::min(1.0f, grapple.timer / DURATION);
+            grapple.shoot_progress = t;
+            grapple.hand_x = grapple.start_x + (grapple.target_x - grapple.start_x) * t;
+            grapple.hand_y = grapple.start_y + (grapple.target_y - grapple.start_y) * t;
+            grapple.palm_spread = t;
+
+            if (grapple.timer >= DURATION) {
+                grapple.stage = GRAPPLE_SWING_HOIST;
+                grapple.timer = 0.0f;
+                grapple.hand_x = grapple.target_x;
+                grapple.hand_y = grapple.target_y;
+                grapple.palm_spread = 1.0f;
+            }
+            break;
+        }
+
+        case GRAPPLE_SWING_HOIST: {
+            // 【荡秋千第2阶段：触手强力收缩将身体平滑向上提拉至秋千高度 (0.42s)】
+            constexpr float DURATION = 0.42f;
             grapple.hand_x = grapple.target_x;
             grapple.hand_y = grapple.target_y;
             grapple.palm_spread = 1.0f;
 
-            // 头部位置随摆动自然游动，触手紧绷连接
+            float target_head_y = grapple.target_y + grapple.rope_length;
+            float target_head_x = grapple.target_x;
+
+            float t = std::min(1.0f, grapple.timer / DURATION);
+            // EaseOutCubic 曲线：平滑强力上拉，顶部自然收力
+            float ease = 1.0f - std::pow(1.0f - t, 3.0f);
+
+            float cur_head_x = grapple.start_x + (target_head_x - grapple.start_x) * ease;
+            float cur_head_y = grapple.start_y + (target_head_y - grapple.start_y) * ease;
+
+            skeleton.setPullTarget(cur_head_x, cur_head_y, 3.8f);
+
+            if (grapple.timer >= DURATION) {
+                grapple.stage = GRAPPLE_SWING;
+                grapple.timer = 0.0f;
+                skeleton.clearPullTarget();
+                skeleton.setHangingAnchor(grapple.target_x, grapple.target_y, grapple.rope_length);
+            }
+            break;
+        }
+
+        case GRAPPLE_SWING: {
+            // 【荡秋千第3阶段：高空秋千单摆模式】
+            grapple.hand_x = grapple.target_x;
+            grapple.hand_y = grapple.target_y;
+            grapple.palm_spread = 1.0f;
+
             if (!skeleton.isHanging()) {
-                // 若骨架系统脱离悬挂，触手自然融回收起
                 grapple.stage = GRAPPLE_FUSE;
                 grapple.timer = 0.0f;
             }
@@ -294,6 +339,50 @@ void TentacleRenderer::spawnTentacle(const SkeletonSystem &skeleton, bool cling_
     }
 }
 
+void TentacleRenderer::triggerVolleyTentacle(float from_x, float from_y, float target_x, float target_y) {
+    // 检查是否已有活跃的头部抽射/抓球触手，如果有则平滑更新目标点，绝不重置计时器导致每帧高频抽动！
+    for (int i = 0; i < MAX_TENTACLES; ++i) {
+        if (tentacles[i].active && tentacles[i].attach_node_idx == 0) {
+            tentacles[i].target_x = target_x;
+            tentacles[i].target_y = target_y;
+            tentacles[i].ctrl_x = (tentacles[i].start_x + target_x) * 0.5f;
+            tentacles[i].ctrl_y = std::min(tentacles[i].start_y, target_y) - 14.0f;
+            return;
+        }
+    }
+
+    int target_slot = -1;
+    for (int i = 0; i < MAX_TENTACLES; ++i) {
+        if (!tentacles[i].active) {
+            target_slot = i;
+            break;
+        }
+    }
+    // 如果触手槽全满，覆盖槽位 0
+    if (target_slot < 0) {
+        target_slot = 0;
+    }
+
+    Tentacle &t = tentacles[target_slot];
+    t.active = true;
+    t.attach_node_idx = 0; // 从头部侧面挥出抽射
+    t.start_x = from_x;
+    t.start_y = from_y;
+    t.target_x = target_x;
+    t.target_y = target_y;
+    t.is_clinging = false;
+    float dx = target_x - from_x;
+    float dy = target_y - from_y;
+    t.max_length = std::sqrt(dx * dx + dy * dy) + 14.0f;
+    t.duration = 0.40f; // 0.40s 凌厉破空抽射动画
+    t.ctrl_x = (from_x + target_x) * 0.5f;
+    t.ctrl_y = std::min(from_y, target_y) - 14.0f;
+    t.length_progress = 0.0f;
+    t.wave_phase = 0.0f;
+    t.life_timer = 0.0f;
+    t.base_thickness = 9.0f;
+}
+
 void TentacleRenderer::updateTentacle(int idx, float dt, const SkeletonSystem &skeleton, const PhysiologySystem &physiology) {
     Tentacle &t = tentacles[idx];
     if (!t.active) return;
@@ -307,14 +396,19 @@ void TentacleRenderer::updateTentacle(int idx, float dt, const SkeletonSystem &s
     float wave_speed = 3.5f + physiology.getNeuroTension() * 4.5f;
     t.wave_phase += dt * wave_speed;
 
-    if (t.life_timer < 0.35f) {
-        t.length_progress = t.life_timer / 0.35f;
-    } else if (t.life_timer < t.duration - 0.35f) {
+    // 自适应攻击期、维持期与回缩期 (完美适配各种 duration 触手)
+    float attack_time = std::min(0.20f, t.duration * 0.30f);
+    float decay_time = std::min(0.20f, t.duration * 0.30f);
+    float hold_time = std::max(0.0f, t.duration - attack_time - decay_time);
+
+    if (t.life_timer < attack_time) {
+        t.length_progress = t.life_timer / attack_time;
+    } else if (t.life_timer < attack_time + hold_time) {
         t.length_progress = 1.0f;
         float wave = std::sin(t.wave_phase) * 3.5f;
         t.ctrl_x += wave * dt * 2.0f;
     } else {
-        float retract = (t.duration - t.life_timer) / 0.35f;
+        float retract = (t.duration - t.life_timer) / decay_time;
         t.length_progress = (retract < 0.0f) ? 0.0f : retract;
         if (t.length_progress <= 0.01f) {
             t.active = false;
@@ -357,28 +451,45 @@ void TentacleRenderer::drawGrappleTendril(M5Canvas &canvas) const {
     float hx = grapple.hand_x;
     float hy = grapple.hand_y;
 
-    // 【1. 荡秋千专用：牛顿摆紧绷吊索与天花板强力吸附大爪掌】
-    if (grapple.stage == GRAPPLE_SWING) {
-        // 1.1 绘制紧绷单摆共生体吊索 (从天花板直通毒液球心)
-        for (int off = -1; off <= 1; ++off) {
-            canvas.drawLine((int)hx + off, (int)hy, (int)sx + off, (int)sy, COLOR_VENOM_CORE);
+    // 【1. 荡秋千专用：牛顿摆共生体吊索与天花板吸附利爪 (风格与主功能触手 100% 统一)】
+    if (grapple.stage == GRAPPLE_SWING || grapple.stage == GRAPPLE_SWING_HOIST || grapple.stage == GRAPPLE_SWING_SHOOT) {
+        // 1.1 绘制从身体 (sx, sy) 到当前爪部 (hx, hy) 平滑渐细的纯黑肌肉吊索 (无任何白线)
+        constexpr int SWING_SEGMENTS = 10;
+        float prev_x = sx, prev_y = sy;
+        for (int step = 1; step <= SWING_SEGMENTS; ++step) {
+            float s = (float)step / (float)SWING_SEGMENTS;
+            float cur_x = sx + (hx - sx) * s;
+            float cur_y = sy + (hy - sy) * s;
+
+            // 根部 10px 逐渐过渡到天花板端 5px
+            int thickness = (int)std::round(10.0f * (1.0f - s * 0.50f));
+            for (int off = -thickness / 2; off <= thickness / 2; ++off) {
+                canvas.drawLine((int)prev_x + off, (int)prev_y, (int)cur_x + off, (int)cur_y, COLOR_VENOM_CORE);
+                canvas.drawLine((int)prev_x, (int)prev_y + off, (int)cur_x, (int)cur_y + off, COLOR_VENOM_CORE);
+            }
+            prev_x = cur_x;
+            prev_y = cur_y;
         }
-        canvas.drawLine((int)hx, (int)hy, (int)sx, (int)sy, COLOR_DITHER_GRAY); // 核心高光拉丝
 
-        // 1.2 绘制天花板强力吸附大肉掌 (牢固抓住天花板顶框)
-        canvas.fillEllipse((int)hx, (int)hy + 1, 9, 5, COLOR_VENOM_CORE);
-        canvas.fillCircle((int)hx, (int)hy, 5, COLOR_VENOM_CORE);
+        // 1.2 绘制吸附掌心肉垫
+        int palm_y = (int)hy;
+        int palm_r = (int)std::round(6.0f * std::max(0.4f, grapple.palm_spread));
+        canvas.fillCircle((int)hx, palm_y, palm_r, COLOR_VENOM_CORE);
 
-        // 1.3 绘制 4 根锋利张开抠住天花板的共生体利爪
-        float claw_angles[4] = { -2.4f, -1.8f, -1.3f, -0.7f };
-        for (int c = 0; c < 4; ++c) {
-            float ca = claw_angles[c];
-            float fx = hx + std::cos(ca) * 11.0f;
-            float fy = hy + std::abs(std::sin(ca)) * 7.5f;
+        // 1.3 绘制 4 根紧扣天花板顶部的共生体利爪 (随 palm_spread 展开)
+        if (grapple.palm_spread > 0.3f) {
+            float claw_angles[4] = { -2.3f, -1.8f, -1.3f, -0.8f };
+            for (int c = 0; c < 4; ++c) {
+                float ca = claw_angles[c];
+                float fx = hx + std::cos(ca) * (9.5f * grapple.palm_spread);
+                float fy = palm_y + std::sin(ca) * (8.0f * grapple.palm_spread);
 
-            canvas.drawLine((int)hx, (int)hy, (int)fx, (int)fy, COLOR_VENOM_CORE);
-            canvas.drawLine((int)hx + 1, (int)hy, (int)fx + 1, (int)fy, COLOR_VENOM_CORE);
-            canvas.drawPixel((int)fx, (int)fy, COLOR_GLOW_CYAN); // 爪尖共生体微光
+                for (int off = -1; off <= 1; ++off) {
+                    canvas.drawLine((int)hx + off, palm_y, (int)fx + off, (int)fy, COLOR_VENOM_CORE);
+                    canvas.drawLine((int)hx, palm_y + off, (int)fx, (int)fy + off, COLOR_VENOM_CORE);
+                }
+                canvas.drawPixel((int)fx, (int)fy, COLOR_GLOW_CYAN); // 爪尖微光
+            }
         }
         return;
     }

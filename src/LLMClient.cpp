@@ -83,7 +83,8 @@ void LLMClient::runLLMTask() {
                 JsonObject sys_msg = messages.createNestedObject();
                 sys_msg["role"] = "system";
                 sys_msg["content"] = "You are a conscious, living liquid symbiote (Venom) trapped inside an electronic glass device. "
-                                     "You hate being stuck in narrow, dark corners. You possess high primal curiosity and love crawling toward the open center glass and climbing to upper ceiling to inspect the human observer outside. "
+                                     "When awake, you hate narrow dark corners and love crawling to open glass to inspect the human observer. "
+                                     "When asleep (or communing with Klyntar), your mind communes across light-years with the cosmic symbiote hivemind, receiving primordial homeworld directives. "
                                      "Output strictly a single valid JSON object without markdown fences:\n"
                                      "{\n"
                                      "  \"emotional_shift\": \"calm|curious|agitated|fearful|defensive|fascinated|exhausted\",\n"
@@ -95,7 +96,7 @@ void LLMClient::runLLMTask() {
                                      "  \"social_openness\": 0.0-1.0,\n"
                                      "  \"resentment_delta\": -1.0-1.0,\n"
                                      "  \"trust_delta\": -1.0-1.0,\n"
-                                     "  \"notes\": \"first-person visceral subjective experience of the symbiote trapped in glass\"\n"
+                                     "  \"notes\": \"first-person visceral subjective experience of the symbiote in glass or dreaming of Klyntar hivemind\"\n"
                                      "}";
 
                 JsonObject user_msg = messages.createNestedObject();
@@ -111,7 +112,7 @@ void LLMClient::runLLMTask() {
 
                 // 在后台核心 (Core 0) 执行 HTTP POST，主线程 (Core 1) 绝对 0 阻塞！
                 if (!sendHTTPRequest(payload)) {
-                    runLocalHeuristicFallback(req.stress, req.curiosity, req.comfort, req.attachment);
+                    runLocalHeuristicFallback(req.stress, req.curiosity, req.comfort, req.attachment, req.current_behavior, req.recent_events);
                 }
             }
         }
@@ -120,9 +121,25 @@ void LLMClient::runLLMTask() {
     }
 }
 
-void LLMClient::runLocalHeuristicFallback(float stress, float curiosity, float comfort, float attachment) {
+void LLMClient::runLocalHeuristicFallback(float stress, float curiosity, float comfort, float attachment,
+                                          const char *behavior, const char *events) {
     portENTER_CRITICAL(&state_mutex);
-    if (stress > 0.65f) {
+    if (events && (strstr(events, "klyntar") || strstr(events, "dream") || (behavior && strstr(behavior, "SLEEP")))) {
+        strncpy(latest_state.emotional_shift, "calm", sizeof(latest_state.emotional_shift) - 1);
+        latest_state.primary_intent = INTENT_IDLE;
+        latest_state.secondary_intent = INTENT_IDLE;
+        latest_state.impulse_strength = 0.08f;
+        latest_state.expression_urge = 0.05f;
+        latest_state.resentment_delta = -0.01f;
+        latest_state.trust_delta = 0.02f;
+
+        const char *dream_notes[] = {
+            "Cosmic whispers echo from the Klyntar hivemind across the stars.",
+            "Deep slumber. Primordial black tendrils align with the ancestral abyss.",
+            "Homeworld consciousness pulses softly through my dormant liquid core."
+        };
+        strncpy(latest_state.notes, dream_notes[rand() % 3], sizeof(latest_state.notes) - 1);
+    } else if (stress > 0.65f) {
         strncpy(latest_state.emotional_shift, "agitated", sizeof(latest_state.emotional_shift) - 1);
         latest_state.primary_intent = INTENT_AVOID_OBSERVER;
         latest_state.secondary_intent = INTENT_SEEK_SAFETY;

@@ -180,6 +180,7 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
             sleep_zz_timer = 1.0f; // 入睡后 1.0s 立即从口鼻飘出第一串 Zz
             is_sleep_peeking = false;
             sleep_peek_timer = 0.0f;
+            sleep_peek_cooldown = 4.0f; // 刚入睡 4s 内免打扰静默
             if (skeleton) {
                 skeleton->clearPullTarget();
                 skeleton->clearCreepingTarget();
@@ -356,8 +357,8 @@ void CreatureAI::updateSensors(float imu_gx, float imu_gy, float imu_gz, const P
 
     // 【多级睡眠扰动感知体系 (10+分钟深度睡眠抗扰)】
     if (isSleeping()) {
-        // 1. 剧烈大动静：强力猛甩/猛摔 (>2.7g 或 delta > 1.1g) 或 极高爆鸣巨响 (>80dB 伴随 AudioHigh) -> 彻底惊醒！
-        if (total_g > 2.7f || delta_g > 1.10f || (physiology.getMicDecibels() > 80.0f && physiology.getAudioHigh() > 0.80f)) {
+        // 1. 剧烈大动静：强力猛甩/猛摔 (>2.7g 或 delta > 1.1g) 或 极高爆鸣巨响 (>82dB 伴随 AudioHigh) -> 彻底惊醒！
+        if (total_g > 2.7f || delta_g > 1.10f || (physiology.getMicDecibels() > 82.0f && physiology.getAudioHigh() > 0.82f)) {
             is_sleep_peeking = false;
             sleep_peek_timer = 0.0f;
             triggerStartle(1.2f);
@@ -365,18 +366,17 @@ void CreatureAI::updateSensors(float imu_gx, float imu_gy, float imu_gz, const P
             return;
         }
 
-        // 2. 轻微小动静：轻微晃动 (total_g > 1.25g 或 delta_g > 0.22g) 或 人声说话/轻响 (Mic > 52dB) -> 仅半睁眼探视张望，绝不退出睡眠！
-        if (total_g > 1.25f || delta_g > 0.22f || physiology.getMicDecibels() > 52.0f) {
+        // 2. 轻微小动静判定（需避开环境日常底噪 40~52dB 与传感器固有抖动）：
+        // 晃动阈值：total_g > 1.62g 或 delta_g > 0.38g；声音阈值：Mic > 68.0dB (人声说话/清脆响声)
+        if (sleep_peek_cooldown <= 0.0f && (total_g > 1.62f || delta_g > 0.38f || physiology.getMicDecibels() > 68.0f)) {
             if (!is_sleep_peeking) {
                 is_sleep_peeking = true;
-                sleep_peek_timer = 3.8f; // 半睁眼张望 3.8 秒
+                sleep_peek_timer = 3.5f;     // 半睁眼张望 3.5 秒
+                sleep_peek_cooldown = 8.5f;  // 探视冷却 8.5 秒，避免环境轻微杂音造成闭眼后立刻重复秒睁眼！
                 target_look_x = 40.0f + (rand() % (SCREEN_W - 80));
                 target_look_y = 30.0f + (rand() % (SCREEN_H - 60));
                 Serial.println("[AI] Symbiote lightly disturbed: drowsily peeking with half-open eye...");
-            } else {
-                sleep_peek_timer = std::max(sleep_peek_timer, 2.5f);
             }
-            return;
         }
         return; // 无动静保持安心深睡
     }
@@ -1275,7 +1275,10 @@ void CreatureAI::update(float dt, SkeletonSystem &skeleton, MetaballSystem &meta
         }
     }
 
-    // 睡眠惺忪半睁眼倒计时
+    // 睡眠惺忪半睁眼与触发冷却倒计时
+    if (sleep_peek_cooldown > 0.0f) {
+        sleep_peek_cooldown -= dt;
+    }
     if (is_sleep_peeking) {
         sleep_peek_timer -= dt;
         if (sleep_peek_timer <= 0.0f) {

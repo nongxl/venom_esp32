@@ -133,6 +133,7 @@ private:
     float sleep_zz_timer = 0.0f;
     bool is_sleep_peeking = false;
     float sleep_peek_timer = 0.0f;
+    float sleep_peek_cooldown = 0.0f;
 
     float startle_energy = 0.0f;
     SymbioteBall symbiote_ball;

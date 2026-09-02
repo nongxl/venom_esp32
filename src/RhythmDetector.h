@@ -15,8 +15,8 @@ public:
     unsigned long getMimicIntervalMs() const { return mimic_interval_ms; }
     void consumeMimicEvent() { ready_to_mimic = false; }
 
-    // 音乐规律律动感知
-    bool isMusicPlaying() const { return music_confidence >= 0.65f; }
+    // 音乐规律律动感知 (置信度 >= 0.85 且连续 4 拍等间隔严谨验证)
+    bool isMusicPlaying() const { return music_confidence >= 0.85f; }
     float getMusicConfidence() const { return music_confidence; }
     float getDetectedBPM() const;
     float getBeatPhase() const { return beat_phase; }

@@ -62,16 +62,23 @@ void RhythmDetector::evaluateTapPattern() {
 
 void RhythmDetector::feedAudioBeat(float low_band_energy, float mid_band_energy, float total_db, unsigned long now_ms) {
     // 追踪低频基线能量
-    rolling_bass_avg = rolling_bass_avg * 0.90f + low_band_energy * 0.10f;
+    rolling_bass_avg = rolling_bass_avg * 0.92f + low_band_energy * 0.08f;
     if (rolling_bass_avg < 0.04f) rolling_bass_avg = 0.04f;
 
-    // 重音判断：低频能量高于滑动均值 38% 且分贝大于 45dB
-    float threshold = rolling_bass_avg * 1.38f + 0.10f;
-    bool is_onset = (low_band_energy > threshold) && (total_db > 45.0f);
+    // 超时重置节拍序列 (超过 1300ms 无新鼓点，重置计数)
+    if (last_beat_time > 0 && (now_ms - last_beat_time > 1300)) {
+        beat_count = 0;
+    }
+
+    // 严谨音乐重音判断：
+    // 1. 环境总音量必须达到 55.0dB (避开人声低语与环境底噪)
+    // 2. 低频鼓点能量必须显著跃升 (> 均值 60% 且绝对值 > 0.28)
+    float threshold = rolling_bass_avg * 1.60f + 0.16f;
+    bool is_onset = (low_band_energy > threshold) && (low_band_energy > 0.28f) && (total_db > 55.0f);
 
     if (is_onset) {
-        if (last_beat_time == 0 || (now_ms - last_beat_time >= 220)) {
-            // 记录有效鼓点 (最小去抖 220ms，对应最大 270 BPM)
+        if (last_beat_time == 0 || (now_ms - last_beat_time >= 260)) {
+            // 记录有效鼓点 (最小去抖 260ms，对应最大 230 BPM)
             if (beat_count < 6) {
                 beat_history[beat_count++] = now_ms;
             } else {
@@ -86,43 +93,49 @@ void RhythmDetector::feedAudioBeat(float low_band_energy, float mid_band_energy,
 }
 
 void RhythmDetector::evaluateMusicBeats() {
-    if (beat_count < 4) return;
+    // 必须捕获至少 5 个连续鼓点（即 4 个连续时间间隔 IBI）
+    if (beat_count < 5) return;
 
-    // 计算最近连续 3 个拍子时间差
-    unsigned long intervals[3];
-    int count = 0;
-    for (int i = beat_count - 1; i >= beat_count - 3 && i > 0; --i) {
-        intervals[count++] = beat_history[i] - beat_history[i - 1];
+    // 提取最近连续 4 个节拍时间差
+    unsigned long intervals[4];
+    unsigned long sum_intervals = 0;
+    for (int i = 0; i < 4; ++i) {
+        int idx = beat_count - 1 - i;
+        intervals[i] = beat_history[idx] - beat_history[idx - 1];
+        sum_intervals += intervals[i];
     }
 
-    // 检查拍子间隔是否落在常见音乐速度 (240ms ~ 1100ms 对应 55 ~ 250 BPM)
-    bool all_valid = true;
-    for (int i = 0; i < count; ++i) {
-        if (intervals[i] < 240 || intervals[i] > 1100) {
-            all_valid = false;
-            break;
-        }
-    }
-
-    if (all_valid && count >= 2) {
-        float r1 = (float)intervals[0] / (float)intervals[1];
-        // 允许标准拍 (1:1) 或切分双倍拍 (1:2 / 2:1)
-        bool is_steady = (r1 >= 0.78f && r1 <= 1.28f) || (r1 >= 1.75f && r1 <= 2.30f) || (r1 >= 0.42f && r1 <= 0.58f);
-
-        if (is_steady) {
-            music_confidence = std::min(1.0f, music_confidence + 0.38f);
-            avg_beat_interval_ms = (intervals[0] + intervals[1]) / 2;
-            if (avg_beat_interval_ms > 1000) avg_beat_interval_ms /= 2;
-
-            if (music_confidence >= 0.65f && note_trigger_cooldown <= 0.0f) {
-                pending_music_note = true;
-                note_trigger_cooldown = 4.0f + (rand() % 25) * 0.1f; // 每 4.0~6.5 秒喷出一个音乐符号
-            }
+    // 1. 速度区间检查：严格限定在标准音乐常见速度 (280ms ~ 850ms 对应 70 ~ 214 BPM)
+    for (int i = 0; i < 4; ++i) {
+        if (intervals[i] < 280 || intervals[i] > 850) {
+            music_confidence = std::max(0.0f, music_confidence - 0.30f);
             return;
         }
     }
 
-    music_confidence = std::max(0.0f, music_confidence - 0.12f);
+    // 2. 4 拍等间隔严谨性检验 (四分音符/八分音符稳定节奏)：
+    // 计算平均拍子间隔与最大偏离度，最大偏离必须 <= 平均值的 12% (严禁人声杂音误触发！)
+    float avg_ibi = (float)sum_intervals / 4.0f;
+    float max_dev = 0.0f;
+    for (int i = 0; i < 4; ++i) {
+        float dev = std::abs((float)intervals[i] - avg_ibi);
+        if (dev > max_dev) max_dev = dev;
+    }
+
+    if (max_dev <= avg_ibi * 0.12f) {
+        // 连续 4 拍高度吻合音乐节拍律动！置信度大幅攀升
+        music_confidence = std::min(1.0f, music_confidence + 0.35f);
+        avg_beat_interval_ms = (unsigned long)avg_ibi;
+
+        // 仅当高置信度 (>=0.88) 且冷却完毕时，才由身体表皮破空喷出音符
+        if (music_confidence >= 0.88f && note_trigger_cooldown <= 0.0f) {
+            pending_music_note = true;
+            note_trigger_cooldown = 7.0f + (rand() % 30) * 0.1f; // 音乐播放期间每 7.0~10.0 秒优雅吐出一枚音符
+        }
+    } else {
+        // 拍子不规律（如人声说话或环境偶发噪声），置信度迅速衰减
+        music_confidence = std::max(0.0f, music_confidence - 0.25f);
+    }
 }
 
 void RhythmDetector::update(float dt, float imu_shake, float audio_high) {
@@ -131,9 +144,10 @@ void RhythmDetector::update(float dt, float imu_shake, float audio_high) {
         note_trigger_cooldown -= dt;
     }
 
-    // 音乐置信度自然缓慢衰减
-    if (millis() - last_beat_time > 1800) {
-        music_confidence = std::max(0.0f, music_confidence - dt * 0.35f);
+    // 音乐停播后置信度迅速归零 (1.4s 内完全衰减)
+    if (millis() - last_beat_time > 1300) {
+        music_confidence = std::max(0.0f, music_confidence - dt * 0.65f);
+        beat_count = 0;
     }
 
     // 律动相位更新 (随检测到的 BPM 周期 0.0 ~ 1.0 循环，用于身体弹性起伏)

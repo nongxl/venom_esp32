@@ -283,6 +283,9 @@ static void processAudioBands() {
 
             physiology.feedSpectrumBands(bands[0], bands[1], bands[2], bands[3], bands[4]);
             physiology.feedMicDecibels(smoothed_mic_db);
+
+            // 8. 实时将低频重音与声能注入节拍周期追踪器 (Beat Tracker)
+            rhythm.feedAudioBeat(bands[0] * 0.70f + bands[1] * 0.30f, bands[2], smoothed_mic_db, millis());
         }
     }
 }
@@ -395,33 +398,58 @@ void loop() {
         dizzy_shake_meter += dt * (2.0f + dynamic_g * 3.8f);
     }
 
-    // 甩飞物理 (保护：荡秋千与倒挂等悬挂玩耍模式下不打断)
+    // 甩飞物理 (支持用力甩动手腕将毒液从屏幕一边啪嗒甩到另一边，彻底挣脱抓力)
     if (ai.getState() != STATE_SWING && ai.getState() != STATE_BAT_HANG) {
-        if (dynamic_g > 0.40f && (millis() - last_sling_time_ms > 350)) {
+        if (dynamic_g > 0.35f && (millis() - last_sling_time_ms > 280)) {
             last_sling_time_ms = millis();
             dizzy_shake_meter += 1.35f; // 每次猛烈甩飞累加晕眩值
 
-            // 确定甩掷方向: 横屏模式下向右甩动 raw_ax < 0 -> dir_x > 0; 向上甩动 raw_ay < 0 -> dir_y < 0
-            float dir_x = -raw_ax;
-            float dir_y = raw_ay;
-            float dir_len = std::sqrt(dir_x * dir_x + dir_y * dir_y);
+            float hx, hy;
+            skeleton.getHeadPos(hx, hy);
 
-            if (dir_len > 0.12f) {
-                dir_x /= dir_len;
-                dir_y /= dir_len;
-            } else {
-                dir_x = (rand() % 2 == 0) ? 1.0f : -1.0f;
+            // 真实物理惯性抛射方向：
+            // 甩动手腕急停刹车瞬间，加速度计产生反向制动加速度：
+            // 1. 向下甩动急停时 raw_ay < 0 -> 惯性向前冲到底边 (dir_y = +1.0)
+            // 2. 向上甩动急停时 raw_ay > 0 -> 惯性向前冲到顶边 (dir_y = -1.0)
+            // 3. 向右甩动急停时 raw_ax > 0 -> 惯性向前冲到右壁 (dir_x = +1.0)
+            // 4. 向左甩动急停时 raw_ax < 0 -> 惯性向前冲到左壁 (dir_x = -1.0)
+            float dir_x = 0.0f;
+            float dir_y = 0.0f;
+
+            if (std::abs(raw_ax) > std::abs(raw_ay)) {
+                // 水平甩动为主
+                if (std::abs(raw_ax) > 0.18f) {
+                    dir_x = (raw_ax > 0) ? 1.0f : -1.0f;
+                } else {
+                    dir_x = (hx < (float)SCREEN_W * 0.5f) ? 1.0f : -1.0f;
+                }
                 dir_y = 0.0f;
+            } else {
+                // 垂直甩动为主
+                if (std::abs(raw_ay) > 0.18f) {
+                    dir_y = (raw_ay < 0) ? 1.0f : -1.0f;
+                } else {
+                    dir_y = (hy < (float)SCREEN_H * 0.5f) ? 1.0f : -1.0f;
+                }
+                dir_x = 0.0f;
             }
 
-            // 初速度 46.0 ~ 68.0 px/s (极速横跨屏幕直冲边界！)
-            float throw_speed = 46.0f + dynamic_g * 18.0f;
-            if (throw_speed > 68.0f) throw_speed = 68.0f;
+            // 归一化
+            float dir_len = std::sqrt(dir_x * dir_x + dir_y * dir_y);
+            if (dir_len > 0.01f) {
+                dir_x /= dir_len;
+                dir_y /= dir_len;
+            }
+
+            // 初速度 180.0 ~ 250.0 px/s (极速破空横跨屏幕直冲对向边界！)
+            float throw_speed = 180.0f + dynamic_g * 50.0f;
+            if (throw_speed > 250.0f) throw_speed = 250.0f;
 
             skeleton.triggerSlingThrow(dir_x, dir_y, throw_speed);
-            tentacles.reset(); // 打断爪盘与触手
-            predator.cancelHunt(&skeleton); // 打断捕食，防残留死锁
-            ai.triggerStartle(1.5f); // 受到惊吓，紧缩硬化飞行
+            tentacles.setCreepMode(false); // 彻底收回爪子
+            tentacles.reset();             // 打断爪盘与触手
+            predator.cancelHunt(&skeleton, &prey_bugs); // 打断捕食并释放活虫，防残留死锁
+            ai.triggerStartle(1.5f);       // 受到惊吓，紧缩硬化飞行
             haptics.trigger(HAPTIC_SLING); // 甩飞轻盈离手感
         }
     }
@@ -436,7 +464,8 @@ void loop() {
         float sym_x = std::max(25.0f, std::min((float)SCREEN_W - 35.0f, hx));
         float sym_y = std::max(28.0f, std::min((float)SCREEN_H - 25.0f, hy - 18.0f));
 
-        fluid_symbols.trigger("dizzy", sym_x, sym_y);
+        fluid_symbols.trigger("dizzy", sym_x, sym_y, hx, hy);
+        skeleton.triggerLocalBleb(0, 1.6f); // 吐出蚊香圈时头部流体喷吐动效
         ai.triggerStartle(1.2f);
         haptics.trigger(HAPTIC_TICK);
         Serial.println(">>> [SHAKE] Device shaken excessively! Spat out DIZZY (mosquito-coil) symbol! <<<");
@@ -515,9 +544,7 @@ void loop() {
 
     if (btn_a_pressed) {
         ai.triggerJolt(skeleton, metaballs, 1.2f);
-        haptics.trigger(HAPTIC_JOLT_DOUBLE); // 受惊双连微颤
-        llm.requestConsciousnessUpdate(physiology.getEnergy(), 0.9f, 0.8f, 0.1f,
-                                       physiology.getAttachment(), "JOLT", "poked_by_human", true);
+        haptics.trigger(HAPTIC_JOLT_DOUBLE); // 受惊双连微颤 (由本地生理与本能系统即时响应，不消耗 LLM 额度)
     }
 
     if (M5.BtnB.wasClicked()) {
@@ -568,9 +595,9 @@ void loop() {
         }
     }
 
-    // 5. LLM 意识系统异步请求与意图更新 (常态 180s 周期；睡眠中保持 90s 低频母星蜂巢意识深度同调)
+    // 5. LLM 意识系统超低频异步请求与意图更新 (清醒 7 分钟 / 睡眠 12 分钟超长间隔，彻底避免触发 API 控频)
     bool is_sleeping = ai.isSleeping();
-    unsigned long llm_interval = is_sleeping ? 90000 : 180000;
+    unsigned long llm_interval = is_sleeping ? 720000 : 420000; // 睡时 12 分钟，清醒时 7 分钟
     if (millis() - last_llm_request_ms >= llm_interval) {
         last_llm_request_ms = millis();
         const char *stimulus = is_sleeping ? "klyntar_hivemind_communion" : ((total_g_shake > 0.4f) ? "shake" : "calm");
@@ -593,10 +620,23 @@ void loop() {
     expression.update(dt, v3_state, physiology, relationship, rhythm, fluid_symbols, skeleton, is_upside_down);
     fluid_symbols.update(dt);
 
-    // 8. 毒液爬行头部物理擦除/重吸收墨迹
+    // 8. 毒液头部物理坐标与流体墨迹擦除
     float hx, hy;
     skeleton.getHeadPos(hx, hy);
     fluid_symbols.wipePoints(hx, hy, 22.0f);
+
+    // 7.1 音乐规律节拍感知与流体水墨音符喷射 (♪ / ♫)
+    if (rhythm.checkAndConsumeMusicNoteEvent() && !fluid_symbols.hasActiveSymbol() && !is_sleeping) {
+        float sym_x = (hx < SCREEN_W * 0.5f) ? (hx + 30.0f + (rand() % 20)) : (hx - 30.0f - (rand() % 20));
+        sym_x = std::max(25.0f, std::min((float)SCREEN_W - 25.0f, sym_x));
+        float sym_y = (hy > 60.0f) ? (hy - 32.0f) : (hy + 28.0f);
+        sym_y = std::max(22.0f, std::min((float)SCREEN_H - 22.0f, sym_y));
+
+        const char *note_type = (rand() % 2 == 0) ? "music" : "music_double";
+        fluid_symbols.trigger(note_type, sym_x, sym_y, hx, hy);
+        skeleton.triggerLocalBleb(0, 1.4f); // 吐出音符时头部微喷动效
+        haptics.trigger(HAPTIC_TICK);
+    }
 
     // 8.1 活体小虫子生态与捕食进食系统更新 (睡觉时绝对停止捕食)
     prey_bugs.update(dt, hx, hy);
@@ -606,21 +646,28 @@ void loop() {
     ai.updateSensors(raw_ax, raw_ay, raw_az, physiology, btn_a_pressed);
     ai.update(dt, skeleton, metaballs, tentacles, physiology, relationship, expression, v3_state, &prey_bugs, &fluid_symbols);
 
-    // 10. 骨架动力学更新 (注入低频重音脉动与节拍鼓包)
+    // 10. 骨架动力学更新 (注入低频重音脉动、节拍鼓包与音乐听歌点头律动)
     float crawl_bx, crawl_by;
     ai.getCrawlBias(crawl_bx, crawl_by);
     float spec_bands[5];
     for (int b = 0; b < 5; ++b) spec_bands[b] = physiology.getSmoothedSpectrumBand(b);
+
+    float dynamic_resp = ai.getRespiration();
+    if (rhythm.isMusicPlaying() && !is_sleeping) {
+        // 随音乐节拍相位产生自然弹性的听歌点头律动 (Head-bobbing Groove)
+        dynamic_resp += std::sin(rhythm.getBeatPhase() * 6.28318f) * 0.12f;
+    }
+
     skeleton.update(dt, gx, gy, crawl_bx, crawl_by,
                     physiology.getNeuroTension(), physiology.getSpikeIntensity(),
-                    ai.getRespiration(), is_upside_down,
+                    dynamic_resp, is_upside_down,
                     spec_bands);
 
     // 10.1 撞击“啪嗒”事件检测与触觉/飞溅联动 (Sticky Splat Feedback)
     float imp_spd, hit_x, hit_y;
     if (skeleton.checkAndConsumeImpactEvent(imp_spd, hit_x, hit_y)) {
         if (ai.getState() != STATE_SWING && ai.getState() != STATE_BAT_HANG) {
-            // “啪嗒”拍在玻璃上的渐弱软泥微震反馈 (绝不震手手麻)
+            // “啪嗒”拍在玻璃上的黏性软泥微震反馈
             haptics.trigger(HAPTIC_SPLAT);
             // 瞬间向外爆射 6 根应力尖刺
             metaballs.triggerSpikeBurst(6, 1.35f);
@@ -630,9 +677,6 @@ void loop() {
                 float sp_vy = ((rand() % 80) - 40) * 0.08f;
                 metaballs.spawnDroplet(hit_x + sp_vx * 2.0f, hit_y + sp_vy * 2.0f, sp_vx, sp_vy, 2.5f, true);
             }
-
-            // 撞击贴壁后瞬间激发狂暴反弹爬行，立刻射出触手向开阔地带挣脱爬行！
-            ai.triggerReactiveCrawl(skeleton, tentacles);
         }
     }
 

@@ -162,7 +162,7 @@ private:
     void updateJolting(float dt, float hx, float hy, const PhysiologySystem &physiology);
     void updateExpressing(float dt, float hx, float hy, const ExpressionLayer &expression);
     void updateSwing(float dt, float hx, float hy, SkeletonSystem &skeleton, TentacleRenderer &tentacles);
-    void updateCatchDust(float dt, float hx, float hy, SkeletonSystem &skeleton, TentacleRenderer &tentacles, ExpressionLayer &expression, PhysiologySystem &physiology, const PreyBugSystem *bugs = nullptr, FluidSymbolSystem *fluid_symbols = nullptr);
+    void updateCatchDust(float dt, float hx, float hy, SkeletonSystem &skeleton, TentacleRenderer &tentacles, ExpressionLayer &expression, PhysiologySystem &physiology, MetaballSystem *metaballs = nullptr, const PreyBugSystem *bugs = nullptr, FluidSymbolSystem *fluid_symbols = nullptr);
     void updateRoll(float dt, float hx, float hy, SkeletonSystem &skeleton, ExpressionLayer &expression, PhysiologySystem &physiology, MetaballSystem *metaballs = nullptr);
     void updateBounce(float dt, float hx, float hy, SkeletonSystem &skeleton, MetaballSystem &metaballs, PhysiologySystem &physiology, ExpressionLayer &expression);
     void updateBatHang(float dt, float hx, float hy, SkeletonSystem &skeleton, TentacleRenderer &tentacles, PhysiologySystem &physiology, FluidSymbolSystem *fluid_symbols = nullptr);

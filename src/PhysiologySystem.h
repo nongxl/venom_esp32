@@ -39,8 +39,8 @@ public:
         updateEmotionState();
     }
 
-    // 捕食进食补充
-    void feed(float energy_amount = 0.30f) {
+    // 捕食进食补充 (适度补充 0.16，避免体力过度溢出而永远不困)
+    void feed(float energy_amount = 0.16f) {
         energy = std::min(1.0f, energy + energy_amount);
         comfort = std::min(1.0f, comfort + 0.20f);
         stress = std::max(0.0f, stress - 0.15f);

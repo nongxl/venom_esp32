@@ -43,14 +43,16 @@ void EyeSystem::updateBlinking(float dt, bool is_sleep, bool is_sleep_peek, Emot
         } else if (blink_phase < 2.0f) {
             eyelid_close = 2.0f - blink_phase;
         } else {
-            eyelid_close = 0.0f;
+        eyelid_close = 0.0f;
             is_blinking = false;
             blink_timer = 0.0f;
             float base_int = (emotion == EMOTION_STRESS) ? 1.5f : ((emotion == EMOTION_CURIOSITY) ? 4.5f : 3.0f);
             next_blink_interval = base_int + (rand() % 150) * 0.01f;
         }
     } else {
-        eyelid_close = eyelid_close * 0.65f;
+        // 疲惫/困倦时眼皮自然下垂耷拉 (Droopy Eyelid, 40% 耷拉)
+        float resting_eyelid = (emotion == EMOTION_EXHAUSTED) ? 0.40f : 0.0f;
+        eyelid_close = eyelid_close * 0.70f + resting_eyelid * 0.30f;
         if (eyelid_close < 0.02f) eyelid_close = 0.0f;
         blink_timer += dt;
         if (blink_timer >= next_blink_interval) {

@@ -13,7 +13,7 @@ void PreyBugSystem::init() {
         bugs[i].active = false;
         bugs[i].state = BUG_DEAD;
     }
-    spawn_cooldown = 1.2f;
+    spawn_cooldown = 45.0f;
 }
 
 void PreyBugSystem::spawnNewBug() {
@@ -39,6 +39,10 @@ void PreyBugSystem::spawnNewBug() {
             b.state_timer = 0.0f;
             b.glow_phase = (rand() % 100) * 0.1f;
             b.snare_timer = 0.0f;
+            b.lifespan = 0.0f;
+            b.max_lifespan = 24.0f + (rand() % 160) * 0.1f; // 24~40 秒自然逗留后逃逸离场
+            b.is_escaping = false;
+            b.caught_watchdog = 0.0f;
             break;
         }
     }
@@ -47,21 +51,34 @@ void PreyBugSystem::spawnNewBug() {
 void PreyBugSystem::updateCrawler(PreyBug &b, float dt, float v_hx, float v_hy) {
     b.state_timer += dt;
     b.glow_phase += dt * 3.0f;
+    b.lifespan += dt;
+
+    if (b.lifespan >= b.max_lifespan) {
+        b.is_escaping = true;
+    }
 
     if (b.state == BUG_SNARED) {
         b.snare_timer += dt;
         b.leg_phase += dt * 25.0f; // 拼命挣扎抖腿
-        // 蛛网时效到期：虫子挣脱蛛网定身并加速逃逸，绝不在屏幕永久静止死锁！
+        // 蛛网时效到期：虫子挣脱蛛网定身并加速逃离屏幕！
         if (b.snare_timer >= b.snare_duration) {
             b.state = BUG_FREE;
             b.snare_timer = 0.0f;
-            b.current_speed = b.base_speed * 1.8f;
+            b.is_escaping = true;
+            b.current_speed = b.base_speed * 2.0f;
         }
         return;
     }
     if (b.state == BUG_CAUGHT) {
+        b.caught_watchdog += dt;
+        if (b.caught_watchdog > 2.2f) {
+            // 抓取超时防死锁看门狗：超过 2.2 秒未消化完成，自动销毁
+            b.active = false;
+            b.state = BUG_DEAD;
+        }
         return;
     }
+    b.caught_watchdog = 0.0f;
 
     // 1. 敏捷危险感知与极速逃逸闪避：如果毒液靠近或飞扑，立即惊慌蛇形逃逸！
     float dx = b.x - v_hx;
@@ -104,32 +121,52 @@ void PreyBugSystem::updateCrawler(PreyBug &b, float dt, float v_hx, float v_hy) 
     b.x += b.vx * dt;
     b.y += b.vy * dt;
 
-    // 4. 边界碰撞掉头 (内收 18px 安全边界)
-    constexpr float MARGIN = 18.0f;
-    if (b.x < MARGIN) { b.x = MARGIN; b.angle = 3.14159f - b.angle; }
-    if (b.x > SCREEN_W - MARGIN) { b.x = SCREEN_W - MARGIN; b.angle = 3.14159f - b.angle; }
-    if (b.y < MARGIN) { b.y = MARGIN; b.angle = -b.angle; }
-    if (b.y > SCREEN_H - MARGIN) { b.y = SCREEN_H - MARGIN; b.angle = -b.angle; }
+    // 4. 边界碰撞掉头 (逃逸模式下直接离开屏幕销毁)
+    if (b.is_escaping) {
+        if (b.x < -10.0f || b.x > (float)SCREEN_W + 10.0f || b.y < -10.0f || b.y > (float)SCREEN_H + 10.0f) {
+            b.active = false;
+            b.state = BUG_DEAD;
+            return;
+        }
+    } else {
+        constexpr float MARGIN = 18.0f;
+        if (b.x < MARGIN) { b.x = MARGIN; b.angle = 3.14159f - b.angle; }
+        if (b.x > SCREEN_W - MARGIN) { b.x = SCREEN_W - MARGIN; b.angle = 3.14159f - b.angle; }
+        if (b.y < MARGIN) { b.y = MARGIN; b.angle = -b.angle; }
+        if (b.y > SCREEN_H - MARGIN) { b.y = SCREEN_H - MARGIN; b.angle = -b.angle; }
+    }
 }
 
 void PreyBugSystem::updateFlyer(PreyBug &b, float dt, float v_hx, float v_hy) {
     b.state_timer += dt;
     b.wing_phase += dt * 45.0f; // 高频振翅
     b.glow_phase += dt * 4.0f;
+    b.lifespan += dt;
+
+    if (b.lifespan >= b.max_lifespan) {
+        b.is_escaping = true;
+    }
 
     if (b.state == BUG_SNARED) {
         b.snare_timer += dt;
-        // 蛛网时效到期：飞虫挣脱蛛网并加速飞走
+        // 蛛网时效到期：飞虫挣脱蛛网并加速飞出屏幕
         if (b.snare_timer >= b.snare_duration) {
             b.state = BUG_FREE;
             b.snare_timer = 0.0f;
-            b.current_speed = b.base_speed * 1.8f;
+            b.is_escaping = true;
+            b.current_speed = b.base_speed * 2.0f;
         }
         return;
     }
     if (b.state == BUG_CAUGHT) {
+        b.caught_watchdog += dt;
+        if (b.caught_watchdog > 2.2f) {
+            b.active = false;
+            b.state = BUG_DEAD;
+        }
         return;
     }
+    b.caught_watchdog = 0.0f;
 
     // 1. 飞行敏捷预警逃逸闪避
     float dx = b.x - v_hx;
@@ -165,11 +202,19 @@ void PreyBugSystem::updateFlyer(PreyBug &b, float dt, float v_hx, float v_hy) {
     b.x += b.vx * dt;
     b.y += b.vy * dt;
 
-    constexpr float MARGIN = 18.0f;
-    if (b.x < MARGIN) { b.x = MARGIN; b.angle = 3.14159f - b.angle; }
-    if (b.x > SCREEN_W - MARGIN) { b.x = SCREEN_W - MARGIN; b.angle = 3.14159f - b.angle; }
-    if (b.y < MARGIN) { b.y = MARGIN; b.angle = -b.angle; }
-    if (b.y > SCREEN_H - MARGIN) { b.y = SCREEN_H - MARGIN; b.angle = -b.angle; }
+    if (b.is_escaping) {
+        if (b.x < -10.0f || b.x > (float)SCREEN_W + 10.0f || b.y < -10.0f || b.y > (float)SCREEN_H + 10.0f) {
+            b.active = false;
+            b.state = BUG_DEAD;
+            return;
+        }
+    } else {
+        constexpr float MARGIN = 18.0f;
+        if (b.x < MARGIN) { b.x = MARGIN; b.angle = 3.14159f - b.angle; }
+        if (b.x > SCREEN_W - MARGIN) { b.x = SCREEN_W - MARGIN; b.angle = 3.14159f - b.angle; }
+        if (b.y < MARGIN) { b.y = MARGIN; b.angle = -b.angle; }
+        if (b.y > SCREEN_H - MARGIN) { b.y = SCREEN_H - MARGIN; b.angle = -b.angle; }
+    }
 }
 
 void PreyBugSystem::update(float dt, float venom_hx, float venom_hy) {
@@ -185,13 +230,12 @@ void PreyBugSystem::update(float dt, float venom_hx, float venom_hy) {
         }
     }
 
-    // 多虫动态生态刷新：场上无虫时迅速刷新 (12~18s)，场上已有 1~2 只虫时适度慢速增殖 (25~45s)
-    if (active_count < 3) {
-        float spawn_rate = (active_count == 0) ? 1.5f : ((active_count == 1) ? 0.8f : 0.4f);
-        spawn_cooldown -= dt * spawn_rate;
+    // 多虫动态生态刷新：显著降低飞虫出现频率 (60~100s 稀有偶尔刷出一只)
+    if (active_count < 2) {
+        spawn_cooldown -= dt;
         if (spawn_cooldown <= 0.0f) {
             spawnNewBug();
-            spawn_cooldown = 18.0f + (rand() % 220) * 0.1f;
+            spawn_cooldown = (active_count == 0) ? (60.0f + (rand() % 400) * 0.1f) : (120.0f + (rand() % 600) * 0.1f);
         }
     }
 }
@@ -262,6 +306,16 @@ void PreyBugSystem::catchBug(int idx, float at_x, float at_y) {
         bugs[idx].state = BUG_CAUGHT;
         bugs[idx].x = at_x;
         bugs[idx].y = at_y;
+    }
+}
+
+void PreyBugSystem::releaseBug(int idx) {
+    if (idx >= 0 && idx < MAX_BUGS && bugs[idx].active) {
+        bugs[idx].state = BUG_FREE;
+        bugs[idx].is_escaping = true; // 惊慌脱困，快速逃离屏幕
+        bugs[idx].current_speed = bugs[idx].base_speed * 2.2f;
+        bugs[idx].snare_timer = 0.0f;
+        bugs[idx].caught_watchdog = 0.0f;
     }
 }
 

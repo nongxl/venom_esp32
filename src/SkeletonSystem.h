@@ -83,6 +83,9 @@ public:
     bool isStickyToyAdhered() const { return sticky_clog_timer > 0.0f; }
     bool isFlying() const { return flying_timer > 0.0f; }
 
+    // 闪电破空猛扑/扑跃暴冲接口
+    void triggerPounce(float dir_x, float dir_y, float speed);
+
     // 撞击事件查询与消费（供外部触发马达触觉与液滴飞溅）
     bool checkAndConsumeImpactEvent(float &impact_speed, float &impact_x, float &impact_y) {
         if (impact_occurred) {
@@ -129,6 +132,7 @@ private:
 
     // 高速飞行抛体与黏性吸附状态
     float flying_timer = 0.0f;
+    float launch_grace_timer = 0.0f;        // 刚被甩出起飞瞬间的壁面防卡死冷却
     float sticky_clog_timer = 0.0f;
     float flip_cooldown = 0.0f;             // 原地调头翻身冷却，杜绝每帧高频震荡
     float creep_locomotion_phase = 0.0f;    // 尺蠖蠕动波浪相位

@@ -100,7 +100,10 @@ void PredatorSystem::updateSplatParticles(float dt) {
     }
 }
 
-void PredatorSystem::cancelHunt(SkeletonSystem *skeleton) {
+void PredatorSystem::cancelHunt(SkeletonSystem *skeleton, PreyBugSystem *bugs) {
+    if (hunt.active && hunt.target_bug_idx >= 0 && bugs) {
+        bugs->releaseBug(hunt.target_bug_idx);
+    }
     hunt.active = false;
     hunt.action = HUNT_NONE;
     hunt.phase = PHASE_IDLE;
@@ -446,6 +449,9 @@ void PredatorSystem::update(float dt, PreyBugSystem &bugs, SkeletonSystem &skele
     // 睡眠/闭眼状态下绝对停止捕食与抓虫
     if (is_sleeping) {
         if (hunt.active && hunt.phase != PHASE_DIGEST) {
+            if (hunt.target_bug_idx >= 0) {
+                bugs.releaseBug(hunt.target_bug_idx);
+            }
             hunt.active = false;
             hunt.action = HUNT_NONE;
             hunt.phase = PHASE_IDLE;

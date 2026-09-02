@@ -275,15 +275,15 @@ bool LLMClient::sendHTTPRequest(const String &json_payload) {
         backoff_until_ms = 0; // 重置退避
         Serial.printf("✅ [LLM 响应成功 200] 耗时: %lums | 模型: %s\n", elapsed_ms, model.c_str());
     } else if (http_code == 429) {
-        // 遭遇 429 限流：启动 65 秒智能退避保护
-        backoff_until_ms = millis() + 65000;
-        Serial.printf("⚠️ [LLM 限流 429 Too Many Requests] 平台并发超限！已启动 65 秒智能退避冷却，期间无缝切换本地高拟真生物心智。\n");
+        // 遭遇 429 限流：启动 5 分钟 (300 秒) 深度智能退避保护，彻底避开平台频控锁定
+        backoff_until_ms = millis() + 300000;
+        Serial.printf("⚠️ [LLM 限流 429 Too Many Requests] 触发平台频控！已启动 300 秒深度退避保护，期间无缝切换本地高拟真生物心智。\n");
     } else if (http_code == 401) {
-        // 鉴权失败：退避 120 秒
-        backoff_until_ms = millis() + 120000;
+        // 鉴权失败：退避 300 秒
+        backoff_until_ms = millis() + 300000;
         Serial.printf("❌ [LLM 鉴权失败 401 Unauthorized] API Key 无效或未授权！请长按 BtnB 进入 Web 页面检查 Key。\n");
     } else {
-        backoff_until_ms = millis() + 30000;
+        backoff_until_ms = millis() + 120000; // 失败退避 2 分钟
         Serial.printf("❌ [LLM 请求失败 HTTP %d] 耗时: %lums | URL: %s\n", http_code, elapsed_ms, url.c_str());
     }
 
@@ -298,13 +298,13 @@ void LLMClient::requestConsciousnessUpdate(float energy, float stress, float cur
                                            bool force_event) {
     unsigned long now = millis();
 
-    // 1. 如果处于退避冷却中，且不是关键强制事件，则直接忽略保护 API 配额
-    if (now < backoff_until_ms && !force_event) {
+    // 1. 如果处于退避冷却中，直接忽略以保护 API 配额与频控
+    if (now < backoff_until_ms) {
         return;
     }
 
-    // 2. 最小硬节流保护：普通请求间隔 >= 35 秒，即使强制事件间隔也必须 >= 15 秒
-    unsigned long min_interval = force_event ? 15000 : 35000;
+    // 2. 最小硬节流保护：普通请求间隔 >= 300 秒 (5分钟)，即使强制事件间隔也必须 >= 120 秒 (2分钟)
+    unsigned long min_interval = force_event ? 120000 : 300000;
     if (now - last_request_time < min_interval) {
         return;
     }

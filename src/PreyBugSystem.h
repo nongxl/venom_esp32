@@ -35,9 +35,15 @@ struct PreyBug {
     float state_timer = 0.0f;
     float glow_phase = 0.0f;
 
+    // 自然寿命与逃逸离场机制
+    float lifespan = 0.0f;
+    float max_lifespan = 35.0f;   // 活虫在场上逗留 25~45 秒后自然爬出/飞出屏幕
+    bool is_escaping = false;     // 寿命到期正在飞出屏幕销毁
+    float caught_watchdog = 0.0f; // 抓取防死锁看门狗
+
     // 定身与被抓取信息
     float snare_timer = 0.0f;
-    float snare_duration = 45.0f; // 蛛网自然挣扎脱困时限
+    float snare_duration = 20.0f; // 蛛网自然挣扎脱困时限 (缩短为 20s，防长期滞留)
 };
 
 class PreyBugSystem {
@@ -56,6 +62,7 @@ public:
     // 捕食状态干预
     void snareBug(int idx);
     void catchBug(int idx, float at_x, float at_y);
+    void releaseBug(int idx);
     void killBug(int idx);
 
     bool hasActiveBug() const;

@@ -78,7 +78,7 @@ public:
 
     // 触发自主捕食 (接收生理饥饿度与储备粮判定)
     bool tryTriggerHunt(PreyBugSystem &bugs, const SkeletonSystem &skeleton, const PhysiologySystem &physiology);
-    void cancelHunt(SkeletonSystem *skeleton = nullptr);
+    void cancelHunt(SkeletonSystem *skeleton = nullptr, PreyBugSystem *bugs = nullptr);
 
     bool isHunting() const { return hunt.active; }
     HuntAction getCurrentAction() const { return hunt.action; }

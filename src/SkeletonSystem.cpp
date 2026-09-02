@@ -100,16 +100,39 @@ void SkeletonSystem::applyImpulse(float ix, float iy) {
     }
 }
 
-// 激发干脆利落的极速甩飞抛体运动
+// 激发干脆利落的极速甩飞抛体运动 (彻底挣脱触手抓地力，闪电甩飞横跨屏幕)
 void SkeletonSystem::triggerSlingThrow(float dir_x, float dir_y, float speed) {
-    flying_timer = 0.50f; // 0.5s 高速无阻尼飞行冲刺
-    clearPullTarget();    // 立即解除任何正在进行的触手牵引！
-    clearHangingAnchor(); // 立即打断蛛丝悬挂！
+    flying_timer = 0.65f;        // 0.65s 高速无阻尼飞行冲刺
+    launch_grace_timer = 0.18f;  // 刚甩出起飞瞬间 0.18s 内不被原起飞壁阻挡
+    is_creeping_motion = false;  // 彻底剥离地表小触手抓力！
+    clearCreepingTarget();
+    clearPullTarget();           // 立即解除任何正在进行的触手牵引！
+    clearHangingAnchor();        // 立即打断蛛丝悬挂！
+    is_hanging = false;
     sticky_clog_timer = 0.0f;
 
     for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
-        nodes[i].vx = dir_x * speed;
-        nodes[i].vy = dir_y * speed;
+        nodes[i].x += dir_x * 4.0f;
+        nodes[i].y += dir_y * 4.0f;
+        float lead = (i == 0) ? 1.25f : 1.0f;
+        nodes[i].vx = dir_x * speed * lead;
+        nodes[i].vy = dir_y * speed * lead;
+    }
+}
+
+// 闪电猎食猛扑 (Explosive Predatory Pounce) - 紧绷流线型高速暴冲
+void SkeletonSystem::triggerPounce(float dir_x, float dir_y, float speed) {
+    flying_timer = 0.26f; // 0.26s 高速无阻尼直线破空突进
+    clearPullTarget();
+    clearHangingAnchor();
+    sticky_clog_timer = 0.0f;
+    is_creeping_motion = false;
+
+    // 全骨架全节点瞬间获得超高速前向破空速度 (140~175 px/s)
+    for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
+        float lead = (i == 0) ? 1.22f : ((i == 1) ? 1.10f : 1.0f);
+        nodes[i].vx = dir_x * speed * lead;
+        nodes[i].vy = dir_y * speed * lead;
     }
 }
 
@@ -142,6 +165,9 @@ void SkeletonSystem::applyWallAdhesion(int i) {
 
     // 荡秋千/倒挂悬挂状态由单摆物理约束接管，不触发贴壁撞击事件
     if (is_hanging) return;
+
+    // 刚甩出起飞的 0.18 秒保护期内，忽略原壁面约束，允许身体全速冲向开阔屏幕！
+    if (launch_grace_timer > 0.0f) return;
 
     // 1. 底部地面撞击
     float dist_b = (SCREEN_H - 1) - n.y;
@@ -537,6 +563,11 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
     if (flying_timer > 0.0f) {
         flying_timer -= dt;
         if (flying_timer < 0.0f) flying_timer = 0.0f;
+    }
+
+    if (launch_grace_timer > 0.0f) {
+        launch_grace_timer -= dt;
+        if (launch_grace_timer < 0.0f) launch_grace_timer = 0.0f;
     }
 
     if (sticky_clog_timer > 0.0f) {

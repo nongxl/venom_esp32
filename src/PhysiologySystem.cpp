@@ -80,30 +80,36 @@ void PhysiologySystem::updateInternalDynamics(float dt) {
         curiosity = std::max(0.1f, curiosity - dt * 0.15f);
     }
 
-    // 基础代谢温和消耗能量 (维持 10+ 分钟充沛精力与探索活力)
-    energy = std::max(0.05f, energy - dt * 0.0015f);
+    // 基础代谢自然消耗能量 (剧烈运动额外消耗，形成 2~4 分钟真实体力消耗闭环)
+    energy = std::max(0.05f, energy - dt * 0.0030f);
 }
 
 void PhysiologySystem::updateEmotionState() {
-    // 基于宽区间滞后门限 (Hysteresis) 的纯自然生物情绪演化 (彻底无需硬编码时间)
+    // 基于宽区间滞后门限 (Hysteresis) 的纯自然生物情绪演化
     switch (current_emotion) {
         case EMOTION_CALM:
-            if (energy < 0.20f) {
+            if (energy < 0.35f) {
                 current_emotion = EMOTION_EXHAUSTED;
             } else if (stress > 0.45f) {
                 current_emotion = (smoothed_audio_high > 0.6f || neuro_tension > 0.7f) ? EMOTION_ANGER : EMOTION_STRESS;
-            } else if (curiosity > 0.65f && comfort > 0.45f) {
+            } else if (curiosity > 0.60f && comfort > 0.40f) {
                 current_emotion = EMOTION_CURIOSITY;
             }
             break;
 
+        case EMOTION_EXHAUSTED:
+            if (energy > 0.60f) {
+                // 睡醒或精力恢复，回归平静
+                current_emotion = EMOTION_CALM;
+            }
+            break;
+
         case EMOTION_CURIOSITY:
-            if (energy < 0.20f) {
+            if (energy < 0.35f) {
                 current_emotion = EMOTION_EXHAUSTED;
             } else if (stress > 0.45f) {
                 current_emotion = EMOTION_STRESS;
             } else if (curiosity < 0.35f || comfort < 0.30f) {
-                // 好奇心随时间自然降温，平缓回归平静
                 current_emotion = EMOTION_CALM;
             }
             break;
@@ -123,12 +129,6 @@ void PhysiologySystem::updateEmotionState() {
         case EMOTION_ANGER:
             if (stress < 0.35f) {
                 current_emotion = EMOTION_STRESS; // 暴躁/恐惧渐进式降温回落
-            }
-            break;
-
-        case EMOTION_EXHAUSTED:
-            if (energy > 0.40f) {
-                current_emotion = EMOTION_CALM; // 体力充分恢复后苏醒
             }
             break;
     }

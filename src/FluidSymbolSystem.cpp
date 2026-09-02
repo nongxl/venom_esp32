@@ -8,30 +8,25 @@ void FluidSymbolSystem::init() {
 }
 
 void FluidSymbolSystem::addPoint(float x, float y, float r) {
-    if (pointCount < MAX_SYMBOL_POINTS) {
-        // 微小抖动与自然向上漂浮速度
-        float ox = (float)(rand() % 21 - 10) * 0.05f;
-        float oy = (float)(rand() % 21 - 10) * 0.05f;
-        points[pointCount].x = x + ox;
-        points[pointCount].y = y + oy;
-        points[pointCount].radius = r * (0.90f + (float)(rand() % 20) * 0.01f);
-        points[pointCount].life = 1.0f;
-        points[pointCount].vy = -0.042f - (float)(rand() % 10) * 0.005f; // 自然向上徐徐漂浮
-        points[pointCount].vx = (float)(rand() % 11 - 5) * 0.002f;
-        pointCount++;
-    }
+    addPointWithVel(x, y, r, (float)(rand() % 11 - 5) * 0.002f, -0.042f - (float)(rand() % 10) * 0.005f);
 }
 
 void FluidSymbolSystem::addPointWithVel(float x, float y, float r, float vx, float vy) {
     if (pointCount < MAX_SYMBOL_POINTS) {
-        float ox = (float)(rand() % 21 - 10) * 0.05f;
-        float oy = (float)(rand() % 21 - 10) * 0.05f;
-        points[pointCount].x = x + ox;
-        points[pointCount].y = y + oy;
-        points[pointCount].radius = r * (0.90f + (float)(rand() % 20) * 0.01f);
-        points[pointCount].life = 1.0f;
-        points[pointCount].vx = vx;
-        points[pointCount].vy = vy;
+        SymbolPoint &p = points[pointCount];
+        p.start_x = cur_origin_x + (float)(rand() % 9 - 4) * 0.4f;
+        p.start_y = cur_origin_y + (float)(rand() % 9 - 4) * 0.4f;
+        p.target_x = x;
+        p.target_y = y;
+        p.x = p.start_x;
+        p.y = p.start_y;
+        p.target_radius = r * (0.92f + (float)(rand() % 16) * 0.01f);
+        p.radius = 1.0f; // 刚喷出时细如墨线
+        p.progress = 0.0f;
+        p.delay = (float)pointCount * 0.0032f; // 喷射粒子沿流线依次射出
+        p.life = 1.0f;
+        p.vx = vx;
+        p.vy = vy;
         pointCount++;
     }
 }
@@ -39,20 +34,44 @@ void FluidSymbolSystem::addPointWithVel(float x, float y, float r, float vx, flo
 void FluidSymbolSystem::update(float dt) {
     unsigned long now = millis();
     for (int i = 0; i < pointCount; i++) {
-        // 微小的正弦漂移，模拟流体在玻璃上的波动
-        float drift = std::sin(now * 0.001f + i) * 0.015f;
-        points[i].y += points[i].vy * (dt * 60.0f);
-        points[i].x += (points[i].vx + drift) * (dt * 60.0f);
-        points[i].life -= 0.0012f * (dt * 60.0f);
+        SymbolPoint &p = points[i];
 
-        if (points[i].life < 0.3f) {
-            points[i].radius *= 0.985f; // 末期变细消散
+        if (p.delay > 0.0f) {
+            p.delay -= dt;
+            p.x = p.start_x;
+            p.y = p.start_y;
+            p.radius = 1.0f;
+            continue;
         }
 
-        if (points[i].life <= 0.0f) {
-            points[i] = points[pointCount - 1];
-            pointCount--;
-            i--;
+        if (p.progress < 1.0f) {
+            // 【阶段 1: 从身体急速破空喷射并展开成符号 (0.28s)】
+            p.progress += dt * 3.8f;
+            if (p.progress > 1.0f) p.progress = 1.0f;
+
+            // EaseOutCubic 平滑喷涌曲线
+            float t = p.progress;
+            float ease = 1.0f - std::pow(1.0f - t, 3.0f);
+
+            p.x = p.start_x + (p.target_x - p.start_x) * ease;
+            p.y = p.start_y + (p.target_y - p.start_y) * ease;
+            p.radius = 1.0f + (p.target_radius - 1.0f) * ease;
+        } else {
+            // 【阶段 2: 符号成型后自然向上徐徐漂浮与消散】
+            float drift = std::sin(now * 0.001f + i) * 0.015f;
+            p.y += p.vy * (dt * 60.0f);
+            p.x += (p.vx + drift) * (dt * 60.0f);
+            p.life -= 0.0010f * (dt * 60.0f);
+
+            if (p.life < 0.35f) {
+                p.radius *= 0.985f;
+            }
+
+            if (p.life <= 0.0f) {
+                points[i] = points[pointCount - 1];
+                pointCount--;
+                i--;
+            }
         }
     }
 
@@ -61,9 +80,18 @@ void FluidSymbolSystem::update(float dt) {
     }
 }
 
-void FluidSymbolSystem::trigger(const String &type, float center_x, float center_y) {
+void FluidSymbolSystem::trigger(const String &type, float center_x, float center_y, float origin_x, float origin_y) {
     clear();
     currentType = type;
+    if (origin_x < -500.0f) {
+        // 默认源点位于符号下方偏身体处
+        cur_origin_x = center_x;
+        cur_origin_y = center_y + 22.0f;
+    } else {
+        cur_origin_x = origin_x;
+        cur_origin_y = origin_y;
+    }
+
     if (type == "no" || type == "stop" || type == "x") genX(center_x, center_y);
     else if (type == "yes" || type == "agree" || type == "o") genO(center_x, center_y);
     else if (type == "help" || type == "!" || type == "exclamation") genEXCLAMATION(center_x, center_y);
@@ -75,6 +103,8 @@ void FluidSymbolSystem::trigger(const String &type, float center_x, float center
     else if (type == "zz" || type == "sleep" || type == "zzz") genZz(center_x, center_y);
     else if (type == "dizzy" || type == "spiral" || type == "coil" || type == "swirl" || type == "晕") genDIZZY(center_x, center_y);
     else if (type == "bite" || type == "teeth" || type == "jaw" || type == "咬" || type == "齿痕") genBITE(center_x, center_y);
+    else if (type == "music" || type == "note" || type == "♪") genMUSIC_NOTE(center_x, center_y);
+    else if (type == "music_double" || type == "♫" || type == "song" || type == "dance") genMUSIC_DOUBLE(center_x, center_y);
     else genQUESTION(center_x, center_y);
 }
 
@@ -206,33 +236,30 @@ void FluidSymbolSystem::wipePoints(float screenX, float screenY, float radius) {
 }
 
 void FluidSymbolSystem::genZz(float cx, float cy) {
-    // 渐进变小、向上漂浮的经典呼噜 "Zzz" 气泡墨迹 (大Z -> 中z -> 小z)
-    // 1. 大 Z (靠近头部上方)
+    // 渐进变大、向上漂浮的经典呼噜 "Zzz" 气泡墨迹 (靠近口鼻为小z -> 中部为中z -> 高空远处扩散为大Z)
+    // 1. 小 z (靠近毒液口鼻处上方，刚吐出的小气泡)
     float z1_x = cx;
-    float z1_y = cy - 6.0f;
-    float w1 = 6.5f, h1 = 5.5f;
-    // 顶横
-    for (float x = -w1; x <= w1; x += 2.2f) addPointWithVel(z1_x + x, z1_y - h1, 3.2f, 0.008f, -0.045f);
-    // 斜线
-    for (float t = 0.0f; t <= 1.0f; t += 0.16f) addPointWithVel(z1_x + w1 - t * 2.0f * w1, z1_y - h1 + t * 2.0f * h1, 3.2f, 0.008f, -0.045f);
-    // 底横
-    for (float x = -w1; x <= w1; x += 2.2f) addPointWithVel(z1_x + x, z1_y + h1, 3.2f, 0.008f, -0.045f);
+    float z1_y = cy - 2.0f;
+    float w1 = 3.2f, h1 = 2.6f;
+    for (float x = -w1; x <= w1; x += 1.6f) addPointWithVel(z1_x + x, z1_y - h1, 2.2f, 0.006f, -0.040f);
+    for (float t = 0.0f; t <= 1.0f; t += 0.22f) addPointWithVel(z1_x + w1 - t * 2.0f * w1, z1_y - h1 + t * 2.0f * h1, 2.2f, 0.006f, -0.040f);
+    for (float x = -w1; x <= w1; x += 1.6f) addPointWithVel(z1_x + x, z1_y + h1, 2.2f, 0.006f, -0.040f);
 
-    // 2. 中 z (右上方漂浮)
-    float z2_x = cx + 13.0f;
-    float z2_y = cy - 20.0f;
-    float w2 = 4.5f, h2 = 3.8f;
-    for (float x = -w2; x <= w2; x += 1.8f) addPointWithVel(z2_x + x, z2_y - h2, 2.6f, 0.015f, -0.060f);
-    for (float t = 0.0f; t <= 1.0f; t += 0.20f) addPointWithVel(z2_x + w2 - t * 2.0f * w2, z2_y - h2 + t * 2.0f * h2, 2.6f, 0.015f, -0.060f);
-    for (float x = -w2; x <= w2; x += 1.8f) addPointWithVel(z2_x + x, z2_y + h2, 2.6f, 0.015f, -0.060f);
+    // 2. 中 z (中途向右上方升腾扩散)
+    float z2_x = cx + 11.0f;
+    float z2_y = cy - 16.0f;
+    float w2 = 4.8f, h2 = 4.0f;
+    for (float x = -w2; x <= w2; x += 1.8f) addPointWithVel(z2_x + x, z2_y - h2, 2.8f, 0.012f, -0.055f);
+    for (float t = 0.0f; t <= 1.0f; t += 0.18f) addPointWithVel(z2_x + w2 - t * 2.0f * w2, z2_y - h2 + t * 2.0f * h2, 2.8f, 0.012f, -0.055f);
+    for (float x = -w2; x <= w2; x += 1.8f) addPointWithVel(z2_x + x, z2_y + h2, 2.8f, 0.012f, -0.055f);
 
-    // 3. 小 z (最高处悠扬消散)
-    float z3_x = cx + 22.0f;
+    // 3. 大 Z (最高处膨胀升华的大呼噜气泡)
+    float z3_x = cx + 23.0f;
     float z3_y = cy - 32.0f;
-    float w3 = 3.0f, h3 = 2.5f;
-    for (float x = -w3; x <= w3; x += 1.6f) addPointWithVel(z3_x + x, z3_y - h3, 2.0f, 0.022f, -0.075f);
-    for (float t = 0.0f; t <= 1.0f; t += 0.25f) addPointWithVel(z3_x + w3 - t * 2.0f * w3, z3_y - h3 + t * 2.0f * h3, 2.0f, 0.022f, -0.075f);
-    for (float x = -w3; x <= w3; x += 1.6f) addPointWithVel(z3_x + x, z3_y + h3, 2.0f, 0.022f, -0.075f);
+    float w3 = 7.2f, h3 = 6.0f;
+    for (float x = -w3; x <= w3; x += 2.0f) addPointWithVel(z3_x + x, z3_y - h3, 3.6f, 0.020f, -0.070f);
+    for (float t = 0.0f; t <= 1.0f; t += 0.14f) addPointWithVel(z3_x + w3 - t * 2.0f * w3, z3_y - h3 + t * 2.0f * h3, 3.6f, 0.020f, -0.070f);
+    for (float x = -w3; x <= w3; x += 2.0f) addPointWithVel(z3_x + x, z3_y + h3, 3.6f, 0.020f, -0.070f);
 }
 
 void FluidSymbolSystem::genDIZZY(float cx, float cy) {
@@ -303,4 +330,80 @@ void FluidSymbolSystem::genBITE(float cx, float cy) {
     addPointWithVel(cx + 16.5f, cy, 2.5f, 0.015f, 0.010f);
     addPointWithVel(cx - 4.5f, cy + 15.5f, 2.2f, 0.002f, 0.035f);
     addPointWithVel(cx + 5.0f, cy + 16.5f, 2.2f, -0.002f, 0.035f);
+}
+
+void FluidSymbolSystem::genMUSIC_NOTE(float cx, float cy) {
+    // 经典的单八分音符 ♪ (水墨饱满音符圆头 + 挺拔竖向符干 + 优雅向右下弯曲的流动符尾)
+    // 1. 实心水墨椭圆音符头 (位于左下 cx - 5.0, cy + 9.0)
+    float head_x = cx - 5.0f;
+    float head_y = cy + 9.0f;
+    for (float r = 0.0f; r <= 4.2f; r += 1.8f) {
+        for (float a = 0.0f; a < 6.28f; a += 0.55f) {
+            float ox = std::cos(a) * (r * 1.25f);
+            float oy = std::sin(a) * (r * 0.85f);
+            addPoint(head_x + ox, head_y + oy, 3.2f);
+        }
+    }
+
+    // 2. 竖直挺拔的符干 (从音符头右缘向上延伸至 cy - 14.0)
+    float stem_x = head_x + 3.8f;
+    for (float y = head_y - 2.0f; y >= cy - 15.0f; y -= 2.6f) {
+        addPoint(stem_x, y, 3.0f);
+    }
+
+    // 3. 优雅向右下舒展弯曲的流动符尾 (Flag)
+    float flag_start_y = cy - 15.0f;
+    for (float t = 0.0f; t <= 1.0f; t += 0.16f) {
+        float fx = stem_x + std::sin(t * 2.8f) * 9.5f;
+        float fy = flag_start_y + t * 14.0f + std::pow(t, 2.0f) * 4.0f;
+        float r = 3.2f - t * 1.2f;
+        addPointWithVel(fx, fy, r, 0.015f, -0.045f);
+    }
+
+    // 伴随音符升华的灵动水墨微滴
+    addPointWithVel(cx + 9.0f, cy + 4.0f, 2.2f, 0.012f, -0.060f);
+}
+
+void FluidSymbolSystem::genMUSIC_DOUBLE(float cx, float cy) {
+    // 经典动感连体双八分音符 ♫ (左音符头 + 右音符头 + 双竖符干 + 顶部倾斜横连符梁)
+    // 1. 左音符头
+    float l_hx = cx - 11.0f;
+    float l_hy = cy + 9.0f;
+    for (float r = 0.0f; r <= 3.8f; r += 1.8f) {
+        for (float a = 0.0f; a < 6.28f; a += 0.65f) {
+            addPoint(l_hx + std::cos(a) * (r * 1.2f), l_hy + std::sin(a) * (r * 0.85f), 3.0f);
+        }
+    }
+
+    // 2. 右音符头 (略高 4px 呈现欢快动感)
+    float r_hx = cx + 5.5f;
+    float r_hy = cy + 5.0f;
+    for (float r = 0.0f; r <= 3.8f; r += 1.8f) {
+        for (float a = 0.0f; a < 6.28f; a += 0.65f) {
+            addPoint(r_hx + std::cos(a) * (r * 1.2f), r_hy + std::sin(a) * (r * 0.85f), 3.0f);
+        }
+    }
+
+    // 3. 左符干
+    float l_stem_x = l_hx + 3.2f;
+    for (float y = l_hy - 2.0f; y >= cy - 13.0f; y -= 2.6f) {
+        addPoint(l_stem_x, y, 2.8f);
+    }
+
+    // 4. 右符干
+    float r_stem_x = r_hx + 3.2f;
+    for (float y = r_hy - 2.0f; y >= cy - 17.0f; y -= 2.6f) {
+        addPoint(r_stem_x, y, 2.8f);
+    }
+
+    // 5. 顶部倾斜加粗横向符梁 (Beam)
+    for (float t = 0.0f; t <= 1.0f; t += 0.12f) {
+        float bx = l_stem_x + (r_stem_x - l_stem_x) * t;
+        float by = (cy - 13.0f) + ((cy - 17.0f) - (cy - 13.0f)) * t;
+        addPointWithVel(bx, by, 3.4f, 0.008f, -0.050f);
+        addPointWithVel(bx, by + 1.8f, 2.6f, 0.008f, -0.050f);
+    }
+
+    // 灵动音符水墨微滴
+    addPointWithVel(cx + 14.5f, cy - 8.0f, 2.0f, 0.018f, -0.065f);
 }

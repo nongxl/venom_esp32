@@ -80,15 +80,15 @@ void PhysiologySystem::updateInternalDynamics(float dt) {
         curiosity = std::max(0.1f, curiosity - dt * 0.15f);
     }
 
-    // 基础代谢自然消耗能量 (剧烈运动额外消耗，形成 2~4 分钟真实体力消耗闭环)
-    energy = std::max(0.05f, energy - dt * 0.0030f);
+    // 基础代谢自然消耗能量 (每 10~15 分钟形成一个自然生物起居循环)
+    energy = std::max(0.05f, energy - dt * 0.0014f);
 }
 
 void PhysiologySystem::updateEmotionState() {
     // 基于宽区间滞后门限 (Hysteresis) 的纯自然生物情绪演化
     switch (current_emotion) {
         case EMOTION_CALM:
-            if (energy < 0.35f) {
+            if (energy < 0.25f) {
                 current_emotion = EMOTION_EXHAUSTED;
             } else if (stress > 0.45f) {
                 current_emotion = (smoothed_audio_high > 0.6f || neuro_tension > 0.7f) ? EMOTION_ANGER : EMOTION_STRESS;

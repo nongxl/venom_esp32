@@ -367,8 +367,8 @@ void CreatureAI::updateSensors(float imu_gx, float imu_gy, float imu_gz, const P
         }
 
         // 2. 轻微小动静判定（需避开环境日常底噪 40~52dB 与传感器固有抖动）：
-        // 晃动阈值：total_g > 1.62g 或 delta_g > 0.38g；声音阈值：Mic > 68.0dB (人声说话/清脆响声)
-        if (sleep_peek_cooldown <= 0.0f && (total_g > 1.62f || delta_g > 0.38f || physiology.getMicDecibels() > 68.0f)) {
+        // 晃动阈值：total_g > 1.68g 或 delta_g > 0.48g；声音阈值：Mic > 72.0dB (人声说话/清脆响声)
+        if (sleep_peek_cooldown <= 0.0f && (total_g > 1.68f || delta_g > 0.48f || physiology.getMicDecibels() > 72.0f)) {
             if (!is_sleep_peeking) {
                 is_sleep_peeking = true;
                 sleep_peek_timer = 3.5f;     // 半睁眼张望 3.5 秒
@@ -471,10 +471,10 @@ void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem
     float curiosity = physiology.getCuriosity();
     bool is_vertical = (std::abs(last_imu_gx) > 3.0f || std::abs(last_imu_gy) > 6.5f);
 
-    // 【1. 疲惫与困倦入睡驱动 (Energy < 0.45)】：
-    // 毒液感到困倦（耷拉眼皮）时，发呆停留 2.0 秒后 100% 自然就地蜷缩或倒挂深度睡眠，绝不在困倦中无休止漫步！
-    if (energy < 0.45f) {
-        if (state_timer >= 2.0f || energy < 0.30f) {
+    // 【1. 真正疲惫力竭入睡驱动 (Energy < 0.20 且必须无互动保鲜期 interaction_wake_timer <= 0)】：
+    // 只有在主人长时间不理它（发呆停留 6.0 秒以上）且精力确实枯竭时才自然入睡，互动期间绝对禁止秒睡！
+    if (energy < 0.20f && interaction_wake_timer <= 0.0f) {
+        if (state_timer >= 6.0f || energy < 0.08f) {
             if (hy < 35.0f && (rand() % 100) < 40) {
                 enterState(STATE_BAT_HANG, &tentacles, &skeleton, hx, hy); // 靠近天花板时倒挂小憩
             } else {
@@ -624,9 +624,9 @@ void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySys
     float curiosity = physiology.getCuriosity();
     bool is_vertical = (std::abs(last_imu_gx) > 3.0f || std::abs(last_imu_gy) > 6.5f);
 
-    // 【1. 疲惫与困倦入睡驱动 (Energy < 0.45)】：
-    if (energy < 0.45f) {
-        if (state_timer >= 1.8f || energy < 0.30f) {
+    // 【1. 真正疲惫力竭入睡驱动 (Energy < 0.20 且必须无互动保鲜期 interaction_wake_timer <= 0)】：
+    if (energy < 0.20f && interaction_wake_timer <= 0.0f) {
+        if (state_timer >= 6.0f || energy < 0.08f) {
             if (hy < 35.0f && (rand() % 100) < 40) {
                 enterState(STATE_BAT_HANG, &tentacles, &skeleton, hx, hy); // 倒挂小憩
             } else {
@@ -1275,6 +1275,11 @@ void CreatureAI::update(float dt, SkeletonSystem &skeleton, MetaballSystem &meta
         }
     }
 
+    // 互动唤醒保鲜期倒计时
+    if (interaction_wake_timer > 0.0f) {
+        interaction_wake_timer -= dt;
+    }
+
     // 睡眠惺忪半睁眼与触发冷却倒计时
     if (sleep_peek_cooldown > 0.0f) {
         sleep_peek_cooldown -= dt;
@@ -1289,6 +1294,7 @@ void CreatureAI::update(float dt, SkeletonSystem &skeleton, MetaballSystem &meta
 }
 
 void CreatureAI::handleSingleTap(FluidSymbolSystem &symbols, ExpressionLayer &expr, PhysiologySystem &phys) {
+    interaction_wake_timer = 35.0f; // 注入 35 秒互动活跃保鲜期
     if (isSleeping()) {
         // 睡眠中轻敲：缓慢半睁眼（微眯惺忪状态），不惊醒，若无后续事件 2.8 秒后继续深睡
         is_sleep_peeking = true;
@@ -1298,6 +1304,7 @@ void CreatureAI::handleSingleTap(FluidSymbolSystem &symbols, ExpressionLayer &ex
     } else {
         // 醒着时轻敲一下：引起注意，眼睛注视屏幕中心，轻微好奇
         phys.applyStimulus(0.12f, 0.15f);
+        phys.recoverEnergy(0.04f);
         target_look_x = SCREEN_W * 0.5f + ((rand() % 40) - 20);
         target_look_y = SCREEN_H * 0.5f + ((rand() % 40) - 20);
     }
@@ -1305,14 +1312,20 @@ void CreatureAI::handleSingleTap(FluidSymbolSystem &symbols, ExpressionLayer &ex
 
 void CreatureAI::handleDoubleTap(FluidSymbolSystem &symbols, ExpressionLayer &expr, PhysiologySystem &phys,
                                  SkeletonSystem &skeleton, TentacleRenderer &tentacles) {
+    interaction_wake_timer = 45.0f; // 双击注入 45 秒高能互动保鲜期，绝对禁止秒睡
+    phys.recoverEnergy(0.08f);      // 互动振奋精神
+
+    float hx = skeleton.getNode(0).x;
+    float hy = skeleton.getNode(0).y;
+
     if (isSleeping()) {
         // 睡眠中双击：轻柔唤醒
         is_sleep_peeking = false;
         sleep_peek_timer = 0.0f;
-        enterState(STATE_OBSERVE, &tentacles, &skeleton, skeleton.getNode(0).x, skeleton.getNode(0).y);
-        float sym_x = std::max(45.0f, std::min((float)SCREEN_W - 45.0f, skeleton.getNode(0).x));
-        float sym_y = (skeleton.getNode(0).y > 65.0f) ? (skeleton.getNode(0).y - 48.0f) : (skeleton.getNode(0).y + 45.0f);
-        symbols.trigger("?", sym_x, sym_y);
+        enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
+        float sym_x = std::max(45.0f, std::min((float)SCREEN_W - 45.0f, hx));
+        float sym_y = (hy > 65.0f) ? (hy - 48.0f) : (hy + 45.0f);
+        symbols.trigger("?", sym_x, sym_y, hx, hy);
         expr.triggerExpression(EXPR_CURIOSITY, 3.5f);
         return;
     }
@@ -1322,8 +1335,6 @@ void CreatureAI::handleDoubleTap(FluidSymbolSystem &symbols, ExpressionLayer &ex
     // 1. 主动荡秋千（延长至 22 秒，尽情玩耍）+ 吐出爱心
     // 2. 喷出水墨爱心图腾 (宽敞开阔处漂浮)
     // 3. 喷出水墨问号图腾
-    float hx = skeleton.getNode(0).x;
-    float hy = skeleton.getNode(0).y;
     float sym_x = std::max(45.0f, std::min((float)SCREEN_W - 45.0f, hx));
     float sym_y = (hy > 65.0f) ? (hy - 48.0f) : (hy + 45.0f);
     int choice = rand() % 3;
@@ -1335,13 +1346,17 @@ void CreatureAI::handleDoubleTap(FluidSymbolSystem &symbols, ExpressionLayer &ex
         expr.triggerExpression(EXPR_TRUST, 4.0f);
         phys.applyStimulus(0.0f, 0.50f);
     } else if (choice == 1) {
-        // 2. 喷出水墨爱心图腾 (与身体拉开 48px 空间，绝不被肉身融合)
-        symbols.trigger("heart", sym_x, sym_y);
+        // 2. 喷出水墨爱心图腾 (从头部喷出并进入观察互动)
+        enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
+        state_duration = 4.5f;
+        symbols.trigger("heart", sym_x, sym_y, hx, hy);
         expr.triggerExpression(EXPR_TRUST, 4.0f);
         phys.applyStimulus(0.0f, 0.45f); // 提升 comfort
     } else {
         // 3. 喷出水墨问号图腾
-        symbols.trigger("?", sym_x, sym_y);
+        enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
+        state_duration = 4.5f;
+        symbols.trigger("?", sym_x, sym_y, hx, hy);
         expr.triggerExpression(EXPR_CURIOSITY, 4.0f);
         phys.applyStimulus(0.0f, 0.35f);
     }
@@ -1350,6 +1365,7 @@ void CreatureAI::handleDoubleTap(FluidSymbolSystem &symbols, ExpressionLayer &ex
 void CreatureAI::handleMultiTapIrritate(FluidSymbolSystem &symbols, ExpressionLayer &expr, PhysiologySystem &phys,
                                        SkeletonSystem &skeleton) {
     // 连续多次敲击（激惹骚扰）：毒液感到强烈烦躁与愤怒！
+    interaction_wake_timer = 40.0f;
     is_sleep_peeking = false;
     sleep_peek_timer = 0.0f;
 
@@ -1363,7 +1379,7 @@ void CreatureAI::handleMultiTapIrritate(FluidSymbolSystem &symbols, ExpressionLa
     float sym_y = (hy > 65.0f) ? (hy - 48.0f) : (hy + 45.0f);
 
     // 喷出感叹号 "!"
-    symbols.trigger("!", sym_x, sym_y);
+    symbols.trigger("!", sym_x, sym_y, hx, hy);
 
     // 触发身体局部鼓包应力突变与受惊震颤
     skeleton.triggerLocalBleb(1, 1.5f);

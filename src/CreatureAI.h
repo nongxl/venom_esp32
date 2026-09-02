@@ -134,6 +134,7 @@ private:
     bool is_sleep_peeking = false;
     float sleep_peek_timer = 0.0f;
     float sleep_peek_cooldown = 0.0f;
+    float interaction_wake_timer = 0.0f; // 互动唤醒保鲜期，互动期间绝对禁止秒睡
 
     float startle_energy = 0.0f;
     SymbioteBall symbiote_ball;

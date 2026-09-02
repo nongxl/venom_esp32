@@ -4,12 +4,12 @@
 PhysiologySystem::PhysiologySystem() {}
 
 void PhysiologySystem::init() {
-    energy     = 0.85f;
-    stress     = 0.10f;
-    curiosity  = 0.50f;
-    comfort    = 0.80f;
-    attachment = 0.20f;
-    boredom    = 0.0f;
+    energy     = 0.95f; // 开机精力饱满
+    stress     = 0.05f;
+    curiosity  = 0.75f; // 开机对世界充满强烈好奇与探索欲
+    comfort    = 0.85f;
+    attachment = 0.25f;
+    boredom    = 0.35f; // 开机跃跃欲试立即出发游玩探索
     current_emotion = EMOTION_CALM;
 }
 

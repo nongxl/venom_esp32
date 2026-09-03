@@ -25,6 +25,7 @@ const char* CreatureAI::getStateName() const {
         case STATE_BOUNCE:     return "BOUNCE";
         case STATE_BAT_HANG:   return "BAT_HANG";
         case STATE_BALL_PLAY:  return "BALL_PLAY";
+        case STATE_PEEK:       return "PEEK";
         default:               return "UNKNOWN";
     }
 }
@@ -49,6 +50,9 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
     if (skeleton) {
         skeleton->setRollingMode(false);
         skeleton->setBatHangMode(false);
+    }
+    if (skeleton && new_state != STATE_PEEK) {
+        skeleton->setPeekingMode(false);
     }
 
     if (skeleton && new_state != STATE_CREEP) {
@@ -86,21 +90,24 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
             if (hx < 40.0f) dir_sign = 1.0f;
             if (hx > (float)SCREEN_W - 40.0f) dir_sign = -1.0f;
 
-            // 2D 广阔空间巡逻漫步：不仅在地表横行，也能向天花板和背景中央爬行！
-            int roll = rand() % 100;
-            if (hy > (float)SCREEN_H - 35.0f) {
-                // 靠底边时：65% 向上攀爬探索中央和天花板背景！
-                if (roll < 65) {
-                    crawl_target_x = 35.0f + (rand() % (SCREEN_W - 70));
-                    crawl_target_y = 25.0f + (rand() % (SCREEN_H - 65));
-                } else {
-                    float step_dist = 60.0f + (rand() % 60);
-                    crawl_target_x = std::max(25.0f, std::min((float)SCREEN_W - 25.0f, hx + dir_sign * step_dist));
-                    crawl_target_y = std::max(25.0f, std::min((float)SCREEN_H - 25.0f, hy + ((rand() % 16) - 8)));
-                }
+            // 边缘吸附漫游：只沿屏幕边缘（主要底边）巡游，拒绝在屏幕中央悬浮（避免飞碟感）
+            int edge_choice = rand() % 100;
+            if (edge_choice < 75) {
+                // 75% 概率沿底边横向紧贴爬行
+                float step_dist = 40.0f + (rand() % 80);
+                crawl_target_x = std::max(25.0f, std::min((float)SCREEN_W - 25.0f, hx + dir_sign * step_dist));
+                crawl_target_y = (float)SCREEN_H - 5.0f; // 目标设在更深处，确保紧紧吸附底边产生完美平坦面
+            } else if (edge_choice < 90) {
+                // 15% 概率沿左侧或右侧边框游走
+                crawl_target_x = (hx < SCREEN_W / 2) ? 5.0f : ((float)SCREEN_W - 5.0f);
+                float step_dist = 30.0f + (rand() % 50);
+                float y_dir = ((rand() % 100) < 50) ? 1.0f : -1.0f;
+                crawl_target_y = std::max(25.0f, std::min((float)SCREEN_H - 25.0f, hy + y_dir * step_dist));
             } else {
-                crawl_target_x = 35.0f + (rand() % (SCREEN_W - 70));
-                crawl_target_y = 25.0f + (rand() % (SCREEN_H - 50));
+                // 10% 概率沿天花板游走
+                float step_dist = 40.0f + (rand() % 80);
+                crawl_target_x = std::max(25.0f, std::min((float)SCREEN_W - 25.0f, hx + dir_sign * step_dist));
+                crawl_target_y = 5.0f; // 紧贴顶边
             }
 
             target_look_x = crawl_target_x;
@@ -291,6 +298,46 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
             symbiote_ball.vy = -5.5f; // 向上方抛起
             break;
         }
+
+        case STATE_PEEK: {
+            // 【边缘暗中观察/潜行窥视模式】
+            state_duration = 9.0f + (rand() % 40) * 0.1f; // 9.0 ~ 13.0s
+            crawl_force_x = 0.0f;
+            crawl_force_y = 0.0f;
+            
+            // 找出最近的边 (0:Top, 1:Right, 2:Bottom, 3:Left)
+            float dist_top = hy;
+            float dist_right = (float)SCREEN_W - hx;
+            float dist_bottom = (float)SCREEN_H - hy;
+            float dist_left = hx;
+            
+            float min_dist = dist_top;
+            peek_edge = 0;
+            if (dist_right < min_dist) { min_dist = dist_right; peek_edge = 1; }
+            if (dist_bottom < min_dist) { min_dist = dist_bottom; peek_edge = 2; }
+            if (dist_left < min_dist) { min_dist = dist_left; peek_edge = 3; }
+            
+            peek_target_x = hx;
+            peek_target_y = hy;
+            if (peek_edge == 0 || peek_edge == 2) {
+                peek_target_x = std::max(40.0f, std::min((float)SCREEN_W - 40.0f, hx));
+            } else {
+                peek_target_y = std::max(40.0f, std::min((float)SCREEN_H - 40.0f, hy));
+            }
+
+            peek_move_dir = ((rand() % 100) < 50) ? 1.0f : -1.0f;
+            peek_raise_timer = 0.0f;
+            peek_submerge_offset = 0.0f;
+            peek_is_raised = false;
+            peek_raise_interval = 2.0f + (rand() % 20) * 0.1f;
+            if (skeleton) {
+                skeleton->setPeekingMode(true, 0.0f, peek_edge);
+            }
+            if (tentacles) {
+                tentacles->setCreepMode(true, 0.85f); // 增强扒边感
+            }
+            break;
+        }
     }
 }
 
@@ -400,7 +447,7 @@ void CreatureAI::updateOrganicBreathing(float dt, const PhysiologySystem &physio
     // 自然深沉共生体生命呼吸律动 (一次完整呼吸 6.5 ~ 9.0 秒，极其平缓悠长舒展)
     float base_speed = 0.90f; // 0.9 rad/s 对应周期约 7.0 秒
     if (current_state == STATE_SLEEP) {
-        base_speed = 0.55f;   // 睡眠时深长呼吸 (周期约 11.4 秒)
+        base_speed = 0.38f;   // 睡眠时深长低频呼吸 (周期约 16.5 秒，极度安详)
     } else if (physiology.getEmotion() == EMOTION_STRESS || physiology.getEmotion() == EMOTION_FEAR) {
         base_speed = 1.80f;   // 惊恐时呼吸加快 (周期约 3.5 秒)
     }
@@ -415,11 +462,14 @@ void CreatureAI::updateOrganicBreathing(float dt, const PhysiologySystem &physio
     // 柔和平滑的自然非线性吸气-呼气曲线 (吸气慢舒张，呼气微停留)
     float raw_resp = (s > 0) ? std::pow(s, 0.85f) : -std::pow(-s, 1.15f);
 
-    // 呼吸起伏幅度温和深沉 (0.065)，视觉上极其平缓悠远，绝无急促抽动
-    respiration_factor = raw_resp * 0.065f;
+    // 呼吸起伏幅度调整：降低日常呼吸，放大睡眠呼吸以凸显安睡特征
+    float resp_amp = (current_state == STATE_SLEEP) ? 0.080f : 0.030f;
+    respiration_factor = raw_resp * resp_amp;
 }
 
 void CreatureAI::updateMicroBehaviors(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology) {
+    if (current_state == STATE_SLEEP) return; // 沉睡时彻底停止任何局部偶发应激鼓包，维持皮肤如平静水面
+
     micro_behavior_timer += dt;
     if (micro_behavior_timer > 4.5f) {
         micro_behavior_timer = 0.0f;
@@ -485,38 +535,48 @@ void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem
         }
     }
 
-    // 【2. 自主活跃探索与特技游玩决策 (当发呆结束 state_timer >= state_duration 或积累了无聊感时)】
+    // 【2. 好奇与警惕交织驱动 (Curiosity > 0.60 && Stress > 0.38)】：边缘暗中观察/窥视
+    if (curiosity > 0.60f && (physiology.getStress() > 0.38f || physiology.getAttachment() < 0.35f) && (rand() % 100) < 65) {
+        enterState(STATE_PEEK, &tentacles, &skeleton, hx, hy);
+        return;
+    }
+
+    // 【3. 自主活跃探索与特技游玩决策 (当发呆结束 state_timer >= state_duration 或积累了无聊感时)】
     if (state_timer >= state_duration || boredom >= 0.25f) {
         const_cast<PhysiologySystem&>(physiology).reduceBoredom(0.25f);
         int r = rand() % 100;
 
         if (is_vertical) {
             // 竖屏高空模式
-            if (r < 25) {
-                enterState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy);    // 25% 竖屏蹦蹦床弹跳
-            } else if (r < 50) {
-                enterState(STATE_BALL_PLAY, &tentacles, &skeleton, hx, hy); // 25% 自体颠水球
-            } else if (r < 70) {
-                enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);     // 20% 高空吸顶蛛丝荡秋千
-            } else if (r < 85) {
-                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);     // 15% 粗壮触手攀爬
+            if (r < 22) {
+                enterState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy);    // 22% 竖屏蹦蹦床弹跳
+            } else if (r < 42) {
+                enterState(STATE_BALL_PLAY, &tentacles, &skeleton, hx, hy); // 20% 自体颠水球
+            } else if (r < 60) {
+                enterState(STATE_PEEK, &tentacles, &skeleton, hx, hy);      // 18% 边缘窥视
+            } else if (r < 78) {
+                enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);     // 18% 高空吸顶蛛丝荡秋千
+            } else if (r < 90) {
+                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);     // 12% 粗壮触手攀爬
             } else {
-                enterState(STATE_CATCH_DUST, &tentacles, &skeleton, hx, hy);// 15% 抓荧光微粒
+                enterState(STATE_CATCH_DUST, &tentacles, &skeleton, hx, hy);// 10% 抓荧光微粒
             }
         } else {
             // 横屏生态自娱自乐
-            if (r < 22) {
-                enterState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy);    // 22% 史莱姆蹦蹦床蓄力弹跳
-            } else if (r < 42) {
-                enterState(STATE_BALL_PLAY, &tentacles, &skeleton, hx, hy); // 20% 自体颠球
-            } else if (r < 60) {
-                enterState(STATE_CATCH_DUST, &tentacles, &skeleton, hx, hy);// 18% 猎捕抓微粒
-            } else if (r < 75) {
-                enterState(STATE_ROLL, &tentacles, &skeleton, hx, hy);      // 15% 索尼克软体翻滚
-            } else if (r < 88) {
-                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);     // 13% 触手大步攀爬
+            if (r < 18) {
+                enterState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy);    // 18% 史莱姆蹦蹦床蓄力弹跳
+            } else if (r < 36) {
+                enterState(STATE_BALL_PLAY, &tentacles, &skeleton, hx, hy); // 18% 自体颠球
+            } else if (r < 52) {
+                enterState(STATE_PEEK, &tentacles, &skeleton, hx, hy);      // 16% 边缘暗中观察窥视
+            } else if (r < 68) {
+                enterState(STATE_CATCH_DUST, &tentacles, &skeleton, hx, hy);// 16% 猎捕抓微粒
+            } else if (r < 80) {
+                enterState(STATE_ROLL, &tentacles, &skeleton, hx, hy);      // 12% 索尼克软体翻滚
+            } else if (r < 90) {
+                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);     // 10% 触手大步攀爬
             } else {
-                enterState(STATE_CREEP, &tentacles, &skeleton, hx, hy);     // 12% 细密足丝地表巡游
+                enterState(STATE_CREEP, &tentacles, &skeleton, hx, hy);     // 10% 细密足丝地表巡游
             }
         }
         return;
@@ -634,36 +694,46 @@ void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySys
         }
     }
 
-    // 【2. 观察完毕后无缝衔接主动自娱自乐与丰富特技动作】
+    // 【2. 好奇与警惕交织驱动 (Curiosity > 0.60 && Stress > 0.38)】：边缘暗中观察/窥视
+    if (curiosity > 0.60f && (physiology.getStress() > 0.38f || physiology.getAttachment() < 0.35f) && (rand() % 100) < 65) {
+        enterState(STATE_PEEK, &tentacles, &skeleton, hx, hy);
+        return;
+    }
+
+    // 【3. 观察完毕后无缝衔接主动自娱自乐与丰富特技动作】
     if (state_timer >= state_duration || boredom >= 0.25f) {
         const_cast<PhysiologySystem&>(physiology).reduceBoredom(0.25f);
         int roll = rand() % 100;
 
         if (is_vertical) {
-            if (roll < 25) {
-                enterState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy);    // 25% 竖屏蹦蹦床
-            } else if (roll < 50) {
-                enterState(STATE_BALL_PLAY, &tentacles, &skeleton, hx, hy); // 25% 自体颠球
-            } else if (roll < 70) {
-                enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);     // 20% 高空荡秋千
-            } else if (roll < 85) {
-                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);     // 15% 攀爬
-            } else {
-                enterState(STATE_CATCH_DUST, &tentacles, &skeleton, hx, hy);// 15% 抓微粒
-            }
-        } else {
             if (roll < 22) {
-                enterState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy);    // 22% 蹦蹦床
+                enterState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy);    // 22% 竖屏蹦蹦床
             } else if (roll < 42) {
                 enterState(STATE_BALL_PLAY, &tentacles, &skeleton, hx, hy); // 20% 自体颠球
             } else if (roll < 60) {
-                enterState(STATE_CATCH_DUST, &tentacles, &skeleton, hx, hy);// 18% 抓微粒
-            } else if (roll < 75) {
-                enterState(STATE_ROLL, &tentacles, &skeleton, hx, hy);      // 15% 软体翻滚
-            } else if (roll < 88) {
-                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);     // 13% 触手攀爬
+                enterState(STATE_PEEK, &tentacles, &skeleton, hx, hy);      // 18% 边缘窥视
+            } else if (roll < 78) {
+                enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);     // 18% 高空荡秋千
+            } else if (roll < 90) {
+                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);     // 12% 攀爬
             } else {
-                enterState(STATE_CREEP, &tentacles, &skeleton, hx, hy);     // 12% 地表漫步
+                enterState(STATE_CATCH_DUST, &tentacles, &skeleton, hx, hy);// 10% 抓微粒
+            }
+        } else {
+            if (roll < 18) {
+                enterState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy);    // 18% 蹦蹦床
+            } else if (roll < 36) {
+                enterState(STATE_BALL_PLAY, &tentacles, &skeleton, hx, hy); // 18% 自体颠球
+            } else if (roll < 52) {
+                enterState(STATE_PEEK, &tentacles, &skeleton, hx, hy);      // 16% 边缘暗中观察窥视
+            } else if (roll < 68) {
+                enterState(STATE_CATCH_DUST, &tentacles, &skeleton, hx, hy);// 16% 抓微粒
+            } else if (roll < 80) {
+                enterState(STATE_ROLL, &tentacles, &skeleton, hx, hy);      // 12% 软体翻滚
+            } else if (roll < 90) {
+                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);     // 10% 触手攀爬
+            } else {
+                enterState(STATE_CREEP, &tentacles, &skeleton, hx, hy);     // 10% 地表漫步
             }
         }
         return;
@@ -1223,10 +1293,16 @@ void CreatureAI::update(float dt, SkeletonSystem &skeleton, MetaballSystem &meta
         case STATE_BOUNCE:     updateBounce(dt, hx, hy, skeleton, metaballs, physiology, expression); break;
         case STATE_BAT_HANG:   updateBatHang(dt, hx, hy, skeleton, tentacles, physiology, fluid_symbols); break;
         case STATE_BALL_PLAY:  updateBallPlay(dt, hx, hy, skeleton, tentacles, metaballs, expression, physiology, fluid_symbols); break;
+        case STATE_PEEK:       updatePeek(dt, hx, hy, skeleton, tentacles, const_cast<PhysiologySystem&>(physiology), expression); break;
         case STATE_SLEEP:      updateSleep(dt, hx, hy, physiology, fluid_symbols); break;
         case STATE_STARTLED:   updateStartled(dt, hx, hy, physiology); break;
         case STATE_JOLTING:    updateJolting(dt, hx, hy, physiology); break;
         case STATE_EXPRESSING: updateExpressing(dt, hx, hy, expression); break;
+    }
+
+    // 动作测试自然过渡调度
+    if (demo_transitioning) {
+        updateDemoTransition(dt, skeleton, tentacles, hx, hy);
     }
 
     // 麦克风声控互动与高分贝惊吓防卫
@@ -1380,4 +1456,193 @@ void CreatureAI::handleMultiTapIrritate(FluidSymbolSystem &symbols, ExpressionLa
     skeleton.triggerLocalBleb(3, 1.5f);
     skeleton.applyImpulse(((rand() % 60) - 30) * 0.1f, -1.8f);
     triggerStartle(1.5f);
+}
+
+void CreatureAI::updatePeek(float dt, float hx, float hy, SkeletonSystem &skeleton, TentacleRenderer &tentacles, PhysiologySystem &physiology, ExpressionLayer &expression) {
+    // 边缘暗中观察/窥视状态
+    // 好奇心与警惕性并存：小幅增加舒适度，缓慢消耗精力
+    physiology.addBoredom(dt * 0.035f);
+    physiology.consumeEnergy(dt * 0.006f);
+
+    // 沿边缓慢巡游移动 (平滑低速 18px/s)
+    if (peek_edge == 0 || peek_edge == 2) {
+        peek_target_x += peek_move_dir * dt * 18.0f;
+        if (peek_target_x < 36.0f) { peek_target_x = 36.0f; peek_move_dir = 1.0f; }
+        else if (peek_target_x > (float)SCREEN_W - 36.0f) { peek_target_x = (float)SCREEN_W - 36.0f; peek_move_dir = -1.0f; }
+    } else {
+        peek_target_y += peek_move_dir * dt * 18.0f;
+        if (peek_target_y < 36.0f) { peek_target_y = 36.0f; peek_move_dir = 1.0f; }
+        else if (peek_target_y > (float)SCREEN_H - 36.0f) { peek_target_y = (float)SCREEN_H - 36.0f; peek_move_dir = -1.0f; }
+    }
+
+    // 驱动骨架边缘潜行锚定
+    float anchor_x = peek_target_x;
+    float anchor_y = peek_target_y;
+    // peek_submerge_offset = 0 (缩回), -14 (探头). 探头时负值，让坐标更靠近屏幕内
+    if (peek_edge == 0) anchor_y = -22.0f - peek_submerge_offset; // 顶边隐藏在上面
+    else if (peek_edge == 1) anchor_x = (float)SCREEN_W + 22.0f + peek_submerge_offset; // 右侧隐藏在右边
+    else if (peek_edge == 2) anchor_y = (float)SCREEN_H + 22.0f + peek_submerge_offset; // 底边隐藏在下面
+    else if (peek_edge == 3) anchor_x = -22.0f - peek_submerge_offset; // 左侧隐藏在左边
+
+    skeleton.setCreepingTarget(anchor_x, anchor_y, 0.75f);
+    tentacles.setCreepMode(true, 0.85f); // 扒边的触手表现更紧绷
+
+    // 探头与缩回反差萌动态 (Peek-a-boo Dynamics)
+    peek_raise_timer += dt;
+    if (!peek_is_raised) {
+        // 平缓缩回状态：只露双眼和头尖 (offset = 0)
+        peek_submerge_offset += (0.0f - peek_submerge_offset) * dt * 6.0f;
+        if (peek_raise_timer >= peek_raise_interval) {
+            // 好奇探头！
+            peek_is_raised = true;
+            peek_raise_timer = 0.0f;
+            expression.triggerExpression(EXPR_CURIOSITY, 2.2f);
+        }
+        // 缩回时眼神在沿边敏锐扫视
+        if (peek_edge == 0 || peek_edge == 2) {
+            target_look_x = peek_target_x + peek_move_dir * 25.0f;
+            target_look_y = (peek_edge == 0) ? (35.0f + std::sin(millis() * 0.003f) * 20.0f) : (SCREEN_H - 35.0f - std::sin(millis() * 0.003f) * 20.0f);
+        } else {
+            target_look_y = peek_target_y + peek_move_dir * 25.0f;
+            target_look_x = (peek_edge == 3) ? (35.0f + std::sin(millis() * 0.003f) * 20.0f) : (SCREEN_W - 35.0f - std::sin(millis() * 0.003f) * 20.0f);
+        }
+    } else {
+        // 探出身躯状态：向外探出 14px，露出更多头与细小触手
+        peek_submerge_offset += (-14.0f - peek_submerge_offset) * dt * 7.0f;
+        // 探头时好奇地注视屏幕中央
+        target_look_x = SCREEN_W * 0.5f;
+        target_look_y = SCREEN_H * 0.5f;
+        if (peek_raise_timer >= 1.8f) {
+            // 探视完毕或发现风吹草动，迅速机警缩回
+            peek_is_raised = false;
+            peek_raise_timer = 0.0f;
+            peek_raise_interval = 2.8f + (rand() % 25) * 0.1f;
+        }
+    }
+
+    // 同步给骨架形变系统
+    skeleton.setPeekingMode(true, peek_submerge_offset, peek_edge);
+
+    // 时间到或积累无聊后，平稳滑出窥视转入观察
+    if (state_timer >= state_duration) {
+        skeleton.setPeekingMode(false);
+        enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
+    }
+}
+
+void CreatureAI::requestDemoAction(const String &action_name, SkeletonSystem &skeleton, TentacleRenderer &tentacles, PhysiologySystem &physiology, ExpressionLayer &expression) {
+    demo_action_name = action_name;
+    demo_action_name.toLowerCase();
+    demo_action_name.trim();
+
+    Serial.printf("[AI Demo] Requested Action: %s (initiating natural transition)\n", demo_action_name.c_str());
+
+    // 1. 调谐六维生理心理参数，使其处于触发该动作的自然心智状态
+    if (demo_action_name == "peek") {
+        demo_target_state = STATE_PEEK;
+        physiology.setCuriosity(0.88f);
+        physiology.setStress(0.55f);
+        physiology.setComfort(0.35f);
+        interaction_wake_timer = 35.0f;
+        target_look_x = SCREEN_W * 0.5f;
+        target_look_y = SCREEN_H - 10.0f;
+        expression.triggerExpression(EXPR_CURIOSITY, 3.0f);
+    } else if (demo_action_name == "bounce") {
+        demo_target_state = STATE_BOUNCE;
+        physiology.setEnergy(0.95f);
+        physiology.setBoredom(0.75f);
+        physiology.setStress(0.05f);
+        interaction_wake_timer = 35.0f;
+        target_look_x = SCREEN_W * 0.5f;
+        target_look_y = 15.0f;
+        expression.triggerExpression(EXPR_TRUST, 3.0f);
+    } else if (demo_action_name == "ball_play") {
+        demo_target_state = STATE_BALL_PLAY;
+        physiology.setEnergy(0.90f);
+        physiology.setBoredom(0.68f);
+        physiology.setComfort(0.80f);
+        interaction_wake_timer = 35.0f;
+        target_look_x = SCREEN_W * 0.5f;
+        target_look_y = 40.0f;
+        expression.triggerExpression(EXPR_CURIOSITY, 3.0f);
+    } else if (demo_action_name == "swing") {
+        demo_target_state = STATE_SWING;
+        physiology.setEnergy(0.92f);
+        physiology.setCuriosity(0.85f);
+        physiology.setBoredom(0.50f);
+        interaction_wake_timer = 35.0f;
+        target_look_x = SCREEN_W * 0.5f;
+        target_look_y = 5.0f; // 抬头望向天花板
+        expression.triggerExpression(EXPR_TRUST, 3.0f);
+    } else if (demo_action_name == "roll") {
+        demo_target_state = STATE_ROLL;
+        physiology.setEnergy(0.85f);
+        physiology.setBoredom(0.65f);
+        interaction_wake_timer = 35.0f;
+        expression.triggerExpression(EXPR_TRUST, 2.5f);
+    } else if (demo_action_name == "catch_dust") {
+        demo_target_state = STATE_CATCH_DUST;
+        physiology.setCuriosity(0.92f);
+        physiology.setStress(0.20f);
+        interaction_wake_timer = 35.0f;
+        expression.triggerExpression(EXPR_CURIOSITY, 3.0f);
+    } else if (demo_action_name == "crawl") {
+        demo_target_state = STATE_CRAWL;
+        physiology.setEnergy(0.90f);
+        physiology.setCuriosity(0.80f);
+        interaction_wake_timer = 35.0f;
+        target_look_x = 40.0f + (rand() % (SCREEN_W - 80));
+        target_look_y = 20.0f;
+    } else if (demo_action_name == "creep") {
+        demo_target_state = STATE_CREEP;
+        physiology.setEnergy(0.70f);
+        physiology.setCuriosity(0.65f);
+        interaction_wake_timer = 35.0f;
+    } else if (demo_action_name == "sleep") {
+        demo_target_state = STATE_SLEEP;
+        physiology.setEnergy(0.08f); // 极度困倦
+        physiology.setStress(0.02f);
+        physiology.setComfort(0.90f);
+        interaction_wake_timer = 0.0f; // 释放唤醒锁
+        expression.triggerExpression(EXPR_SILENT_OBSERVATION, 3.5f); // 眼神静默安眠
+    } else if (demo_action_name == "bat_hang") {
+        demo_target_state = STATE_BAT_HANG;
+        physiology.setEnergy(0.22f);
+        physiology.setComfort(0.85f);
+        interaction_wake_timer = 0.0f;
+    } else if (demo_action_name == "irritate") {
+        demo_target_state = STATE_OBSERVE;
+        physiology.setStress(0.95f);
+        physiology.triggerShock(0.8f);
+        expression.triggerExpression(EXPR_WARNING, 4.0f);
+        demo_transitioning = false;
+        return;
+    } else {
+        demo_target_state = STATE_OBSERVE;
+    }
+
+    physiology.forceEmotionUpdate();
+
+    // 2. 启动仿生自然过渡期 (0.8s 心理预备与肌肉蓄势，不突兀瞬移)
+    demo_transitioning = true;
+    demo_transition_timer = 0.8f;
+
+    // 动作收敛：若当前处于剧烈秋千或高速翻滚中，先平滑制动
+    if (current_state == STATE_SWING) {
+        skeleton.clearHangingAnchor();
+    }
+    if (current_state == STATE_ROLL) {
+        skeleton.setRollingMode(false);
+    }
+}
+
+void CreatureAI::updateDemoTransition(float dt, SkeletonSystem &skeleton, TentacleRenderer &tentacles, float hx, float hy) {
+    demo_transition_timer -= dt;
+    if (demo_transition_timer <= 0.0f) {
+        demo_transitioning = false;
+        demo_transition_timer = 0.0f;
+        // 阻尼缓冲完毕，自然正式进入演示动作！
+        enterState(demo_target_state, &tentacles, &skeleton, hx, hy);
+        Serial.printf("[AI Demo] Smoothly entered target state: %s\n", getStateName());
+    }
 }

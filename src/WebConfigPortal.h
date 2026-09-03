@@ -4,6 +4,7 @@
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <M5GFX.h>
+#include <functional>
 #include "ConfigManager.h"
 
 class WebConfigPortal {
@@ -17,23 +18,32 @@ public:
     bool isRunning() const { return running; }
     bool isSaveAndRebootRequested() const { return save_reboot_requested; }
 
+    bool isBlockingScreen() const { return blocking_screen; }
+    void setBlockingScreen(bool block) { blocking_screen = block; }
+
+    void setOnDemoAction(std::function<void(const String&)> cb) { on_demo_action = cb; }
+
 private:
     WebServer server;
     DNSServer dns_server;
     M5Canvas *portal_canvas = nullptr;
 
     bool running = false;
+    bool blocking_screen = true;
+    bool routes_configured = false;
     bool save_reboot_requested = false;
     unsigned long reboot_time_ms = 0;
     unsigned long screen_refresh_timer = 0;
 
     String scanned_ssids_json;
+    std::function<void(const String&)> on_demo_action = nullptr;
 
     void scanNearbyNetworks();
     void setupRoutes();
     void handleRoot();
     void handleScan();
     void handleSave();
+    void handleDemo();
     void handleNotFound();
 
     void renderPortalScreen();

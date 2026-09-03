@@ -62,6 +62,15 @@ public:
     float getAttachment() const { return attachment; }
     float getBoredom()    const { return boredom; }
 
+    // 显式调谐六维生理心理数值 (用于动作测试模式与自然行为诱导)
+    void setEnergy(float val)     { energy = std::max(0.05f, std::min(1.0f, val)); }
+    void setStress(float val)     { stress = std::max(0.0f, std::min(1.0f, val)); }
+    void setCuriosity(float val)  { curiosity = std::max(0.0f, std::min(1.0f, val)); }
+    void setComfort(float val)    { comfort = std::max(0.0f, std::min(1.0f, val)); }
+    void setAttachment(float val) { attachment = std::max(0.0f, std::min(1.0f, val)); }
+    void setBoredom(float val)    { boredom = std::max(0.0f, std::min(1.0f, val)); }
+    void forceEmotionUpdate()     { updateEmotionState(); }
+
     // 无聊度动态控制
     void addBoredom(float amount) { boredom = std::min(1.0f, boredom + amount); }
     void reduceBoredom(float amount) { boredom = std::max(0.0f, boredom - amount); }

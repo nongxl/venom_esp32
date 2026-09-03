@@ -33,7 +33,7 @@ uint16_t Renderer::getBackgroundColor() const {
     }
 }
 
-void Renderer::renderFieldAndVoronoi(const MetaballSystem &metaballs, const VoronoiSurface &voronoi, const PhysiologySystem &physiology) {
+void Renderer::renderFieldAndVoronoi(const MetaballSystem &metaballs, const VoronoiSurface &voronoi, const PhysiologySystem &physiology, bool is_sleeping) {
     const uint8_t *field = metaballs.getFieldBuffer();
     EmotionState emotion = physiology.getEmotion();
     float membrane_thresh = voronoi.getMembraneThreshold();
@@ -79,11 +79,23 @@ void Renderer::renderFieldAndVoronoi(const MetaballSystem &metaballs, const Voro
 
                 if (diff < membrane_thresh) {
                     // 活体肌肉纤维神经微反光
-                    uint16_t pulse_color = (emotion == EMOTION_ANGER) ? COLOR_GLOW_CYAN : COLOR_NEURO_PULSE;
-                    canvas->drawPixel(sx + 1, sy + 1, pulse_color);
-                } else if ((gx * 3 + gy * 7) % 8 == 0) {
-                    // 沥青高光微噪点
-                    canvas->drawPixel(sx + 1, sy + 1, COLOR_DITHER_GRAY);
+                    if (is_sleeping) {
+                        // 睡眠时神经微光频率极度放缓（周期超10秒慢呼吸隐现），呈现深邃静谧微波
+                        if ((gx + gy + (millis() / 950)) % 5 == 0) {
+                            canvas->drawPixel(sx + 1, sy + 1, COLOR_NEURO_PULSE);
+                        }
+                    } else {
+                        uint16_t pulse_color = (emotion == EMOTION_ANGER) ? COLOR_GLOW_CYAN : COLOR_NEURO_PULSE;
+                        canvas->drawPixel(sx + 1, sy + 1, pulse_color);
+                    }
+                } else {
+                    // 沥青高光微噪点：清醒时每 8 点取 1；睡眠时降低频率至每 24 点取 1 且受极慢大周期呼吸调制
+                    int dither_step = is_sleeping ? 24 : 8;
+                    if ((gx * 3 + gy * 7) % dither_step == 0) {
+                        if (!is_sleeping || ((gx + gy + (millis() / 1400)) % 2 == 0)) {
+                            canvas->drawPixel(sx + 1, sy + 1, COLOR_DITHER_GRAY);
+                        }
+                    }
                 }
             }
         }
@@ -309,7 +321,7 @@ void Renderer::render(const SkeletonSystem &skeleton, const MetaballSystem &meta
     }
 
     // 绘制标量场肉身与 Voronoi 细胞
-    renderFieldAndVoronoi(metaballs, voronoi, physiology);
+    renderFieldAndVoronoi(metaballs, voronoi, physiology, ai.isSleeping());
 
     // 绘制触手、捕食特效与眼睛
     tentacles.draw(*canvas, skeleton);

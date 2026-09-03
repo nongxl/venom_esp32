@@ -26,7 +26,8 @@ enum CreatureState {
     STATE_ROLL,         // 软体蜷缩翻滚玩耍
     STATE_BOUNCE,       // 自娱自乐原地蹦床
     STATE_BAT_HANG,     // 倒挂金钩发呆或睡觉
-    STATE_BALL_PLAY     // 自体分裂弹球颠球自娱自乐
+    STATE_BALL_PLAY,    // 自体分裂弹球颠球自娱自乐
+    STATE_PEEK          // 边缘暗中观察/潜行窥视 (只露双眼和头尖，警惕探索)
 };
 
 enum BallPhase {
@@ -67,6 +68,7 @@ public:
                 const PreyBugSystem *bugs = nullptr,
                 FluidSymbolSystem *fluid_symbols = nullptr);
 
+    // 状态与模式查询
     CreatureState getState() const { return current_state; }
     const char* getStateName() const;
 
@@ -79,6 +81,11 @@ public:
         return (current_state == STATE_SLEEP) || (current_state == STATE_BAT_HANG && is_bat_hang_sleeping) || (current_state == STATE_ROLL);
     }
     bool isSleepPeeking() const { return is_sleep_peeking; }
+    bool isPeeking() const { return current_state == STATE_PEEK; }
+
+    // 动作测试模式与自然过渡接口 (网页后台及串口调用)
+    void requestDemoAction(const String &action_name, SkeletonSystem &skeleton, TentacleRenderer &tentacles, PhysiologySystem &physiology, ExpressionLayer &expression);
+    bool isDemoTransitioning() const { return demo_transitioning; }
 
     bool hasActiveBall() const { return symbiote_ball.active; }
     void getBallPos(float &bx, float &by, float &br) const {
@@ -149,10 +156,27 @@ private:
     float roll_vx = 38.0f;
     int roll_bounces = 0;
 
+    // 边缘暗中观察/窥视状态参数 (State Peek)
+    int   peek_edge = 2;         // 0:顶, 1:右, 2:底, 3:左
+    float peek_target_x = 120.0f;
+    float peek_target_y = 100.0f;
+    float peek_move_dir = 1.0f;
+    float peek_raise_timer = 0.0f;       // 探头与缩回时间计时
+    float peek_submerge_offset = 0.0f;   // 探出身躯高度偏移 (负值向上探出)
+    bool  peek_is_raised = false;        // 当前是否好奇多探出头
+    float peek_raise_interval = 3.0f;    // 下一次探头间隔时间
+
+    // 动作演示与自然过渡状态
+    bool demo_transitioning = false;
+    float demo_transition_timer = 0.0f;
+    CreatureState demo_target_state = STATE_IDLE;
+    String demo_action_name = "";
+
     void enterState(CreatureState new_state, TentacleRenderer *tentacles = nullptr, SkeletonSystem *skeleton = nullptr, float hx = 120.0f, float hy = 100.0f);
     void enterHesitation(CreatureState target_state, float delay_sec);
     void updateOrganicBreathing(float dt, const PhysiologySystem &physiology, const ExpressionLayer &expression);
     void updateMicroBehaviors(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology);
+    void updateDemoTransition(float dt, SkeletonSystem &skeleton, TentacleRenderer &tentacles, float hx, float hy);
 
     void updateIdle(float dt, float hx, float hy, const PhysiologySystem &physiology, const RelationshipSystem &relationship, TentacleRenderer &tentacles, SkeletonSystem &skeleton);
     void updateCrawl(float dt, float hx, float hy, const PhysiologySystem &physiology, TentacleRenderer &tentacles, SkeletonSystem &skeleton);
@@ -169,4 +193,5 @@ private:
     void updateBounce(float dt, float hx, float hy, SkeletonSystem &skeleton, MetaballSystem &metaballs, PhysiologySystem &physiology, ExpressionLayer &expression);
     void updateBatHang(float dt, float hx, float hy, SkeletonSystem &skeleton, TentacleRenderer &tentacles, PhysiologySystem &physiology, FluidSymbolSystem *fluid_symbols = nullptr);
     void updateBallPlay(float dt, float hx, float hy, SkeletonSystem &skeleton, TentacleRenderer &tentacles, MetaballSystem &metaballs, ExpressionLayer &expression, PhysiologySystem &physiology, FluidSymbolSystem *fluid_symbols = nullptr);
+    void updatePeek(float dt, float hx, float hy, SkeletonSystem &skeleton, TentacleRenderer &tentacles, PhysiologySystem &physiology, ExpressionLayer &expression);
 };

@@ -77,7 +77,7 @@ public:
     TentacleRenderer();
 
     void init();
-    void update(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology, bool is_upside_down);
+    void update(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology, bool is_upside_down, bool is_sleeping = false);
     void draw(M5Canvas &canvas, const SkeletonSystem &skeleton) const;
 
     // 蠕动爬行模式控制

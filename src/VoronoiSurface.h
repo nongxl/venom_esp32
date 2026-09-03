@@ -20,7 +20,7 @@ public:
     VoronoiSurface();
 
     void init();
-    void update(float dt, const SkeletonSystem &skeleton, const PhysiologySystem &physiology, float look_x, float look_y);
+    void update(float dt, const SkeletonSystem &skeleton, const PhysiologySystem &physiology, float look_x, float look_y, bool is_sleeping = false);
 
     // 检查网格点 (gx, gy) 是否处于 Voronoi 细胞边界（神经元膜/裂纹）
     // 返回值：0=内部, 1=细胞膜/高光神经纤维, 2=高强度愤怒裂纹
@@ -37,5 +37,5 @@ private:
     float current_membrane_threshold = 1.2f;
     float jitter_energy = 0.0f;
 
-    void updateSeedDynamics(float dt, const SkeletonSystem &skeleton, const PhysiologySystem &physiology, float look_x, float look_y);
+    void updateSeedDynamics(float dt, const SkeletonSystem &skeleton, const PhysiologySystem &physiology, float look_x, float look_y, bool is_sleeping);
 };

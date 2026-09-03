@@ -62,6 +62,14 @@ public:
     void setBatHangMode(bool active) { is_bat_hang = active; }
     bool isBatHang() const { return is_bat_hang; }
 
+    // 边缘暗中观察/窥视形态控制
+    void setPeekingMode(bool active, float peek_offset = 0.0f, int edge = 2) {
+        is_peeking = active;
+        peeking_offset = peek_offset;
+        peeking_edge = edge;
+    }
+    bool isPeekingMode() const { return is_peeking; }
+
     const SkeletonNode& getNode(int idx) const { return nodes[idx]; }
     int getNodeCount() const { return SKELETON_NODE_COUNT; }
 
@@ -129,6 +137,9 @@ private:
     float bounce_stretch_x = 1.0f;
     float roll_angle = 0.0f;
     bool is_bat_hang = false;
+    bool is_peeking = false;
+    float peeking_offset = 0.0f;
+    int peeking_edge = 2; // 0: Top, 1: Right, 2: Bottom, 3: Left
 
     // 高速飞行抛体与黏性吸附状态
     float flying_timer = 0.0f;

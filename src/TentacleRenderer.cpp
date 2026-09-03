@@ -420,20 +420,28 @@ void TentacleRenderer::updateTentacle(int idx, float dt, const SkeletonSystem &s
     t.end_y = t.start_y + (t.target_y - t.start_y) * t.length_progress;
 }
 
-void TentacleRenderer::update(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology, bool is_upside_down) {
+void TentacleRenderer::update(float dt, SkeletonSystem &skeleton, const PhysiologySystem &physiology, bool is_upside_down, bool is_sleeping) {
     // 1. 爬行与秋千抓取触手更新
     updateGrappleCrawl(dt, skeleton, physiology);
 
-    // 2. 表皮细小腹足触手波浪步态更新
-    updateMicroTentacles(dt, skeleton);
+    // 2. 表皮细小腹足触手波浪步态更新 (睡眠时腹足平顺缩回隐没)
+    if (!is_sleeping) {
+        updateMicroTentacles(dt, skeleton);
+    } else {
+        for (int i = 0; i < MAX_MICRO_TENTACLES; ++i) {
+            micro_tentacles[i].current_len *= 0.85f;
+        }
+    }
 
-    // 3. 全天候多触手高频自发摸索生长 (Ambient Spawning)
-    auto_spawn_timer += dt;
-    float spawn_threshold = (physiology.getNeuroTension() > 0.4f || is_upside_down) ? 0.45f : 0.85f;
-    if (auto_spawn_timer >= spawn_threshold) {
-        auto_spawn_timer = 0.0f;
-        if ((rand() % 100) < 85) {
-            spawnTentacle(skeleton, is_upside_down);
+    // 3. 全天候多触手高频自发摸索生长 (Ambient Spawning) - 睡眠时彻底休眠
+    if (!is_sleeping) {
+        auto_spawn_timer += dt;
+        float spawn_threshold = (physiology.getNeuroTension() > 0.4f || is_upside_down) ? 0.45f : 0.85f;
+        if (auto_spawn_timer >= spawn_threshold) {
+            auto_spawn_timer = 0.0f;
+            if ((rand() % 100) < 85) {
+                spawnTentacle(skeleton, is_upside_down);
+            }
         }
     }
 

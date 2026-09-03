@@ -51,6 +51,7 @@ static float current_fps = 30.0f;
 static float fps_calc_accumulator = 0.0f;
 static int   fps_calc_frames = 0;
 static unsigned long last_fps_update_ms = 0;
+static bool btn_b_hold_handled = false;
 
 // ==========================================
 // 【多模式高质感仿生触觉震动引擎 (Soft Haptic Engine)】
@@ -330,25 +331,36 @@ void setup() {
     predator.init();
     renderer.init(&canvas);
 
+    // 绑定 Web 后台动作拟态测试回调 (自动调谐生理数值并自然过渡)
+    portal.setOnDemoAction([](const String &action) {
+        ai.requestDemoAction(action, skeleton, tentacles, physiology, expression);
+    });
+
     prev_micros = micros();
     Serial.println("\n>>> [Venom Symbiote] Fluid Symbol Field Fusion Ready! <<<");
-    Serial.println(">>> Commands: 'symbol <eye|?|!|x|o|heart|warning|splash>', 'screenshot', 'leak', 'hud' <<<");
+    Serial.println(">>> Commands: 'demo <peek|bounce|ball_play|swing|roll|catch_dust|crawl|creep|sleep>', 'screenshot', 'hud' <<<");
 }
 
 void loop() {
     M5.update();
     haptics.update();
 
-    // 0. 配网热点模式接管
+    // 0. 配网热点与动作测试后台处理
     if (portal.isRunning()) {
         portal.update();
-        if (M5.BtnA.wasPressed()) {
-            haptics.trigger(HAPTIC_TICK);
-            portal.stop();
-            delay(100);
-            ESP.restart();
+        if (portal.isBlockingScreen()) {
+            // 在全屏配网引导界面下，单击 BtnB 可直接切入毒液屏幕实时观察演示 (防长按释放误触)
+            if (M5.BtnB.wasClicked() && !btn_b_hold_handled) {
+                portal.setBlockingScreen(false);
+            }
+            if (M5.BtnA.wasPressed()) {
+                haptics.trigger(HAPTIC_TICK);
+                portal.stop();
+                delay(100);
+                ESP.restart();
+            }
+            return;
         }
-        return;
     }
 
     unsigned long now_micros = micros();
@@ -535,28 +547,50 @@ void loop() {
     // 3. 按键与交互
     bool btn_a_pressed = M5.BtnA.wasPressed();
 
-    // 长按 BtnB (1200ms) 触发开启 HTTP Web 配网热点
-    if (M5.BtnB.pressedFor(1200)) {
-        haptics.trigger(HAPTIC_LONG_PULSE); // 温和长震提示
-        portal.start(renderer.getCanvas());
-        return;
+    if (M5.BtnB.isPressed()) {
+        // 长按 BtnB (1000ms) 触发开启 HTTP Web 配网热点 (单次闭锁触发，避免连续重入)
+        if (!portal.isRunning() && !btn_b_hold_handled && M5.BtnB.pressedFor(1000)) {
+            btn_b_hold_handled = true;
+            haptics.trigger(HAPTIC_LONG_PULSE); // 温和长震提示
+            portal.start(renderer.getCanvas());
+            return;
+        }
+    } else {
+        // 释放后检查短按单击
+        if (M5.BtnB.wasClicked() && !btn_b_hold_handled) {
+            if (portal.isRunning()) {
+                portal.setBlockingScreen(!portal.isBlockingScreen());
+            } else {
+                renderer.toggleHUD();
+            }
+            haptics.trigger(HAPTIC_TICK); // 清脆微触感
+        }
+        btn_b_hold_handled = false;
     }
 
     if (btn_a_pressed) {
-        ai.triggerJolt(skeleton, metaballs, 1.2f);
-        haptics.trigger(HAPTIC_JOLT_DOUBLE); // 受惊双连微颤 (由本地生理与本能系统即时响应，不消耗 LLM 额度)
-    }
-
-    if (M5.BtnB.wasClicked()) {
-        renderer.toggleHUD();
-        haptics.trigger(HAPTIC_TICK); // 清脆微触感
+        if (portal.isRunning()) {
+            haptics.trigger(HAPTIC_TICK);
+            portal.stop();
+            delay(100);
+            ESP.restart();
+        } else {
+            ai.triggerJolt(skeleton, metaballs, 1.2f);
+            haptics.trigger(HAPTIC_JOLT_DOUBLE); // 受惊双连微颤
+        }
     }
 
     // 4. 串口交互指令
     if (Serial.available()) {
         String cmd = Serial.readStringUntil('\n');
         cmd.trim();
-        if (cmd.equalsIgnoreCase("screenshot") || cmd.equalsIgnoreCase("s")) {
+        if (cmd.startsWith("demo ") || cmd.startsWith("d ")) {
+            String act = cmd.substring(cmd.indexOf(' ') + 1);
+            act.trim();
+            ai.requestDemoAction(act, skeleton, tentacles, physiology, expression);
+        } else if (cmd.equalsIgnoreCase("peek")) {
+            ai.requestDemoAction("peek", skeleton, tentacles, physiology, expression);
+        } else if (cmd.equalsIgnoreCase("screenshot") || cmd.equalsIgnoreCase("s")) {
             renderer.sendScreenshotSerial();
         } else if (cmd.equalsIgnoreCase("hud")) {
             renderer.toggleHUD();
@@ -683,7 +717,7 @@ void loop() {
     // 11. Voronoi 细胞与标量场（含符号粒子融合）更新
     float look_x, look_y;
     ai.getLookTarget(look_x, look_y);
-    voronoi.update(dt, skeleton, physiology, look_x, look_y);
+    voronoi.update(dt, skeleton, physiology, look_x, look_y, is_sleeping);
     metaballs.update(dt, skeleton, gx, gy, physiology);
     float ball_x = -1.0f, ball_y = -1.0f, ball_r = 0.0f;
     if (ai.hasActiveBall()) {
@@ -692,7 +726,7 @@ void loop() {
     metaballs.computeField(skeleton, physiology, fluid_symbols, gx, gy, ball_x, ball_y, ball_r);
 
     // 12. 触手与眼睛系统更新
-    tentacles.update(dt, skeleton, physiology, is_upside_down);
+    tentacles.update(dt, skeleton, physiology, is_upside_down, is_sleeping);
     eye.update(dt, skeleton, physiology, look_x, look_y, ai.isSleeping(), ai.isSleepPeeking());
 
     // 13. 渲染输出 (包含小虫子与捕食进食视觉)

@@ -109,6 +109,7 @@ void SkeletonSystem::triggerSlingThrow(float dir_x, float dir_y, float speed) {
     clearPullTarget();           // 立即解除任何正在进行的触手牵引！
     clearHangingAnchor();        // 立即打断蛛丝悬挂！
     is_hanging = false;
+    is_peeking = false;          // 甩飞时强制解除暗中观察状态
     sticky_clog_timer = 0.0f;
 
     for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
@@ -166,9 +167,6 @@ void SkeletonSystem::applyWallAdhesion(int i) {
     // 荡秋千/倒挂悬挂状态由单摆物理约束接管，不触发贴壁撞击事件
     if (is_hanging) return;
 
-    // 刚甩出起飞的 0.18 秒保护期内，忽略原壁面约束，允许身体全速冲向开阔屏幕！
-    if (launch_grace_timer > 0.0f) return;
-
     // 1. 底部地面撞击
     float dist_b = (SCREEN_H - 1) - n.y;
     if (dist_b < r) {
@@ -176,7 +174,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
         n.y -= penetration * 0.90f;
 
         // 仅在真实高速抛掷撞击 (flying_timer > 0 或 猛烈摔打冲击 > 25.0px/s) 时才触发拍扁撞击事件
-        if ((flying_timer > 0.0f && std::abs(n.vy) > 8.0f) || n.vy > 25.0f) {
+        if ((flying_timer > 0.0f && n.vy > 8.0f) || n.vy > 25.0f) {
             impact_occurred = true;
             last_impact_speed = std::max(last_impact_speed, n.vy);
             impact_hit_x = n.x;
@@ -185,7 +183,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
             flying_timer = 0.0f;      // 撞墙瞬间立即终止飞行
         }
 
-        n.vy = 0.0f;
+        if (n.vy > 0.0f) n.vy = 0.0f; // 只有向墙内运动时才消除速度，允许向外起飞
         if (flying_timer <= 0.0f) {
             n.vx *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
         }
@@ -198,7 +196,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
         float penetration = r - dist_t;
         n.y += penetration * 0.90f;
 
-        if ((flying_timer > 0.0f && std::abs(n.vy) > 8.0f) || n.vy < -25.0f) {
+        if ((flying_timer > 0.0f && n.vy < -8.0f) || n.vy < -25.0f) {
             impact_occurred = true;
             last_impact_speed = std::max(last_impact_speed, -n.vy);
             impact_hit_x = n.x;
@@ -207,7 +205,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
             flying_timer = 0.0f;
         }
 
-        n.vy = 0.0f;
+        if (n.vy < 0.0f) n.vy = 0.0f;
         if (flying_timer <= 0.0f) {
             n.vx *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
         }
@@ -220,7 +218,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
         float penetration = r - dist_l;
         n.x += penetration * 0.90f;
 
-        if ((flying_timer > 0.0f && std::abs(n.vx) > 8.0f) || n.vx < -25.0f) {
+        if ((flying_timer > 0.0f && n.vx < -8.0f) || n.vx < -25.0f) {
             impact_occurred = true;
             last_impact_speed = std::max(last_impact_speed, -n.vx);
             impact_hit_x = n.x;
@@ -230,9 +228,9 @@ void SkeletonSystem::applyWallAdhesion(int i) {
         }
 
         if (is_rolling) {
-            n.vx = -n.vx * 0.85f;
+            if (n.vx < 0.0f) n.vx = -n.vx * 0.85f;
         } else {
-            n.vx = 0.0f;
+            if (n.vx < 0.0f) n.vx = 0.0f;
         }
         n.vy *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
         n.contact_left = std::min(1.0f, penetration / (r * 0.30f));
@@ -244,7 +242,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
         float penetration = r - dist_r;
         n.x -= penetration * 0.90f;
 
-        if ((flying_timer > 0.0f && std::abs(n.vx) > 8.0f) || n.vx > 25.0f) {
+        if ((flying_timer > 0.0f && n.vx > 8.0f) || n.vx > 25.0f) {
             impact_occurred = true;
             last_impact_speed = std::max(last_impact_speed, n.vx);
             impact_hit_x = n.x;
@@ -254,9 +252,9 @@ void SkeletonSystem::applyWallAdhesion(int i) {
         }
 
         if (is_rolling) {
-            n.vx = -n.vx * 0.85f;
+            if (n.vx > 0.0f) n.vx = -n.vx * 0.85f;
         } else {
-            n.vx = 0.0f;
+            if (n.vx > 0.0f) n.vx = 0.0f;
         }
         n.vy *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
         n.contact_right = std::min(1.0f, penetration / (r * 0.30f));

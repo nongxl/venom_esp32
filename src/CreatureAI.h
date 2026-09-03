@@ -94,7 +94,7 @@ public:
         br = symbiote_ball.radius;
     }
 
-    void triggerStartle(float intensity = 1.0f);
+    void triggerStartle(float intensity = 1.0f, SkeletonSystem *skeleton = nullptr, TentacleRenderer *tentacles = nullptr);
 
     void triggerActionState(CreatureState state, TentacleRenderer *tentacles = nullptr, SkeletonSystem *skeleton = nullptr, float hx = 120.0f, float hy = 100.0f) {
         enterState(state, tentacles, skeleton, hx, hy);
@@ -104,10 +104,10 @@ public:
     void handleSingleTap(FluidSymbolSystem &symbols, ExpressionLayer &expr, PhysiologySystem &phys);
     void handleDoubleTap(FluidSymbolSystem &symbols, ExpressionLayer &expr, PhysiologySystem &phys, SkeletonSystem &skeleton, TentacleRenderer &tentacles);
     void handleMultiTapIrritate(FluidSymbolSystem &symbols, ExpressionLayer &expr, PhysiologySystem &phys, SkeletonSystem &skeleton);
-    void triggerJolt(SkeletonSystem &skeleton, MetaballSystem &metaballs, float intensity = 1.0f);
+    void triggerJolt(SkeletonSystem &skeleton, MetaballSystem &metaballs, float intensity);
     void triggerReactiveCrawl(SkeletonSystem &skeleton, TentacleRenderer &tentacles);
-    void triggerInteraction();
-    void updateSensors(float imu_gx, float imu_gy, float imu_gz, const PhysiologySystem &physiology, bool btn_a_pressed);
+    void triggerInteraction(SkeletonSystem *skeleton = nullptr, TentacleRenderer *tentacles = nullptr);
+    void updateSensors(float imu_gx, float imu_gy, float imu_gz, const PhysiologySystem &physiology, bool btn_a_pressed, SkeletonSystem *skeleton = nullptr, TentacleRenderer *tentacles = nullptr);
 
 private:
     CreatureState current_state = STATE_IDLE;

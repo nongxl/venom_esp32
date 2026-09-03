@@ -341,11 +341,11 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
     }
 }
 
-void CreatureAI::triggerStartle(float intensity) {
+void CreatureAI::triggerStartle(float intensity, SkeletonSystem *skeleton, TentacleRenderer *tentacles) {
     // 荡秋千/倒挂等悬挂玩耍模式下，绝对豁免受惊打断！
     if (current_state == STATE_SWING || current_state == STATE_BAT_HANG) return;
     startle_energy = intensity;
-    enterState(STATE_STARTLED);
+    enterState(STATE_STARTLED, tentacles, skeleton);
 }
 
 void CreatureAI::triggerReactiveCrawl(SkeletonSystem &skeleton, TentacleRenderer &tentacles) {
@@ -375,22 +375,22 @@ void CreatureAI::triggerJolt(SkeletonSystem &skeleton, MetaballSystem &metaballs
     enterState(STATE_JOLTING);
 }
 
-void CreatureAI::triggerInteraction() {
+void CreatureAI::triggerInteraction(SkeletonSystem *skeleton, TentacleRenderer *tentacles) {
     if (current_state == STATE_SLEEP) {
         enterState(STATE_OBSERVE);
     } else if (current_state == STATE_IDLE) {
         enterHesitation(STATE_CRAWL, 0.12f);
     } else {
-        triggerStartle(0.7f);
+        triggerStartle(0.7f, skeleton, tentacles);
     }
 }
 
-void CreatureAI::updateSensors(float imu_gx, float imu_gy, float imu_gz, const PhysiologySystem &physiology, bool btn_a_pressed) {
+void CreatureAI::updateSensors(float imu_gx, float imu_gy, float imu_gz, const PhysiologySystem &physiology, bool btn_a_pressed, SkeletonSystem *skeleton, TentacleRenderer *tentacles) {
     last_imu_gx = imu_gx;
     last_imu_gy = imu_gy;
 
     if (btn_a_pressed) {
-        triggerInteraction();
+        triggerInteraction(skeleton, tentacles);
         return;
     }
 
@@ -409,7 +409,7 @@ void CreatureAI::updateSensors(float imu_gx, float imu_gy, float imu_gz, const P
         if (total_g > 2.7f || delta_g > 1.10f || (physiology.getMicDecibels() > 82.0f && physiology.getAudioHigh() > 0.82f)) {
             is_sleep_peeking = false;
             sleep_peek_timer = 0.0f;
-            triggerStartle(1.2f);
+            triggerStartle(1.2f, skeleton, tentacles);
             Serial.println("[AI] Symbiote startled wide awake from sleep by violent shock/explosion!");
             return;
         }
@@ -432,13 +432,13 @@ void CreatureAI::updateSensors(float imu_gx, float imu_gy, float imu_gz, const P
     float dynamic_threshold = (current_state == STATE_SWING || current_state == STATE_BAT_HANG || current_state == STATE_ROLL) ? 3.5f : 2.2f;
     
     if (total_g > dynamic_threshold && current_state != STATE_STARTLED && current_state != STATE_JOLTING) {
-        triggerStartle(1.2f);
+        triggerStartle(1.2f, skeleton, tentacles);
         return;
     }
 
     if (physiology.getAudioHigh() > 0.85f && physiology.getMicDecibels() > 82.0f &&
         current_state != STATE_STARTLED && current_state != STATE_JOLTING) {
-        triggerStartle(0.9f);
+        triggerStartle(0.9f, skeleton, tentacles);
         return;
     }
 }
@@ -548,35 +548,35 @@ void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem
 
         if (is_vertical) {
             // 竖屏高空模式
-            if (r < 22) {
-                enterState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy);    // 22% 竖屏蹦蹦床弹跳
-            } else if (r < 42) {
-                enterState(STATE_BALL_PLAY, &tentacles, &skeleton, hx, hy); // 20% 自体颠水球
-            } else if (r < 60) {
-                enterState(STATE_PEEK, &tentacles, &skeleton, hx, hy);      // 18% 边缘窥视
-            } else if (r < 78) {
-                enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);     // 18% 高空吸顶蛛丝荡秋千
+            if (r < 20) {
+                enterState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy);    
+            } else if (r < 35) {
+                enterState(STATE_BALL_PLAY, &tentacles, &skeleton, hx, hy); 
+            } else if (r < 50) {
+                enterState(STATE_PEEK, &tentacles, &skeleton, hx, hy);      
+            } else if (r < 65) {
+                enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);     
             } else if (r < 90) {
-                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);     // 12% 粗壮触手攀爬
+                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);     // 25% 粗壮触手大步快速攀爬 (增加概率)
             } else {
-                enterState(STATE_CATCH_DUST, &tentacles, &skeleton, hx, hy);// 10% 抓荧光微粒
+                enterState(STATE_CATCH_DUST, &tentacles, &skeleton, hx, hy);
             }
         } else {
             // 横屏生态自娱自乐
-            if (r < 18) {
-                enterState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy);    // 18% 史莱姆蹦蹦床蓄力弹跳
-            } else if (r < 36) {
-                enterState(STATE_BALL_PLAY, &tentacles, &skeleton, hx, hy); // 18% 自体颠球
-            } else if (r < 52) {
-                enterState(STATE_PEEK, &tentacles, &skeleton, hx, hy);      // 16% 边缘暗中观察窥视
-            } else if (r < 68) {
-                enterState(STATE_CATCH_DUST, &tentacles, &skeleton, hx, hy);// 16% 猎捕抓微粒
-            } else if (r < 80) {
-                enterState(STATE_ROLL, &tentacles, &skeleton, hx, hy);      // 12% 索尼克软体翻滚
+            if (r < 15) {
+                enterState(STATE_BOUNCE, &tentacles, &skeleton, hx, hy);    
+            } else if (r < 30) {
+                enterState(STATE_BALL_PLAY, &tentacles, &skeleton, hx, hy); 
+            } else if (r < 45) {
+                enterState(STATE_PEEK, &tentacles, &skeleton, hx, hy);      
+            } else if (r < 60) {
+                enterState(STATE_CATCH_DUST, &tentacles, &skeleton, hx, hy);
+            } else if (r < 70) {
+                enterState(STATE_ROLL, &tentacles, &skeleton, hx, hy);      
             } else if (r < 90) {
-                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);     // 10% 触手大步攀爬
+                enterState(STATE_CRAWL, &tentacles, &skeleton, hx, hy);     // 20% 触手大步快速攀爬 (增加概率)
             } else {
-                enterState(STATE_CREEP, &tentacles, &skeleton, hx, hy);     // 10% 细密足丝地表巡游
+                enterState(STATE_CREEP, &tentacles, &skeleton, hx, hy);     
             }
         }
         return;
@@ -641,9 +641,9 @@ void CreatureAI::updateCrawl(float dt, float hx, float hy, const PhysiologySyste
     // 连贯大触手迈步攀爬：如果当前触手未在抓爬，且距离目标还比较远，立即射出触手迈步！
     if (!tentacles.isGrappling()) {
         crawl_shoot_timer += dt;
-        if (crawl_shoot_timer >= 0.10f && dist > 12.0f) {
+        if (crawl_shoot_timer >= 0.05f && dist > 12.0f) { // 缩短射出间隔，提升频率
             crawl_shoot_timer = 0.0f;
-            float step_len = std::min(dist, 60.0f);
+            float step_len = std::min(dist, 140.0f); // 极大地增加迈步幅度，允许一步跨越半个屏幕
             float step_x = hx + (dx / dist) * step_len;
             float step_y = hy + (dy / dist) * step_len;
             tentacles.startGrappleCrawl(hx, hy, step_x, step_y);

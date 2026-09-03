@@ -356,8 +356,6 @@ void loop() {
             if (M5.BtnA.wasPressed()) {
                 haptics.trigger(HAPTIC_TICK);
                 portal.stop();
-                delay(100);
-                ESP.restart();
             }
             return;
         }
@@ -572,8 +570,6 @@ void loop() {
         if (portal.isRunning()) {
             haptics.trigger(HAPTIC_TICK);
             portal.stop();
-            delay(100);
-            ESP.restart();
         } else {
             ai.triggerJolt(skeleton, metaballs, 1.2f);
             haptics.trigger(HAPTIC_JOLT_DOUBLE); // 受惊双连微颤
@@ -677,7 +673,7 @@ void loop() {
     predator.update(dt, prey_bugs, skeleton, physiology, metaballs, is_sleeping);
 
     // 9. AI 行为状态机更新 (注入猎物注视感知与流体墨迹符号系统)
-    ai.updateSensors(raw_ax, raw_ay, raw_az, physiology, btn_a_pressed);
+    ai.updateSensors(raw_ax, raw_ay, raw_az, physiology, btn_a_pressed, &skeleton, &tentacles);
     ai.update(dt, skeleton, metaballs, tentacles, physiology, relationship, expression, v3_state, &prey_bugs, &fluid_symbols);
 
     // 10. 骨架动力学更新 (注入低频重音脉动、节拍鼓包与音乐听歌点头律动)

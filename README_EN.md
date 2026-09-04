@@ -260,4 +260,4 @@ pio device monitor
 - Shoutout to **PlatformIO** and **Espressif** for the embedded toolchain;
 - Shoutout to **[M5Porkchop](doc/M5porkchop.md)** and the pig that ate the entire ASCII art budget—thank you for the hacker zine spirit and humor;
 - Shoutout to all brave and slightly unhinged symbiote hosts across the Marvel multiverse;
-- Special thanks: The horse, who remained unavailable for comment.
+- Special thanks: That friendly neighborhood ex-host in the red-and-blue spandex (Spider-Man), who was unavailable for comment and blocked our number.

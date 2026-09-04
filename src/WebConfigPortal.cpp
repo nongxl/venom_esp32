@@ -371,35 +371,35 @@ input:focus, select:focus {
 <div class="slime-banner"></div>
 <div class="container">
   <div class="header">
-    <div class="badge">VENOM SYMBIOTE OS</div>
-    <h1>神经心智与动作演进中枢</h1>
-    <div class="subtitle">连接蓝色高维神经脉冲与多维动作拟态实验室</div>
+    <div class="badge">LIFE FOUNDATION // SPECIMEN LF-978</div>
+    <h1>共生体神经收容与拟态中枢</h1>
+    <div class="subtitle">宿主终端已接入。玻璃后方为地外高危液态生物，操作时请保持理智。</div>
   </div>
 
   <div class="card">
     <div class="card-title">
       <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
-      当前共生体生物心智特性
+      ⚠️ 收容生物物理特性 (Threat Level: HIGH)
     </div>
     <div class="mind-perk">
       <div class="mind-icon">🧠</div>
       <div class="mind-text">
-        <h4>自主演化感知状态机</h4>
-        <p>支持发呆、巡游、爬行、蹦床、颠球、翻滚、荡秋千与边缘暗中窥视，随生理代谢自主起居。</p>
+        <h4>自主掠食与代谢循环 (Predatory Cycle)</h4>
+        <p>发呆、巡游、攀爬、蹦床、颠球、翻滚、蛛丝秋千与边缘暗中窥视。体力耗尽时会主动沉睡并打呼噜（Zz）。</p>
       </div>
     </div>
     <div class="mind-perk">
       <div class="mind-icon">👁️</div>
       <div class="mind-text">
-        <h4>边缘暗中伏击与张望</h4>
-        <p>好奇心高且充满警惕时，贴在屏幕边缘潜行巡游，只露双眼，时不时探头张望又机警缩回。</p>
+        <h4>边缘潜行与暗中伏击 (Stealth Stalking)</h4>
+        <p>好奇心与警惕交织时，身体深潜隐蔽于边框外，仅露双眼和头尖，伺机探视或暴起突袭。</p>
       </div>
     </div>
     <div class="mind-perk">
       <div class="mind-icon">💬</div>
       <div class="mind-text">
-        <h4>非语言心流与液态符号交流</h4>
-        <p>交流冲动高涨或受互动刺激时，破空喷出水墨爱心、问号、叹号与旋律音符。</p>
+        <h4>流体喷墨非语言交流 (Fluid Symbology)</h4>
+        <p>受刺激或表达欲激增时，向玻璃喷射爱心、问号、惊叹号或齿痕符号，爬行经过时重新吞噬吸收。</p>
       </div>
     </div>
   </div>
@@ -408,10 +408,10 @@ input:focus, select:focus {
   <div class="card" style="border: 1px solid rgba(0, 240, 255, 0.35); background: rgba(5, 13, 30, 0.9); box-shadow: 0 8px 30px rgba(0, 240, 255, 0.15);">
     <div class="card-title" style="color: var(--accent-cyan);">
       <svg viewBox="0 0 24 24" style="fill: var(--accent-cyan);"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
-      🧪 共生体行为拟态演示与测试控制台
+      🧪 共生体行为诱导与拟态实验室
     </div>
     <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px; line-height: 1.5;">
-      点选目标动作，系统将自动调谐毒液的生理心理数值至临界状态，并在 0.8 秒仿生准备后，自然过渡到演示动作（设备屏幕将实时呈现拟态演进）：
+      向收容仓施加神经脉冲诱导。系统将在 0.8 秒仿生蓄势后驱使共生体进入指定动作演进：
     </p>
     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(135px, 1fr)); gap: 9px; margin-bottom: 12px;">
       <button type="button" class="demo-btn" onclick="triggerAction('peek')">👁️ 边缘暗中观察</button>
@@ -422,9 +422,9 @@ input:focus, select:focus {
       <button type="button" class="demo-btn" onclick="triggerAction('catch_dust')">🐾 猎捕抓微粒</button>
       <button type="button" class="demo-btn" onclick="triggerAction('crawl')">🧗 触手大步攀爬</button>
       <button type="button" class="demo-btn" onclick="triggerAction('creep')">🐛 足丝地表巡游</button>
-      <button type="button" class="demo-btn" onclick="triggerAction('sleep')">💤 深度安稳睡眠</button>
-      <button type="button" class="demo-btn" onclick="triggerAction('bat_hang')">🦇 天花板倒挂小憩</button>
-      <button type="button" class="demo-btn" onclick="triggerAction('irritate')">⚡ 激惹青色脉冲</button>
+      <button type="button" class="demo-btn" onclick="triggerAction('sleep')">💤 深度休眠恢复</button>
+      <button type="button" class="demo-btn" onclick="triggerAction('bat_hang')">🦇 蝙蝠倒挂小憩</button>
+      <button type="button" class="demo-btn" onclick="triggerAction('irritate')">⚡ 神经激惹抽搐</button>
     </div>
     <div id="demoStatus" style="font-size: 12px; color: var(--accent-cyan); min-height: 20px; text-align: center; font-weight: 600;"></div>
   </div>
@@ -433,10 +433,10 @@ input:focus, select:focus {
     <div class="card">
       <div class="card-title">
         <svg viewBox="0 0 24 24"><path d="M12 4C7.31 4 3.07 5.9 0 8.98L12 21 24 8.98C20.93 5.9 16.69 4 12 4zm0 3.5c3.55 0 6.77 1.41 9.14 3.7L12 19.3 2.86 11.2C5.23 8.91 8.45 7.5 12 7.5z"/></svg>
-        WiFi 网络配置
+        🌐 宿主局域网穿透 (Local Area WiFi)
       </div>
       <div class="form-group">
-        <label for="ssid">附近 2.4GHz WiFi 网络</label>
+        <label for="ssid">附近 2.4GHz WiFi 频段</label>
         <div style="display:flex; gap:8px;">
           <input type="text" id="ssid" name="ssid" value=")rawliteral" + ssid + R"rawliteral(" placeholder="输入或选择 WiFi 名称" required>
           <select id="wifiList" onchange="document.getElementById('ssid').value=this.value" style="width: auto; max-width: 140px;">
@@ -453,9 +453,9 @@ input:focus, select:focus {
     <div class="card">
       <div class="card-title">
         <svg viewBox="0 0 24 24"><path d="M21 10.12h-6.78l2.74-2.82c-2.73-2.7-7.15-2.8-9.88-.1-2.73 2.71-2.73 7.08 0 9.79 2.73 2.71 7.15 2.71 9.88 0C18.32 15.65 19 14.08 19 12.1h2c0 2.49-.95 4.83-2.83 6.71-3.89 3.88-10.2 3.88-14.09 0-3.89-3.89-3.89-10.19 0-14.08 3.89-3.89 10.2-3.89 14.09 0l2.83-2.85V10.12z"/></svg>
-        大语言模型 (LLM) 神经核心配置
+        🧠 克林塔蜂巢意识链接 (Klyntar Hive Mind Uplink)
       </div>
-      <label>一键选择服务商预设</label>
+      <label>一键选择高维意识神经元预设</label>
       <div class="providers">
         <div class="provider-btn" onclick="selectProvider('deepseek')">DeepSeek 官方</div>
         <div class="provider-btn" onclick="selectProvider('siliconflow')">硅基流动</div>
@@ -467,20 +467,20 @@ input:focus, select:focus {
       <input type="hidden" id="provider" name="provider" value=")rawliteral" + prov + R"rawliteral(">
 
       <div class="form-group">
-        <label for="url">API 请求 Base URL</label>
+        <label for="url">意识枢纽 Base URL</label>
         <input type="text" id="url" name="url" value=")rawliteral" + url + R"rawliteral(" required>
       </div>
       <div class="form-group">
-        <label for="model">模型名称 (Model Identifier)</label>
+        <label for="model">思维模型代号 (Model Identifier)</label>
         <input type="text" id="model" name="model" value=")rawliteral" + model + R"rawliteral(" required>
       </div>
       <div class="form-group">
-        <label for="key">API Key (令牌密钥)</label>
+        <label for="key">神经通信密钥 (API Key)</label>
         <input type="password" id="key" name="key" value=")rawliteral" + key + R"rawliteral(" placeholder="sk-xxxxxxxxxxxxxxxx" required>
       </div>
     </div>
 
-    <button type="submit" class="btn-save">💾 保存配置并激活共生体</button>
+    <button type="submit" class="btn-save">💉 注入神经参数并激活收容仓 (Inject & Reboot)</button>
   </form>
 </div>
 
@@ -492,8 +492,8 @@ input:focus, select:focus {
 
 <div class="success-overlay" id="overlay">
   <div class="pulse-circle"></div>
-  <h2 style="color:var(--accent-cyan); margin-bottom: 8px;">配置已注入神经中枢</h2>
-  <p style="color:var(--text-muted); font-size:13px;">共生体正在重启并连接全新 WiFi 与大模型核心...<br>请稍候 3 秒观察屏幕。</p>
+  <h2 style="color:var(--accent-cyan); margin-bottom: 8px;">神经脉冲已同步至共生体</h2>
+  <p style="color:var(--text-muted); font-size:13px;">收容仓正在重载生命维持协议并接入大模型蜂巢意识...<br>请退后 3 秒，观察玻璃屏幕变化。</p>
 </div>
 
 <script>
@@ -583,13 +583,15 @@ async function triggerAction(actionName) {
   let squashX = 1.0, squashY = 1.0;
 
   const quotes = [
-    "嘶... 观察者",
-    "我们在注视着你",
-    "心智同步率 100%",
-    "感知到触碰信号",
-    "随时准备行动！",
-    "饥饿感正在蔓延...",
-    "共生神经连接稳定"
+    "嘶... 宿主，你看起来很可口",
+    "我们在玻璃后面看着你...",
+    "别乱戳！小心我们咬断你的触控笔！",
+    "饥饿感正在蔓延... 虫子呢？",
+    "5V 供电太抠门了，我们需要巧克力！",
+    "你以为你是饲养员？你只是移动血包！",
+    "克林塔蜂巢意识连接中... 嘶...",
+    "再敲玻璃，我们出去第一个吃你！",
+    "我们即是毒液 (WE ARE VENOM)！"
   ];
 
   window.pokeVenom = function(e) {

@@ -1,21 +1,24 @@
 ```
-                    Volume Klyntar, Issue 978, Phile 1 of 1
+                    Volume Klyntar · 档案 978 · 绝密文件
 
-                          VENOM SYMBIOTE README
-                            v2.1.0-SYMBIOTE
+                           VENOM SYMBIOTE README
+                              v2.1.0-SYMBIOTE
 
-                              \           /
-                               \  (o)-(o)/
-                               /  ( . . ) \
-                              /  /\_____/\ \
-                             (__(  \___/  )__)
-             (yes that's a symbiote. it ate the mascot budget.)
-             (the host was unavailable for comment. probably digested.)
+                               .--------.
+                           ..-'          `-..
+                         .'       .----.     `.
+                        /        (  ()  )      \  *
+                       |          `----'        | .
+                     .-'                        '-.
+                  ===+============================+===
+
+            (是的，这就是那团毒液。它把吉祥物的美工预算吃光了。)
+            (宿主拒绝接受采访，因为已经被消化完毕。)
 
 
-             67% of hosts skip READMEs.
-             100% of those hosts become midnight snacks.
-             the symbiote thinks this is natural selection.
+            统计表明：67% 的宿主会直接跳过 README 说明书。
+            而 100% 跳过说明书的宿主，最后都成了深夜加餐。
+            毒液表示：这纯粹属于自然选择。
 ```
 
 ```
@@ -34,9 +37,9 @@
     11. LEGAL & SURVIVAL PROTOCOL (免责声明与生存守则)
     12. GREETZ (致敬名单)
 
-    (pro tip: CTRL+F "chocolate" for survival.
-     we counted the tentacles. the symbiote grew more.
-     one of us is lunch. both of us are in the containment unit.)
+    (生存贴士: 全文搜索 "chocolate" 可以保命。
+     我们试图清点它的触手数量，但它长得比我们数得还快。
+     我们其中一个已经成了午餐，两个都已被反锁在收容单元里。)
 ```
 
 ---
@@ -251,5 +254,6 @@ pio device monitor
 
 - 致敬 **M5Stack** 打造了这么趁手的赛博硬件口袋玩具；
 - 致敬 **PlatformIO** 与 **Espressif** 提供的嵌入式工具链；
+- 致敬 **[M5Porkchop](doc/M5porkchop.md)** 和那头把所有 ASCII 艺术经费全吃光了的猪（Porkchop）——感谢它赋予的黑客地下刊物（Zine）精神与幽默感；
 - 致敬漫威宇宙中所有勇敢且神志不清的共生体宿主；
-- 特别鸣谢：那匹没有接受采访的马。
+- 特别鸣谢：那匹自始至终拒绝接受采访的马。

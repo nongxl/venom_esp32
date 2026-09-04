@@ -1,3 +1,7 @@
+<p align="right">
+  <b>🇨🇳 中文版</b> | <b><a href="README_EN.md">🇬🇧 English</a></b>
+</p>
+
 ```
                     Volume Klyntar · 档案 978 · 绝密文件
 

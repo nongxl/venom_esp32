@@ -111,6 +111,7 @@ public:
 
 private:
     CreatureState current_state = STATE_IDLE;
+    CreatureState last_state = STATE_IDLE;
     CreatureState pending_state = STATE_IDLE;
     float state_timer = 0.0f;
     float state_duration = 4.0f;
@@ -126,6 +127,7 @@ private:
 
     float crawl_force_x = 0.0f;
     float crawl_force_y = 0.0f;
+    int crawl_step_count = 0;
     float crawl_target_x = 120.0f;
     float crawl_target_y = 100.0f;
     int crawl_perimeter_edge = 0;
@@ -172,6 +174,7 @@ private:
     CreatureState demo_target_state = STATE_IDLE;
     String demo_action_name = "";
 
+    CreatureState decideNextState(CreatureState from_state, float hx, float hy, const PhysiologySystem &physiology);
     void enterState(CreatureState new_state, TentacleRenderer *tentacles = nullptr, SkeletonSystem *skeleton = nullptr, float hx = 120.0f, float hy = 100.0f);
     void enterHesitation(CreatureState target_state, float delay_sec);
     void updateOrganicBreathing(float dt, const PhysiologySystem &physiology, const ExpressionLayer &expression);
@@ -187,7 +190,7 @@ private:
     void updateHesitating(float dt, float hx, float hy, const ExpressionLayer &expression);
     void updateJolting(float dt, float hx, float hy, const PhysiologySystem &physiology);
     void updateExpressing(float dt, float hx, float hy, const ExpressionLayer &expression);
-    void updateSwing(float dt, float hx, float hy, SkeletonSystem &skeleton, TentacleRenderer &tentacles);
+    void updateSwing(float dt, float hx, float hy, SkeletonSystem &skeleton, TentacleRenderer &tentacles, const PhysiologySystem &physiology);
     void updateCatchDust(float dt, float hx, float hy, SkeletonSystem &skeleton, TentacleRenderer &tentacles, ExpressionLayer &expression, PhysiologySystem &physiology, MetaballSystem *metaballs = nullptr, const PreyBugSystem *bugs = nullptr, FluidSymbolSystem *fluid_symbols = nullptr);
     void updateRoll(float dt, float hx, float hy, SkeletonSystem &skeleton, ExpressionLayer &expression, PhysiologySystem &physiology, MetaballSystem *metaballs = nullptr);
     void updateBounce(float dt, float hx, float hy, SkeletonSystem &skeleton, MetaballSystem &metaballs, PhysiologySystem &physiology, ExpressionLayer &expression);

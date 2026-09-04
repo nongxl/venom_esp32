@@ -48,8 +48,14 @@ void SkeletonSystem::init() {
 void SkeletonSystem::setCreepingTarget(float tx, float ty, float speed) {
     if (flying_timer > 0.0f || is_hanging) return;
     is_creeping_motion = true;
-    creep_target_x = std::max(16.0f, std::min((float)SCREEN_W - 16.0f, tx));
-    creep_target_y = std::max(16.0f, std::min((float)SCREEN_H - 16.0f, ty));
+    if (is_peeking) {
+        // 暗中观察潜伏时允许坐标深潜到屏幕边界之外 (-40 ~ SCREEN + 40)
+        creep_target_x = std::max(-40.0f, std::min((float)SCREEN_W + 40.0f, tx));
+        creep_target_y = std::max(-40.0f, std::min((float)SCREEN_H + 40.0f, ty));
+    } else {
+        creep_target_x = std::max(5.0f, std::min((float)SCREEN_W - 5.0f, tx));
+        creep_target_y = std::max(5.0f, std::min((float)SCREEN_H - 5.0f, ty));
+    }
     creep_speed_mult = speed;
 }
 
@@ -418,46 +424,49 @@ void SkeletonSystem::solveSpringConstraints(float tension) {
         float body_base_x = hx;
         float body_base_y = hy;
 
-        if (peeking_edge == 0) { // Top
-            target_head_y = 5.0f - peeking_offset;
-            body_base_y = -10.0f;
-            nodes[0].contact_top = 0.85f;
-        } else if (peeking_edge == 1) { // Right
-            target_head_x = (float)SCREEN_W - 5.0f + peeking_offset;
-            body_base_x = (float)SCREEN_W + 10.0f;
-            nodes[0].contact_right = 0.85f;
-        } else if (peeking_edge == 2) { // Bottom
-            target_head_y = (float)SCREEN_H - 5.0f + peeking_offset;
-            body_base_y = (float)SCREEN_H + 10.0f;
-            nodes[0].contact_bottom = 0.85f;
-        } else if (peeking_edge == 3) { // Left
-            target_head_x = 5.0f - peeking_offset;
-            body_base_x = -10.0f;
-            nodes[0].contact_left = 0.85f;
+        // 头部半径约 20~22px。
+        // 潜伏缩回时 (peeking_offset ≈ 0)：头部圆心深入边框外 11px，屏幕内仅探出头尖与双眼 (~10px)；
+        // 好奇探头时 (peeking_offset ≈ -14px)：头部圆心探至边框内 3px，露出完整头部和眼睛打量四周。
+        if (peeking_edge == 0) { // Top (顶边)
+            target_head_y = -11.0f - peeking_offset;
+            body_base_y = -26.0f;
+            nodes[0].contact_top = 0.95f;
+        } else if (peeking_edge == 1) { // Right (右边)
+            target_head_x = (float)SCREEN_W + 11.0f + peeking_offset;
+            body_base_x = (float)SCREEN_W + 26.0f;
+            nodes[0].contact_right = 0.95f;
+        } else if (peeking_edge == 2) { // Bottom (底边)
+            target_head_y = (float)SCREEN_H + 11.0f + peeking_offset;
+            body_base_y = (float)SCREEN_H + 26.0f;
+            nodes[0].contact_bottom = 0.95f;
+        } else if (peeking_edge == 3) { // Left (左边)
+            target_head_x = -11.0f - peeking_offset;
+            body_base_x = -26.0f;
+            nodes[0].contact_left = 0.95f;
         }
 
         if (peeking_edge == 0 || peeking_edge == 2) {
-            nodes[0].y += (target_head_y - nodes[0].y) * 0.45f;
+            nodes[0].y += (target_head_y - nodes[0].y) * 0.50f;
         } else {
-            nodes[0].x += (target_head_x - nodes[0].x) * 0.45f;
+            nodes[0].x += (target_head_x - nodes[0].x) * 0.50f;
         }
 
         for (int i = 1; i < SKELETON_NODE_COUNT; ++i) {
-            float lag = (float)i * 11.0f;
+            float lag = (float)i * 8.0f;
             if (peeking_edge == 0 || peeking_edge == 2) {
                 float tx = (nodes[0].vx >= 0.0f) ? (hx - lag) : (hx + lag);
-                nodes[i].x += (tx - nodes[i].x) * 0.35f;
-                nodes[i].y += (body_base_y - nodes[i].y) * 0.50f;
-                nodes[i].vx = nodes[0].vx * 0.75f;
+                nodes[i].x += (tx - nodes[i].x) * 0.45f;
+                nodes[i].y += (body_base_y - nodes[i].y) * 0.60f; // 身体节点彻底潜入屏幕外
+                nodes[i].vx = nodes[0].vx * 0.70f;
                 nodes[i].vy = 0.0f;
                 if (peeking_edge == 0) nodes[i].contact_top = 1.0f;
                 else nodes[i].contact_bottom = 1.0f;
             } else {
                 float ty = (nodes[0].vy >= 0.0f) ? (hy - lag) : (hy + lag);
-                nodes[i].x += (body_base_x - nodes[i].x) * 0.50f;
-                nodes[i].y += (ty - nodes[i].y) * 0.35f;
+                nodes[i].x += (body_base_x - nodes[i].x) * 0.60f; // 身体节点彻底潜入屏幕外
+                nodes[i].y += (ty - nodes[i].y) * 0.45f;
                 nodes[i].vx = 0.0f;
-                nodes[i].vy = nodes[0].vy * 0.75f;
+                nodes[i].vy = nodes[0].vy * 0.70f;
                 if (peeking_edge == 1) nodes[i].contact_right = 1.0f;
                 else nodes[i].contact_left = 1.0f;
             }
@@ -478,14 +487,9 @@ void SkeletonSystem::solveSpringConstraints(float tension) {
         float rest = rest_lengths[i - 1];
         if (has_pull_target || flying_timer > 0.0f) {
             rest *= 1.45f; // 高速飞行时受离心力拉长身躯
-        } else if (is_creeping_motion && !is_hanging) {
-            // 蠕行模式：沿身体传导的尺蠖波动 (Peristaltic Accordion Wave)
-            float seg_phase = creep_wave_phase - (float)(i - 1) * 1.35f;
-            float accordion = std::sin(seg_phase);
-            // 保持整体圆润聚拢，波动幅度减小以消除水母感，基准长度缩短保持圆润不散开
-            rest = 7.0f + 2.5f * accordion;
         } else if (is_creeping_motion) {
-            rest = 7.0f; // 贴地迅游时保持紧凑圆形
+            // 贴地迅游时保持紧凑圆形，彻底去除水母伸缩起伏
+            rest = 7.0f;
         }
         if (dist > 0.01f) {
             float delta = dist - rest;
@@ -661,12 +665,10 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         // 极其平缓自然的深沉生命呼吸 (7.0秒悠长呼吸周期，起伏柔和平顺)
         float peristalsis_volume_scale = 1.0f;
         if (is_creeping_motion && !is_hanging && flying_timer <= 0.0f) {
-            float creep_wave_phase = millis() * 0.0075f;
-            float seg_phase = creep_wave_phase - (float)i * 1.35f;
-            float accordion = std::sin(seg_phase);
-            // 节段缩短 (accordion < 0) 时肉体鼓胀变粗 (1.35x)，伸长 (accordion > 0) 时肉体收缩变细 (0.72x)
-            float node_weight = (i >= 3) ? 0.38f : ((i >= 1) ? 0.28f : 0.18f);
-            peristalsis_volume_scale = 1.0f - node_weight * accordion;
+            // 微幅平顺生命质感 (幅度收敛到 0.03，彻底消除水母剧烈抽搐膨胀)
+            float creep_wave_phase = millis() * 0.003f;
+            float seg_phase = creep_wave_phase - (float)i * 0.8f;
+            peristalsis_volume_scale = 1.0f - 0.03f * std::sin(seg_phase);
         }
 
         // 音乐播放器 5 频段频谱均衡器律动 (5-Band Spectrum EQ Visualization)
@@ -702,17 +704,16 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         // 黏性撞击拍扁增强因子 (撞墙瞬间增强形变)
         float stick_boost = (sticky_clog_timer > 0.0f) ? (1.0f + (sticky_clog_timer / 1.0f) * 1.5f) : 1.0f;
 
-        // 贴边拍扁温和形变与尾部瘫软 (尾部节点越来越扁)
+        // 贴边拍扁温和形变：纯正紧凑圆形贴地底边自然平切，拒绝变飞碟或两头尖梭子
         if (contact_y > 0.05f) {
-            float eff = std::min(1.0f, contact_y * 0.6f * stick_boost);
-            float tail_slouch = (i >= 1) ? (i * 0.10f) : 0.0f; // 0.1, 0.2, 0.3, 0.4
-            flat_y -= eff * (0.22f + tail_slouch);
-            flat_x += eff * (0.25f + tail_slouch * 0.6f);
+            float eff = std::min(1.0f, contact_y * 0.5f * stick_boost);
+            flat_y -= eff * 0.14f; // 底部自然切平变平 (保持像 design.png 中一样)
+            flat_x += eff * 0.06f; // 极小微展，严格保圆，彻底消除两端翘起的飞碟/梭子形
         }
         if (contact_x > 0.05f) {
-            float eff = std::min(1.0f, contact_x * 0.6f * stick_boost);
-            flat_x -= eff * 0.35f;
-            flat_y += eff * 0.45f;
+            float eff = std::min(1.0f, contact_x * 0.5f * stick_boost);
+            flat_x -= eff * 0.14f;
+            flat_y += eff * 0.06f;
         }
 
         // 速度形变：基于速度主方向自然拉长成细线 (液态共生体拉丝行为)
@@ -745,13 +746,9 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
         }
 
         if (is_peeking) {
-            if (i == 0) {
-                flat_x = 1.05f;
-                flat_y = 0.88f;
-            } else {
-                flat_x = 1.42f;
-                flat_y = 0.42f;
-            }
+            // 暗中观察潜伏时保持紧凑圆润头尖，绝不被压成飞碟
+            flat_x = 1.0f;
+            flat_y = 1.0f;
         }
 
         // 放宽形变范围，允许细丝形态

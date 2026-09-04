@@ -63,7 +63,7 @@ private:
     float auto_trigger_cooldown = 6.0f;
 
     uint16_t getBackgroundColor() const;
-    void renderFieldAndVoronoi(const MetaballSystem &metaballs, const VoronoiSurface &voronoi, const PhysiologySystem &physiology, bool is_sleeping = false);
+    void renderFieldAndVoronoi(const MetaballSystem &metaballs, const VoronoiSurface &voronoi, const PhysiologySystem &physiology, bool is_sleeping = false, bool is_stealth = false);
     void renderHUD(const CreatureAI &ai, const PhysiologySystem &physiology,
                    const RelationshipSystem &relationship, const ExpressionLayer &expression,
                    const ConsciousnessStateV3 &v3_state, float fps);

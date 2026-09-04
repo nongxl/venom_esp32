@@ -713,7 +713,8 @@ void loop() {
     // 11. Voronoi 细胞与标量场（含符号粒子融合）更新
     float look_x, look_y;
     ai.getLookTarget(look_x, look_y);
-    voronoi.update(dt, skeleton, physiology, look_x, look_y, is_sleeping);
+    bool is_stealth = (ai.getState() == STATE_PEEK || ai.getState() == STATE_CREEP);
+    voronoi.update(dt, skeleton, physiology, look_x, look_y, is_sleeping, is_stealth);
     metaballs.update(dt, skeleton, gx, gy, physiology);
     float ball_x = -1.0f, ball_y = -1.0f, ball_r = 0.0f;
     if (ai.hasActiveBall()) {

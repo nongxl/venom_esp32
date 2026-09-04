@@ -33,7 +33,7 @@ uint16_t Renderer::getBackgroundColor() const {
     }
 }
 
-void Renderer::renderFieldAndVoronoi(const MetaballSystem &metaballs, const VoronoiSurface &voronoi, const PhysiologySystem &physiology, bool is_sleeping) {
+void Renderer::renderFieldAndVoronoi(const MetaballSystem &metaballs, const VoronoiSurface &voronoi, const PhysiologySystem &physiology, bool is_sleeping, bool is_stealth) {
     const uint8_t *field = metaballs.getFieldBuffer();
     EmotionState emotion = physiology.getEmotion();
     float membrane_thresh = voronoi.getMembraneThreshold();

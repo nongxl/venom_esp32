@@ -21,7 +21,7 @@ void VoronoiSurface::init() {
     }
 }
 
-void VoronoiSurface::updateSeedDynamics(float dt, const SkeletonSystem &skeleton, const PhysiologySystem &physiology, float look_x, float look_y, bool is_sleeping) {
+void VoronoiSurface::updateSeedDynamics(float dt, const SkeletonSystem &skeleton, const PhysiologySystem &physiology, float look_x, float look_y, bool is_sleeping, bool is_stealth) {
     EmotionState emotion = physiology.getEmotion();
     float tension = physiology.getNeuroTension();
     float raw_low  = physiology.getRawAudioLow();
@@ -112,10 +112,11 @@ void VoronoiSurface::updateSeedDynamics(float dt, const SkeletonSystem &skeleton
             target_x += std::sin(phase) * amp;
             target_y += std::cos(phase) * amp;
         } else {
-            // 日常平静状态下的表面噪波律动 (波幅增大以凸显有机流体感)
+            // 日常平静状态下的表面噪波律动 (波幅平稳致密，潜行时极致宁静消除水母感)
             float phase = (float)millis() * 0.001f * 1.5f + (float)i * 1.256f;
-            target_x += std::sin(phase) * 0.95f;
-            target_y += std::cos(phase) * 0.95f;
+            float amp = is_stealth ? 0.08f : 0.65f; // 暗中观察或潜行巡游时致密镜面，彻底消除水母感
+            target_x += std::sin(phase) * amp;
+            target_y += std::cos(phase) * amp;
         }
 
         // 强阻尼平滑跟随 (睡眠时高粘滞阻尼，如深稠黑蜜，绝无超调振荡)
@@ -131,6 +132,6 @@ void VoronoiSurface::updateSeedDynamics(float dt, const SkeletonSystem &skeleton
     }
 }
 
-void VoronoiSurface::update(float dt, const SkeletonSystem &skeleton, const PhysiologySystem &physiology, float look_x, float look_y, bool is_sleeping) {
-    updateSeedDynamics(dt, skeleton, physiology, look_x, look_y, is_sleeping);
+void VoronoiSurface::update(float dt, const SkeletonSystem &skeleton, const PhysiologySystem &physiology, float look_x, float look_y, bool is_sleeping, bool is_stealth) {
+    updateSeedDynamics(dt, skeleton, physiology, look_x, look_y, is_sleeping, is_stealth);
 }

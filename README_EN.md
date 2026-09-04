@@ -31,15 +31,16 @@
     1. WHAT THE HELL IS THIS
     2. SYMBIOTE MODES (what the black slime does behind glass)
     3. THE FORBIDDEN BUG ECONOMY (high-protein insect ecology)
-    4. THE HUD & BIO-METRICS (eavesdropping on its vitals)
-    5. NEURAL HIVE LINK (connecting to the LLM hivemind)
-    6. HARDWARE CONTROLS (how to poke your alien pet)
-    7. THE WEB CONSOLE (Life Foundation Neural Containment Portal)
-    8. SERIAL CLI & SECRETS (hacker cheatsheet)
-    9. BUILDING & FLASHING (cloning and incubating)
-    10. TROUBLESHOOTING (the confessional)
-    11. LEGAL & SURVIVAL PROTOCOL
-    12. GREETZ
+    4. THE ACOUSTIC GROOVE & SPECTRUM (head-bobbing & organic 5-band EQ)
+    5. THE HUD & BIO-METRICS (eavesdropping on its vitals)
+    6. NEURAL HIVE LINK (connecting to the LLM hivemind)
+    7. HARDWARE CONTROLS (how to poke your alien pet)
+    8. THE WEB CONSOLE (Life Foundation Neural Containment Portal)
+    9. SERIAL CLI & SECRETS (hacker cheatsheet)
+    10. BUILDING & FLASHING (cloning and incubating)
+    11. TROUBLESHOOTING (the confessional)
+    12. LEGAL & SURVIVAL PROTOCOL
+    13. GREETZ
 
     (pro tip: CTRL+F "chocolate" for survival.
      we counted the tentacles. the symbiote grew more.
@@ -61,7 +62,8 @@ This is not a toy playing canned looping GIFs. It is an autonomous silicon-based
 - **FreeRTOS Dual-Core Heterogeneous Consciousness**:
   - **Core 1**: Renders fluid metaball fields, spring constraints, eyeball gaze-tracking, and cellular Voronoi skin at rock-solid 30 FPS;
   - **Core 0**: Silently handles SSL handshakes, HTTP sockets, and LLM neural emergence with zero frame drops and zero UI stutter;
-- **Full Physical Sensor Immersion**: 6-axis IMU gravity simulation, ultra-sensitive acoustic stimulation, and micro-motor haptic feedback.
+- **Full Physical Sensor Immersion**: 6-axis IMU gravity simulation, ultra-sensitive acoustic stimulation, and micro-motor haptic feedback;
+- **5-Band Goertzel DFT Living Organic Equalizer**: Onboard microphone samples ambient audio at 8000Hz, decomposing acoustic waveforms via Goertzel discrete Fourier transforms (DFT) into 5 frequency bins (Sub-Bass / Bass / Mid / Presence / Treble) that directly drive the 5 skeletal nodes into pulsating rhythms—turning the symbiote into a living, breathing graphic equalizer.
 
 ---
 
@@ -108,7 +110,27 @@ When a bug spawns, Venom's eye snaps onto the prey with laser focus, triggering 
 
 ---
 
-## 4. THE HUD & BIO-METRICS (Eavesdropping on Its Vitals)
+## 4. THE ACOUSTIC GROOVE & SPECTRUM (Head-Bobbing & Organic 5-Band EQ)
+
+Don't assume this extraterrestrial sludge only cares about bugs and slumber. Organisms from Klyntar possess an unnatural acoustic resonance with Earth sound waves:
+
+- 🎧 **Grooving & Head-Bobbing to the Beat**:
+  Equipped with a proprietary `RhythmDetector` beat-tracking engine. When you blast music in the room or nearby, Venom automatically decodes acoustic tempo (BPM) and beat phase. As long as it isn't asleep, it **autonomously bobs its head with elastic bounce**, thoroughly entranced by the groove!
+- 🎚️ **5-Node Anatomy = 5-Band Organic Graphic EQ**:
+  Through 8000Hz audio sampling and discrete Fourier transforms (Goertzel DFT), Venom's physical mass acts as a 5-band acoustic resonator chamber:
+  - **Sub-Bass (125Hz)**: Directly pulses **Node 0 (Head)** with heavy, thunderous sub-bass impacts;
+  - **Bass (375Hz)**: Thumps **Node 1 (Neck)** along with the bassline;
+  - **Mid (1125Hz)**: Expands **Node 2 (Mid-Torso)** with melodic vocals;
+  - **Presence (2250Hz)**: Flexes **Node 3 (Lower Torso)** to soaring guitar riffs;
+  - **Treble (3375Hz)**: Shivers **Node 4 (Tail Tip)** in sync with crisp hi-hats and cymbals;
+- 🎶 **Musical Ink Blebs (♪ / ♫)**:
+  When rhythmic confidence maxes out (`Confidence >= 88%`), Venom's head triggers a micro-haptic jolt and spits out fluid ink musical glyphs—**single eighth notes (`♪`)** or **beamed double notes (`♫`)**—floating upwards through the chamber!
+- 🌊 **Membrane Micro-Fluid Jitter**:
+  Audio spectrum power continuously modulates cellular Voronoi surface tension, causing the liquid mantle to simmer and boil with the music.
+
+---
+
+## 5. THE HUD & BIO-METRICS (Eavesdropping on Its Vitals)
 
 Short-press **BtnB** to toggle the top-screen real-time diagnostic HUD. A 3-column fixed grid with zero jitter and zero line wraps:
 
@@ -140,7 +162,7 @@ Short-press **BtnB** to toggle the top-screen real-time diagnostic HUD. A 3-colu
 
 ---
 
-## 5. NEURAL HIVE LINK (Connecting to the LLM Hivemind)
+## 6. NEURAL HIVE LINK (Connecting to the LLM Hivemind)
 
 Why does this puddle of black goo seem self-aware?
 
@@ -151,10 +173,11 @@ Because its psyche is linked to the **Klyntar Hive Mind (Background LLM Core)**.
 
 ---
 
-## 6. HARDWARE CONTROLS (How to Poke Your Alien Pet)
+## 7. HARDWARE CONTROLS (How to Poke Your Alien Pet)
 
 | Interaction | Hardware Action | Symbiote Reaction |
 | :--- | :--- | :--- |
+| **Acoustic Groove** | **Play rhythmic music nearby** | Decodes BPM to bob head dynamically; 5 nodes pulse as a graphic EQ; spits musical notes ♪ / ♫ |
 | **Feed Bug** | **Insect spawns on screen** | Instant tongue flick, claw grab, or mucus web snare to feast and recharge |
 | **Splat & Stick** | **Violently whip/shake device** | "Splat!" Flattens against the screen edge like sticky mud, sticking before peeling off |
 | **Ceiling Swing** | **Crawl to ceiling / tilt device** | Hangs by silk lines, swinging like a pendulum with real gravity and dynamic leg kicks |
@@ -166,7 +189,7 @@ Because its psyche is linked to the **Klyntar Hive Mind (Background LLM Core)**.
 
 ---
 
-## 7. THE WEB CONSOLE (Life Foundation Neural Containment Portal)
+## 8. THE WEB CONSOLE (Life Foundation Neural Containment Portal)
 
 Need to adjust its WiFi or grant it a sharper cloud brain?
 
@@ -180,7 +203,7 @@ Need to adjust its WiFi or grant it a sharper cloud brain?
 
 ---
 
-## 8. SERIAL CLI & SECRETS (Hacker Cheatsheet)
+## 9. SERIAL CLI & SECRETS (Hacker Cheatsheet)
 
 Plug in the USB-C cable, fire up serial monitor at baud rate `115200`, and inject privileged containment commands:
 
@@ -206,7 +229,7 @@ screenshot or s
 
 ---
 
-## 9. BUILDING & FLASHING (Cloning and Incubating)
+## 10. BUILDING & FLASHING (Cloning and Incubating)
 
 ### Gear Required
 - **Hardware**: M5StickS3 (ESP32-S3, 240x135 LCD) + USB-C data cable;
@@ -231,7 +254,7 @@ pio device monitor
 
 ---
 
-## 10. TROUBLESHOOTING (The Confessional)
+## 11. TROUBLESHOOTING (The Confessional)
 
 - **Q: Why is it hiding on the border, peeking and refusing to come out?**  
   **A**: It's suspicious of you. Give it 2–3 seconds or hold still. Once it finishes scanning, it will glide along the rim or extend tentacles into the center. Don't tap the glass unless you want to provoke it.
@@ -246,7 +269,7 @@ pio device monitor
 
 ---
 
-## 11. LEGAL & SURVIVAL PROTOCOL
+## 12. LEGAL & SURVIVAL PROTOCOL
 
 1. This project is licensed under the **[MIT License](LICENSE)**.
 2. If the symbiote ruptures containment, crawls up your USB cable into your cerebral cortex, or induces sudden cravings for raw meat and chocolate, the developers assume zero medical or legal liability.
@@ -254,7 +277,7 @@ pio device monitor
 
 ---
 
-## 12. GREETZ
+## 13. GREETZ
 
 - Shoutout to **M5Stack** for crafting such a slick cybernetic pocket toy;
 - Shoutout to **PlatformIO** and **Espressif** for the embedded toolchain;

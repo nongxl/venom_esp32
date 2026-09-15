@@ -23,6 +23,8 @@ struct SkeletonNode {
     float bleb_offset_y = 0.0f;
 };
 
+struct MotorIntent;
+
 class SkeletonSystem {
 public:
     SkeletonSystem();
@@ -32,7 +34,8 @@ public:
                 float crawl_force_x, float crawl_force_y,
                 float neuro_tension, float spike_intensity,
                 float respiration, bool is_upside_down,
-                const float *spectrum_bands = nullptr);
+                const float *spectrum_bands = nullptr,
+                const MotorIntent *motor_intent = nullptr);
 
     void applyImpulse(float ix, float iy);
     void triggerSlingThrow(float dir_x, float dir_y, float speed);
@@ -151,6 +154,8 @@ private:
     float last_impact_speed = 0.0f;
     float impact_hit_x = 120.0f;
     float impact_hit_y = 100.0f;
+
+    const MotorIntent *active_motor_intent = nullptr; // 当前帧运动意图指针
 
     void applyWallAdhesion(int i);
     void updateNodePhysics(int i, float dt, float gx, float gy, float cfx, float cfy, float tension, bool is_upside_down);

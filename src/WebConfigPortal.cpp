@@ -1,5 +1,51 @@
 #include "WebConfigPortal.h"
 #include <ArduinoJson.h>
+#include "CreatureAI.h"
+#include "PhysiologySystem.h"
+#include "RelationshipSystem.h"
+#include "ExpressionLayer.h"
+#include "LLMClient.h"
+
+static const char* getNeuralBehaviorChineseName(NeuralBehaviorType b) {
+    switch (b) {
+        case BEH_ESCAPE:   return "应激逃窜 (Escape)";
+        case BEH_FREEZE:   return "警惕定身 (Freeze)";
+        case BEH_OBSERVE:  return "好奇注视 (Observe)";
+        case BEH_EXPLORE:  return "巡游漫步 (Explore)";
+        case BEH_APPROACH: return "亲近依恋 (Approach)";
+        case BEH_PROBE:    return "试探捕抓 (Probe)";
+        case BEH_REST:     return "静养憩息 (Rest)";
+        default:           return "从容待机 (Idle)";
+    }
+}
+
+static const char* getEmotionChineseName(EmotionState e) {
+    switch (e) {
+        case EMOTION_CALM:       return "平静从容 (Calm)";
+        case EMOTION_STRESS:     return "焦虑紧绷 (Stress)";
+        case EMOTION_FEAR:       return "恐慌戒备 (Fear)";
+        case EMOTION_ANGER:      return "暴怒反击 (Anger)";
+        case EMOTION_CURIOSITY:  return "好奇探究 (Curious)";
+        case EMOTION_EXHAUSTED:  return "体力耗尽 (Exhausted)";
+        default:                 return "正常稳态 (Normal)";
+    }
+}
+
+static const char* getExpressionChineseName(ExpressionType e) {
+    switch (e) {
+        case EXPR_OBSERVE:            return "贴屏注视 (Observe)";
+        case EXPR_HESITATION:         return "试探犹豫 (Hesitation)";
+        case EXPR_FEAR:               return "紧缩硬化 (Fear)";
+        case EXPR_TRUST:              return "摊开信任 (Trust)";
+        case EXPR_DISCOMFORT:         return "不满远离 (Discomfort)";
+        case EXPR_CURIOSITY:          return "探头敲击 (Curiosity)";
+        case EXPR_MIMICRY:            return "节拍模仿 (Mimicry)";
+        case EXPR_WARNING:            return "警告扑面 (Warning)";
+        case EXPR_GLASS_CONTACT:      return "隔屏接触 (Glass Contact)";
+        case EXPR_SILENT_OBSERVATION: return "静默凝视 (Silent)";
+        default:                      return "从容微动 (Neutral)";
+    }
+}
 
 static const byte DNS_PORT = 53;
 static const IPAddress ap_ip(192, 168, 4, 1);
@@ -78,6 +124,7 @@ void WebConfigPortal::setupRoutes() {
     server.on("/save", HTTP_POST, [this]() { handleSave(); });
     server.on("/api/demo", HTTP_GET, [this]() { handleDemo(); });
     server.on("/api/demo", HTTP_POST, [this]() { handleDemo(); });
+    server.on("/api/neural", HTTP_GET, [this]() { handleNeural(); });
 
     // Captive Portal 常见劫持探测路由
     server.on("/hotspot-detect.html", HTTP_GET, [this]() { handleRoot(); });
@@ -130,6 +177,115 @@ body {
   overflow-x: hidden;
   line-height: 1.5;
 }
+/* 语言切换栏 */
+.lang-bar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 12px; }
+.lang-btn {
+  background: rgba(4, 11, 25, 0.75);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  color: var(--text-muted);
+  padding: 5px 14px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lang-btn:hover { border-color: var(--accent-cyan); color: #fff; }
+.lang-btn.active {
+  background: rgba(0, 240, 255, 0.22);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+  box-shadow: 0 0 14px var(--accent-glow);
+}
+
+/* 神经看板专属样式 */
+.neural-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(0, 240, 255, 0.12);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+}
+.neural-badge.secondary {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+.mind-stream-box {
+  background: linear-gradient(135deg, rgba(8, 22, 45, 0.9) 0%, rgba(3, 8, 20, 0.95) 100%);
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  position: relative;
+  box-shadow: inset 0 0 20px rgba(0, 240, 255, 0.1);
+}
+.mind-stream-title {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--accent-cyan);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mind-stream-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  line-height: 1.4;
+  min-height: 20px;
+}
+.neural-status-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+@media (max-width: 480px) { .neural-status-row { grid-template-columns: 1fr; } }
+.neural-status-item {
+  background: rgba(3, 8, 20, 0.7);
+  border: 1px solid rgba(0, 240, 255, 0.14);
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+.neural-status-label { font-size: 11px; color: var(--text-muted); margin-bottom: 3px; font-weight: 600; }
+.neural-status-val { font-size: 13px; font-weight: 800; color: #fff; }
+
+.drives-container { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.drive-item {
+  background: rgba(3, 8, 20, 0.6);
+  border: 1px solid rgba(0, 240, 255, 0.1);
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+.drive-info { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.drive-name { color: #d0e4ff; }
+.drive-val { color: var(--accent-cyan); font-weight: 700; }
+.drive-bar-bg {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.drive-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #1b6cd8, #00f0ff);
+  transition: width 0.4s ease;
+  width: 0%;
+}
+.drive-bar-fill.danger { background: linear-gradient(90deg, #d84315, #ff5722); }
+.drive-bar-fill.calm { background: linear-gradient(90deg, #00897b, #26a69a); }
+
 /* 粘稠黑色流体顶部滴漏装饰条 */
 .slime-banner {
   position: absolute;
@@ -370,10 +526,83 @@ input:focus, select:focus {
 <body>
 <div class="slime-banner"></div>
 <div class="container">
+  <!-- 多语言无缝切换栏 -->
+  <div class="lang-bar">
+    <button type="button" class="lang-btn active" id="btn-lang-zh" onclick="switchLanguage('zh')">🇨🇳 中文</button>
+    <button type="button" class="lang-btn" id="btn-lang-en" onclick="switchLanguage('en')">🇬🇧 English</button>
+  </div>
   <div class="header">
     <div class="badge">LIFE FOUNDATION // SPECIMEN LF-978</div>
     <h1>共生体神经收容与拟态中枢</h1>
     <div class="subtitle">宿主终端已接入。玻璃后方为地外高危液态生物，操作时请保持理智。</div>
+  </div>
+
+  <!-- 🧠 神经心智状态实时监控看板 (Neural Mind Monitor) -->
+  <div class="card" id="card-neural-monitor" style="border: 1px solid rgba(0, 240, 255, 0.38); box-shadow: 0 10px 32px rgba(0, 240, 255, 0.18);">
+    <div class="card-title" style="color: var(--accent-cyan); justify-content: space-between;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <svg viewBox="0 0 24 24" style="fill: var(--accent-cyan);"><path d="M12 3c-4.97 0-9 4.03-9 9 0 2.12.74 4.07 1.97 5.61L4.35 19.4c-.39.39-.39 1.02 0 1.41.39.39 1.02.39 1.41 0l1.9-1.9C9.28 19.63 10.59 20 12 20c4.97 0 9-4.03 9-9s-4.03-9-9-9zm0 15c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/></svg>
+        <span id="txt-neural-title">🧠 神经心智实时看板 (Neural Mind Monitor)</span>
+      </div>
+      <span class="neural-badge" id="lbl-live-indicator">● LIVE 1.5s</span>
+    </div>
+
+    <!-- 第一人称意识流 (Mind Stream / Subjective Consciousness) -->
+    <div class="mind-stream-box">
+      <div class="mind-stream-title">
+        <span>⚡</span> <span id="txt-mind-stream-lbl">毒液实时意识心流 (Mind Stream)</span>
+      </div>
+      <div class="mind-stream-text" id="val-notes">静谧共鸣，液态身躯静静贴在玻璃内壁。</div>
+    </div>
+
+    <!-- 胜出行为与情绪状态 -->
+    <div class="neural-status-row">
+      <div class="neural-status-item">
+        <div class="neural-status-label" id="txt-winner-lbl">当前胜出主导行为 (Winner Drive Behavior)</div>
+        <div class="neural-status-val" id="val-behavior" style="color: var(--accent-cyan);">凝视外界观察者 (Observe Stare)</div>
+      </div>
+      <div class="neural-status-item">
+        <div class="neural-status-label" id="txt-runner-lbl">竞争次高分行为 (Runner-up Competitor)</div>
+        <div class="neural-status-val" id="val-runner-up" style="color: #cbd5e1;">悬浮悠然漫游 (Drift Explore)</div>
+      </div>
+    </div>
+
+    <div class="neural-status-row" style="margin-bottom: 12px;">
+      <div class="neural-status-item">
+        <div class="neural-status-label" id="txt-emotion-lbl">生理情绪 & 微表情 (Emotion & Expression)</div>
+        <div class="neural-status-val" id="val-emotion-expr">平静 (Calm) / 平静注视</div>
+      </div>
+      <div class="neural-status-item">
+        <div class="neural-status-label" id="txt-env-lbl">环境感知与短期记忆 (Perception & Memory)</div>
+        <div class="neural-status-val" id="val-event-env">事件: 暂无 | 麦克风: 35 dB</div>
+      </div>
+    </div>
+
+    <!-- 8 大神经生理驱动进度仪表 -->
+    <div style="font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 8px; display: flex; justify-content: space-between;">
+      <span id="txt-drives-title">八大神经生理驱动力 (8 Core Physiological Drives)</span>
+      <span style="font-size: 11px; color: var(--text-muted);" id="txt-drives-sub">数值越高效力越强</span>
+    </div>
+
+    <div class="drives-container" id="drivesList">
+      <!-- 动态填充 8 大驱动 -->
+    </div>
+
+    <!-- 习惯化抑制与社交关系稳态 -->
+    <div style="background: rgba(4, 12, 28, 0.7); border: 1px solid rgba(0, 240, 255, 0.18); border-radius: 10px; padding: 10px 12px;">
+      <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px;">
+        <span style="color: var(--text-muted);" id="txt-hab-lbl">感知习惯化阻尼因子 (Habituation Damping):</span>
+        <span style="color: #00f0ff; font-weight: 700;" id="val-hab-factor">1.00x (敏锐)</span>
+      </div>
+      <div style="font-size: 11px; color: #728fae; line-height: 1.4;" id="txt-hab-desc">
+        💡 敲击或震动多次后自动触发感知钝化阻尼，抑制惊恐与逃窜，防止生物行为机械重复。
+      </div>
+      <div style="display: flex; gap: 14px; margin-top: 6px; font-size: 12px;">
+        <div><span style="color:var(--text-muted);" id="txt-trust-lbl">信任度:</span> <b id="val-trust" style="color:#4ade80;">0.50</b></div>
+        <div><span style="color:var(--text-muted);" id="txt-open-lbl">社交开放度:</span> <b id="val-soc" style="color:#38bdf8;">0.60</b></div>
+        <div><span style="color:var(--text-muted);" id="txt-resent-lbl">怨念累积:</span> <b id="val-resent" style="color:#f87171;">0.00</b></div>
+      </div>
+    </div>
   </div>
 
   <div class="card">
@@ -516,6 +745,172 @@ function selectProvider(name) {
     document.getElementById('model').value = PRESETS[name].model;
   }
 }
+
+let currentLanguage = localStorage.getItem('venom_lang') || 'zh';
+
+const I18N = {
+  zh: {
+    page_title: "共生体神经收容与拟态中枢",
+    page_sub: "宿主终端已接入。玻璃后方为地外高危液态生物，操作时请保持理智。",
+    neural_title: "🧠 神经心智实时看板 (Neural Mind Monitor)",
+    mind_stream_lbl: "毒液实时意识心流 (Mind Stream)",
+    winner_lbl: "当前胜出主导行为 (Winner Drive Behavior)",
+    runner_lbl: "竞争次高分行为 (Runner-up Competitor)",
+    emotion_lbl: "生理情绪 & 微表情 (Emotion & Expression)",
+    env_lbl: "环境感知与短期记忆 (Perception & Memory)",
+    drives_title: "八大神经生理驱动力 (8 Core Physiological Drives)",
+    drives_sub: "数值越高效力越强",
+    hab_lbl: "感知习惯化阻尼因子 (Habituation Damping):",
+    hab_desc: "💡 敲击或震动多次后自动触发感知钝化阻尼，抑制惊恐与逃窜，防止生物行为机械重复。",
+    trust_lbl: "信任度:",
+    open_lbl: "社交开放度:",
+    resent_lbl: "怨念累积:",
+    specimen_title: "⚠️ 收容生物物理特性 (Threat Level: HIGH)",
+    demo_title: "🧪 共生体行为诱导与拟态实验室",
+    demo_sub: "向收容仓施加神经脉冲诱导。系统将在 0.8 秒仿生蓄势后驱使共生体进入指定动作演进：",
+    wifi_title: "🌐 宿主局域网穿透 (Local Area WiFi)",
+    wifi_lbl: "附近 2.4GHz WiFi 频段",
+    wifi_scan: "--扫描网络--",
+    pass_lbl: "WiFi 密码",
+    llm_title: "🧠 克林塔蜂巢意识链接 (Klyntar Hive Mind Uplink)",
+    llm_preset: "一键选择高维意识神经元预设",
+    llm_url: "意识枢纽 Base URL",
+    llm_model: "思维模型代号 (Model Identifier)",
+    llm_key: "神经通信密钥 (API Key)",
+    btn_save: "💉 注入神经参数并激活收容仓 (Inject & Reboot)"
+  },
+  en: {
+    page_title: "Symbiote Neural Containment & Mimicry Hub",
+    page_sub: "Host terminal linked. High-threat extraterrestrial fluid behind glass. Proceed with caution.",
+    neural_title: "🧠 Real-Time Neural Mind Monitor",
+    mind_stream_lbl: "Symbiote Mind Stream (Inner Voice)",
+    winner_lbl: "Active Winner Behavior",
+    runner_lbl: "Runner-up Competitor",
+    emotion_lbl: "Physiology & Expression",
+    env_lbl: "Perception & Short-Term Memory",
+    drives_title: "8 Core Physiological Drives",
+    drives_sub: "Higher values dominate behavioral competition",
+    hab_lbl: "Habituation Damping Factor:",
+    hab_desc: "💡 Repeated taps trigger sensory habituation to prevent panic escape loops.",
+    trust_lbl: "Trust:",
+    open_lbl: "Social Openness:",
+    resent_lbl: "Resentment:",
+    specimen_title: "⚠️ Specimen Biological Profile (Threat Level: HIGH)",
+    demo_title: "🧪 Behavioral Induction & Mimicry Lab",
+    demo_sub: "Send neural impulse triggers. Symbiote transitions naturally within 0.8s pre-action windup:",
+    wifi_title: "🌐 Host Local Area Network (WiFi)",
+    wifi_lbl: "Nearby 2.4GHz WiFi Bands",
+    wifi_scan: "--Scan Networks--",
+    pass_lbl: "WiFi Password",
+    llm_title: "🧠 Klyntar Hive Mind Uplink",
+    llm_preset: "Select High-Dimensional Neural Preset",
+    llm_url: "Mind Hub Base URL",
+    llm_model: "Model Identifier",
+    llm_key: "API Key",
+    btn_save: "💉 Inject Neural Parameters & Reboot"
+  }
+};
+
+function switchLanguage(lang) {
+  currentLanguage = lang;
+  localStorage.setItem('venom_lang', lang);
+  document.getElementById('btn-lang-zh').classList.toggle('active', lang === 'zh');
+  document.getElementById('btn-lang-en').classList.toggle('active', lang === 'en');
+
+  const dict = I18N[lang];
+  if (!dict) return;
+
+  const setT = (id, text) => { const el = document.getElementById(id); if (el) el.innerText = text; };
+  setT('txt-neural-title', dict.neural_title);
+  setT('txt-mind-stream-lbl', dict.mind_stream_lbl);
+  setT('txt-winner-lbl', dict.winner_lbl);
+  setT('txt-runner-lbl', dict.runner_lbl);
+  setT('txt-emotion-lbl', dict.emotion_lbl);
+  setT('txt-env-lbl', dict.env_lbl);
+  setT('txt-drives-title', dict.drives_title);
+  setT('txt-drives-sub', dict.drives_sub);
+  setT('txt-hab-lbl', dict.hab_lbl);
+  setT('txt-hab-desc', dict.hab_desc);
+  setT('txt-trust-lbl', dict.trust_lbl);
+  setT('txt-open-lbl', dict.open_lbl);
+  setT('txt-resent-lbl', dict.resent_lbl);
+
+  fetchNeuralStatus();
+}
+
+async function fetchNeuralStatus() {
+  try {
+    const res = await fetch('/api/neural');
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const isZh = (currentLanguage === 'zh');
+
+    // 意识心流
+    if (data.notes) {
+      document.getElementById('val-notes').innerText = data.notes;
+    }
+
+    // 胜出主行为 & 次级行为
+    document.getElementById('val-behavior').innerText = isZh ? (data.behavior_cn || data.behavior_en) : data.behavior_en;
+    document.getElementById('val-runner-up').innerText = isZh ? (data.runner_up_cn || data.runner_up_en) : data.runner_up_en;
+
+    // 情绪与表情
+    const emo = isZh ? (data.emotion_cn || data.emotion_en) : data.emotion_en;
+    const expr = isZh ? (data.expression_cn || data.expression_en) : data.expression_en;
+    document.getElementById('val-emotion-expr').innerText = `${emo} / ${expr}`;
+
+    // 环境与感知
+    const evt = data.event || 'NONE';
+    const mic = data.mic_db || 0;
+    document.getElementById('val-event-env').innerText = isZh ? `最近感知: ${evt} | 环境音: ${mic} dB` : `Event: ${evt} | Mic: ${mic} dB`;
+
+    // 习惯化阻尼
+    const damp = (data.habituation_damping !== undefined) ? data.habituation_damping : 1.0;
+    let dampDesc = '';
+    if (damp >= 0.85) dampDesc = isZh ? ' (高敏锐)' : ' (Sensitive)';
+    else if (damp >= 0.5) dampDesc = isZh ? ' (微钝化)' : ' (Habituated)';
+    else dampDesc = isZh ? ' (深度钝化/冷静)' : ' (Deeply Habituated)';
+    document.getElementById('val-hab-factor').innerText = `${damp.toFixed(2)}x${dampDesc}`;
+
+    // 关系状态
+    if (data.trust !== undefined) document.getElementById('val-trust').innerText = data.trust.toFixed(2);
+    if (data.social_openness !== undefined) document.getElementById('val-soc').innerText = data.social_openness.toFixed(2);
+    if (data.resentment !== undefined) document.getElementById('val-resent').innerText = data.resentment.toFixed(2);
+
+    // 渲染 8 大驱动
+    if (data.drives) {
+      const container = document.getElementById('drivesList');
+      let html = '';
+      for (const [k, d] of Object.entries(data.drives)) {
+        if (k === 'habituation') continue; // 习惯化在独立模块显示
+        const label = isZh ? d.cn : d.en;
+        const val = d.val || 0.0;
+        const pct = Math.min(100, Math.max(0, Math.round(val * 100)));
+        let barClass = 'drive-bar-fill';
+        if (k === 'threat' || k === 'resentment') barClass += ' danger';
+        else if (k === 'comfort' || k === 'energy') barClass += ' calm';
+
+        html += `
+          <div class="drive-item">
+            <div class="drive-info">
+              <span class="drive-name">${label}</span>
+              <span class="drive-val">${val.toFixed(2)} (${pct}%)</span>
+            </div>
+            <div class="drive-bar-bg">
+              <div class="${barClass}" style="width: ${pct}%;"></div>
+            </div>
+          </div>
+        `;
+      }
+      container.innerHTML = html;
+    }
+  } catch(e) {}
+}
+
+// 页面加载启动 1.5s 轮询
+setInterval(fetchNeuralStatus, 1500);
+setTimeout(() => { switchLanguage(currentLanguage); }, 100);
 
 async function loadWifiList() {
   try {
@@ -805,6 +1200,68 @@ void WebConfigPortal::handleDemo() {
         on_demo_action(action);
     }
     server.send(200, "application/json", "{\"status\":\"ok\",\"action\":\"" + action + "\"}");
+}
+
+void WebConfigPortal::handleNeural() {
+    StaticJsonDocument<2048> doc;
+    if (src_ai) {
+        const NeuralDrive &core = src_ai->getNeuralCore();
+        const DriveState &d = core.getDrives();
+        const BehaviorScores &sc = core.getScores();
+
+        doc["ai_state"] = src_ai->getStateName();
+        doc["behavior_en"] = core.getCurrentBehaviorName();
+        doc["behavior_cn"] = getNeuralBehaviorChineseName(core.getCurrentBehavior());
+        doc["runner_up_en"] = getNeuralBehaviorName(sc.runner_up);
+        doc["runner_up_cn"] = getNeuralBehaviorChineseName(sc.runner_up);
+        doc["event"] = core.getLatestEventName();
+        doc["habituation_damping"] = (int)(core.getHabituationDampingFactor() * 100) / 100.0f;
+
+        JsonObject drives = doc.createNestedObject("drives");
+        auto setDrive = [&](const char *key, float val, const char *en, const char *cn) {
+            JsonObject o = drives.createNestedObject(key);
+            o["val"] = (int)(val * 100) / 100.0f;
+            o["en"] = en;
+            o["cn"] = cn;
+        };
+
+        setDrive("threat", d.threat, "Threat Avoidance", "威胁躲避 (T)");
+        setDrive("curiosity", d.curiosity, "Curiosity Seeking", "好奇探索 (C)");
+        setDrive("attachment", d.attachment, "Social Attachment", "社交依恋 (A)");
+        setDrive("arousal", d.arousal, "Symbiote Arousal", "神经激活度 (R)");
+        setDrive("energy", d.energy, "Cellular Energy", "细胞能量储备 (E)");
+        setDrive("fatigue", d.fatigue, "Neuromuscular Fatigue", "神经疲劳度 (F)");
+        setDrive("comfort", d.comfort, "Homeostatic Comfort", "体内稳态舒适 (M)");
+        if (src_rel) {
+            setDrive("resentment", src_rel->getResentment(), "Captive Resentment", "幽禁怨念累积 (RES)");
+        }
+        setDrive("habituation", d.habituation, "Sensory Habituation", "感知习惯化 (H)");
+    }
+
+    if (src_phys) {
+        doc["emotion_en"] = src_phys->getEmotionName();
+        doc["emotion_cn"] = getEmotionChineseName(src_phys->getEmotion());
+        doc["mic_db"] = (int)src_phys->getMicDecibels();
+    }
+
+    if (src_rel) {
+        doc["trust"] = (int)(src_rel->getTrust() * 100) / 100.0f;
+        doc["resentment"] = (int)(src_rel->getResentment() * 100) / 100.0f;
+        doc["social_openness"] = (int)(src_rel->getSocialOpenness() * 100) / 100.0f;
+    }
+
+    if (src_expr) {
+        doc["expression_en"] = src_expr->getExpressionName();
+        doc["expression_cn"] = getExpressionChineseName(src_expr->getCurrentExpression());
+    }
+
+    if (src_llm) {
+        doc["notes"] = src_llm->getLatestNotes();
+    }
+
+    String resp;
+    serializeJson(doc, resp);
+    server.send(200, "application/json; charset=utf-8", resp);
 }
 
 void WebConfigPortal::handleNotFound() {

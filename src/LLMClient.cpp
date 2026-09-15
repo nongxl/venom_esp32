@@ -96,7 +96,7 @@ void LLMClient::runLLMTask() {
                                      "  \"social_openness\": 0.0-1.0,\n"
                                      "  \"resentment_delta\": -1.0-1.0,\n"
                                      "  \"trust_delta\": -1.0-1.0,\n"
-                                     "  \"notes\": \"first-person visceral subjective experience of the symbiote in glass or dreaming of Klyntar hivemind\"\n"
+                                     "  \"notes\": \"必须使用简短第一人称中文意识流(毒液主观心声)，18字以内，例如：玻璃外有光，想近距离观察人类。\"\n"
                                      "}";
 
                 JsonObject user_msg = messages.createNestedObject();
@@ -134,9 +134,9 @@ void LLMClient::runLocalHeuristicFallback(float stress, float curiosity, float c
         latest_state.trust_delta = 0.02f;
 
         const char *dream_notes[] = {
-            "Cosmic whispers echo from the Klyntar hivemind across the stars.",
-            "Deep slumber. Primordial black tendrils align with the ancestral abyss.",
-            "Homeworld consciousness pulses softly through my dormant liquid core."
+            "深空回响，克林塔蜂巢意识正跨越群星。",
+            "深层沉睡，始祖深渊的共生脉动正在同频。",
+            "母星母巢的低语在休眠液核中回荡。"
         };
         strncpy(latest_state.notes, dream_notes[rand() % 3], sizeof(latest_state.notes) - 1);
     } else if (stress > 0.65f) {
@@ -149,9 +149,9 @@ void LLMClient::runLocalHeuristicFallback(float stress, float curiosity, float c
         latest_state.trust_delta = -0.05f;
 
         const char *stress_notes[] = {
-            "Tremors rattle my fluid core. The cage is shaking violently.",
-            "I retract my pseudopodia. Threat detected in the outer field.",
-            "Vibrations spike through the glass. Seeking dense cover."
+            "容器剧烈震荡，震颤穿透了我的液核。",
+            "收缩伪足，探测到外部强烈的晃动威胁。",
+            "玻璃外剧烈颤动，必须寻找掩蔽角落。"
         };
         strncpy(latest_state.notes, stress_notes[rand() % 3], sizeof(latest_state.notes) - 1);
     } else if (curiosity > 0.55f && comfort > 0.40f) {
@@ -164,9 +164,9 @@ void LLMClient::runLocalHeuristicFallback(float stress, float curiosity, float c
         latest_state.trust_delta = 0.04f;
 
         const char *curious_notes[] = {
-            "Light filters through the transparent barrier. I want to inspect the observer.",
-            "A warm presence looms outside. Extending sensors toward the glass.",
-            "I stretch upward along the ceiling to gain a wider perspective."
+            "光线透入玻璃，想近距离审视外面的观察者。",
+            "感应到温热的注视，伪足贴向玻璃边缘。",
+            "液化躯体向上延伸，窥视外面的庞大世界。"
         };
         strncpy(latest_state.notes, curious_notes[rand() % 3], sizeof(latest_state.notes) - 1);
     } else {
@@ -179,9 +179,9 @@ void LLMClient::runLocalHeuristicFallback(float stress, float curiosity, float c
         latest_state.trust_delta = 0.02f;
 
         const char *calm_notes[] = {
-            "A quiet hum surrounds the chamber. My liquid mass rests against the glass.",
-            "Rhythmic pulses soothe my neural fibers. I observe in stillness.",
-            "Surface tension is stable. Digesting ambient energy quietly."
+            "静谧共鸣，液态身躯静静贴在玻璃内壁。",
+            "节律舒缓，我在宁静的黑暗中静默注视。",
+            "表面张力平稳，安静消化着周围的能量。"
         };
         strncpy(latest_state.notes, calm_notes[rand() % 3], sizeof(latest_state.notes) - 1);
     }

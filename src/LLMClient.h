@@ -16,7 +16,7 @@ struct ConsciousnessStateV3 {
     float social_openness = 0.35f;
     float resentment_delta = 0.0f;
     float trust_delta = 0.02f;
-    char notes[128] = "I perceive the glass container and the observer outside.";
+    char notes[160] = "我们感知到了玻璃容器，以及外面的观察者。";
     bool has_new_update = false;
 };
 

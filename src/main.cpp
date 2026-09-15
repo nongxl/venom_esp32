@@ -335,28 +335,71 @@ void setup() {
     portal.setOnDemoAction([](const String &action) {
         ai.requestDemoAction(action, skeleton, tentacles, physiology, expression);
     });
+    portal.setNeuralDataSource(&ai, &physiology, &relationship, &expression, &llm);
 
     prev_micros = micros();
-    Serial.println("\n>>> [Venom Symbiote] Fluid Symbol Field Fusion Ready! <<<");
-    Serial.println(">>> Commands: 'demo <peek|bounce|ball_play|swing|roll|catch_dust|crawl|creep|sleep>', 'screenshot', 'hud' <<<");
+    Serial.println("\n>>> [Venom Symbiote] Neural Core Symbiosis Ready! <<<");
+    Serial.println(">>> Commands: 'drive'/'neural', 'stim <touch|shake|sound>', 'bug', 'hud', 'demo <skill>' <<<");
 }
 
 void loop() {
     M5.update();
     haptics.update();
 
-    // 0. 配网热点与动作测试后台处理
+    // ─────────────────────────────────────────────────────────────
+    // 【统一集中式按键调度中枢】(彻底杜绝逻辑分裂与死锁)
+    // ─────────────────────────────────────────────────────────────
+    static unsigned long btn_b_press_start_ms = 0;
+    bool btn_a_pressed = M5.BtnA.wasPressed();
+
+    if (M5.BtnB.wasPressed()) {
+        btn_b_press_start_ms = millis();
+        btn_b_hold_handled = false;
+    }
+
+    if (M5.BtnB.isPressed()) {
+        // 长按判定：按压且持续 >= 950ms，且配网未处于开启状态
+        if (!portal.isRunning() && !btn_b_hold_handled && (millis() - btn_b_press_start_ms >= 950)) {
+            btn_b_hold_handled = true;
+            haptics.trigger(HAPTIC_LONG_PULSE); // 温和长震提示
+            portal.start(renderer.getCanvas());
+            Serial.println(">>> [BTN] Long Press (>=950ms) detected: Started WebConfigPortal!");
+        }
+    } else if (M5.BtnB.wasReleased()) {
+        unsigned long press_dur = millis() - btn_b_press_start_ms;
+        if (!btn_b_hold_handled && press_dur >= 25 && press_dur < 650) {
+            if (portal.isRunning()) {
+                // 配网运行中：短按在“配网全屏卡片”与“毒液主观察界面”之间自如切换
+                portal.setBlockingScreen(!portal.isBlockingScreen());
+                Serial.printf(">>> [BTN] Short Click (%lu ms): Toggled Portal Screen to %d\n", press_dur, portal.isBlockingScreen());
+            } else {
+                // 正常毒液状态下：短按 100% 切换数据面板 (Mode 0 -> 1 -> 2 -> 0)
+                renderer.toggleHUD();
+                Serial.printf(">>> [BTN] Short Click (%lu ms): Toggled HUD to Mode %d\n", press_dur, renderer.getHUDMode());
+            }
+            haptics.trigger(HAPTIC_TICK); // 清脆微触感
+        }
+        btn_b_hold_handled = false;
+    }
+
+    if (btn_a_pressed) {
+        if (portal.isRunning()) {
+            // 配网运行中，按 BtnA 退出配网热点
+            haptics.trigger(HAPTIC_TICK);
+            portal.stop();
+            Serial.println(">>> [Portal] BtnA pressed: Exited WebConfigPortal.");
+        } else {
+            // 正常状态下按 BtnA，轻戳触碰毒液引发生理应激微震
+            ai.triggerJolt(skeleton, metaballs, 1.2f);
+            haptics.trigger(HAPTIC_JOLT_DOUBLE);
+        }
+    }
+
+    // 0. 配网热点后台服务与全屏引导卡片拦截
     if (portal.isRunning()) {
         portal.update();
         if (portal.isBlockingScreen()) {
-            // 在全屏配网引导界面下，单击 BtnB 可直接切入毒液屏幕实时观察演示 (防长按释放误触)
-            if (M5.BtnB.wasClicked() && !btn_b_hold_handled) {
-                portal.setBlockingScreen(false);
-            }
-            if (M5.BtnA.wasPressed()) {
-                haptics.trigger(HAPTIC_TICK);
-                portal.stop();
-            }
+            // 全屏配网引导卡片模式：屏幕用于展示热点 SSID 与 IP 地址，跳过下半段毒液渲染
             return;
         }
     }
@@ -398,69 +441,72 @@ void loop() {
     static float dizzy_shake_meter = 0.0f;
     static unsigned long last_dizzy_trigger_ms = 0;
     static unsigned long last_sling_time_ms = 0;
+    static unsigned long last_tap_pulse_ms = 0; // 提升作用域供甩飞防误触
+    static int tap_counter = 0;                 // 敲击计数器提升作用域供甩飞重置
 
     float acc_mag = std::sqrt(raw_ax * raw_ax + raw_ay * raw_ay + raw_az * raw_az);
     float dynamic_g = std::max(0.0f, acc_mag - 1.0f);
 
     // 晃动能量自然衰减
     dizzy_shake_meter = std::max(0.0f, dizzy_shake_meter - dt * 0.85f);
-    if (dynamic_g > 0.30f) {
+    if (dynamic_g > 0.40f) {
         dizzy_shake_meter += dt * (2.0f + dynamic_g * 3.8f);
     }
 
-    // 甩飞物理 (支持用力甩动手腕将毒液从屏幕一边啪嗒甩到另一边，彻底挣脱抓力)
+    // 真实手腕挥甩物理判定 (大幅甩动设备脱离墙面，闪电横跨屏幕)
     if (ai.getState() != STATE_SWING && ai.getState() != STATE_BAT_HANG) {
-        if (dynamic_g > 0.35f && (millis() - last_sling_time_ms > 280)) {
+        if (dynamic_g > 0.70f && (millis() - last_sling_time_ms > 350)) {
             last_sling_time_ms = millis();
             dizzy_shake_meter += 1.35f; // 每次猛烈甩飞累加晕眩值
+            tap_counter = 0;            // 挥甩动作立即清空敲击计数器，绝不串扰敲击动作！
+            last_tap_pulse_ms = 0;
 
             float hx, hy;
             skeleton.getHeadPos(hx, hy);
+            const SkeletonNode &head_node = skeleton.getNode(0);
 
-            // 真实物理惯性抛射方向：
-            // 甩动手腕急停刹车瞬间，加速度计产生反向制动加速度：
-            // 1. 向下甩动急停时 raw_ay < 0 -> 惯性向前冲到底边 (dir_y = +1.0)
-            // 2. 向上甩动急停时 raw_ay > 0 -> 惯性向前冲到顶边 (dir_y = -1.0)
-            // 3. 向右甩动急停时 raw_ax > 0 -> 惯性向前冲到右壁 (dir_x = +1.0)
-            // 4. 向左甩动急停时 raw_ax < 0 -> 惯性向前冲到左壁 (dir_x = -1.0)
+            // 检查当前是否紧贴壁面
+            bool on_bottom = (hy > (float)SCREEN_H - 26.0f || head_node.contact_bottom > 0.12f);
+            bool on_top    = (hy < 26.0f || head_node.contact_top > 0.12f);
+            bool on_left   = (hx < 26.0f || head_node.contact_left > 0.12f);
+            bool on_right  = (hx > (float)SCREEN_W - 26.0f || head_node.contact_right > 0.12f);
+
             float dir_x = 0.0f;
             float dir_y = 0.0f;
 
-            if (std::abs(raw_ax) > std::abs(raw_ay)) {
-                // 水平甩动为主
-                if (std::abs(raw_ax) > 0.18f) {
-                    dir_x = (raw_ax > 0) ? 1.0f : -1.0f;
-                } else {
-                    dir_x = (hx < (float)SCREEN_W * 0.5f) ? 1.0f : -1.0f;
-                }
-                dir_y = 0.0f;
-            } else {
-                // 垂直甩动为主
-                if (std::abs(raw_ay) > 0.18f) {
-                    dir_y = (raw_ay < 0) ? 1.0f : -1.0f;
-                } else {
-                    dir_y = (hy < (float)SCREEN_H * 0.5f) ? 1.0f : -1.0f;
-                }
-                dir_x = 0.0f;
+            if (std::abs(raw_ax) > 0.20f) dir_x = (raw_ax > 0.0f) ? 1.0f : -1.0f;
+            if (std::abs(raw_ay) > 0.20f) dir_y = (raw_ay < 0.0f) ? 1.0f : -1.0f;
+
+            // 【关键壁面脱附法线弹离】贴壁时确保速度方向朝向开阔屏幕中心，100% 挣脱贴壁！
+            if (on_bottom) {
+                dir_y = -1.0f; // 贴在地面，甩动必定向上腾空弹起！
+                if (dir_x == 0.0f) dir_x = (hx < SCREEN_W * 0.5f) ? 0.7f : -0.7f;
+            } else if (on_top) {
+                dir_y = 1.0f;  // 贴在顶棚，必定向下坠落脱离！
+                if (dir_x == 0.0f) dir_x = (hx < SCREEN_W * 0.5f) ? 0.7f : -0.7f;
+            } else if (on_left) {
+                dir_x = 1.0f;  // 贴在左壁，向右弹起！
+                if (dir_y == 0.0f) dir_y = -0.6f;
+            } else if (on_right) {
+                dir_x = -1.0f; // 贴在右壁，向左弹起！
+                if (dir_y == 0.0f) dir_y = -0.6f;
             }
 
-            // 归一化
             float dir_len = std::sqrt(dir_x * dir_x + dir_y * dir_y);
             if (dir_len > 0.01f) {
                 dir_x /= dir_len;
                 dir_y /= dir_len;
             }
 
-            // 初速度 180.0 ~ 250.0 px/s (极速破空横跨屏幕直冲对向边界！)
-            float throw_speed = 180.0f + dynamic_g * 50.0f;
-            if (throw_speed > 250.0f) throw_speed = 250.0f;
+            float throw_speed = 190.0f + dynamic_g * 45.0f;
+            if (throw_speed > 260.0f) throw_speed = 260.0f;
 
             skeleton.triggerSlingThrow(dir_x, dir_y, throw_speed);
-            tentacles.setCreepMode(false); // 彻底收回爪子
-            tentacles.reset();             // 打断爪盘与触手
-            predator.cancelHunt(&skeleton, &prey_bugs); // 打断捕食并释放活虫，防残留死锁
-            ai.triggerStartle(1.5f);       // 受到惊吓，紧缩硬化飞行
-            haptics.trigger(HAPTIC_SLING); // 甩飞轻盈离手感
+            tentacles.setCreepMode(false);
+            tentacles.reset();
+            predator.cancelHunt(&skeleton, &prey_bugs);
+            ai.triggerStartle(1.5f);
+            haptics.trigger(HAPTIC_SLING);
         }
     }
 
@@ -483,8 +529,6 @@ void loop() {
 
     // 1.2 高频瞬态敲击检测器 (High-Pass Jerk & Multi-Tap Detection)
     static float prev_raw_ax = 0.0f, prev_raw_ay = 0.0f, prev_raw_az = 0.0f;
-    static unsigned long last_tap_pulse_ms = 0;
-    static int tap_counter = 0;
 
     float d_ax = raw_ax - prev_raw_ax;
     float d_ay = raw_ay - prev_raw_ay;
@@ -495,13 +539,8 @@ void loop() {
 
     float jerk_mag = std::sqrt(d_ax * d_ax + d_ay * d_ay + d_az * d_az);
 
-    // 调试辅助：当检测到任何微小加加速度突变时打印
-    if (jerk_mag > 0.10f) {
-        Serial.printf("[IMU-PULSE] jerk=%.3f (dx=%.2f dy=%.2f dz=%.2f)\n", jerk_mag, d_ax, d_ay, d_az);
-    }
-
-    // 敲击脉冲判定 (超灵敏门限 jerk > 0.13g 且距离上次脉冲 > 60ms 去抖)
-    if (jerk_mag > 0.13f && (millis() - last_tap_pulse_ms > 60)) {
+    // 敲击脉冲判定：必须处于平稳低动态状态 (dynamic_g < 0.45g)，彻底排除用力挥甩设备时的误触发！
+    if (dynamic_g < 0.45f && jerk_mag > 0.14f && (millis() - last_tap_pulse_ms > 60)) {
         unsigned long now_ms = millis();
         if (now_ms - last_tap_pulse_ms > 1000) {
             tap_counter = 1;
@@ -542,39 +581,7 @@ void loop() {
     float total_g_shake = std::max(0.0f, std::abs(raw_ax) + std::abs(raw_ay) + std::abs(raw_az) - 1.0f);
     rhythm.update(dt, total_g_shake, physiology.getAudioHigh());
 
-    // 3. 按键与交互
-    bool btn_a_pressed = M5.BtnA.wasPressed();
-
-    if (M5.BtnB.isPressed()) {
-        // 长按 BtnB (1000ms) 触发开启 HTTP Web 配网热点 (单次闭锁触发，避免连续重入)
-        if (!portal.isRunning() && !btn_b_hold_handled && M5.BtnB.pressedFor(1000)) {
-            btn_b_hold_handled = true;
-            haptics.trigger(HAPTIC_LONG_PULSE); // 温和长震提示
-            portal.start(renderer.getCanvas());
-            return;
-        }
-    } else {
-        // 释放后检查短按单击
-        if (M5.BtnB.wasClicked() && !btn_b_hold_handled) {
-            if (portal.isRunning()) {
-                portal.setBlockingScreen(!portal.isBlockingScreen());
-            } else {
-                renderer.toggleHUD();
-            }
-            haptics.trigger(HAPTIC_TICK); // 清脆微触感
-        }
-        btn_b_hold_handled = false;
-    }
-
-    if (btn_a_pressed) {
-        if (portal.isRunning()) {
-            haptics.trigger(HAPTIC_TICK);
-            portal.stop();
-        } else {
-            ai.triggerJolt(skeleton, metaballs, 1.2f);
-            haptics.trigger(HAPTIC_JOLT_DOUBLE); // 受惊双连微颤
-        }
-    }
+    // 3. 按键与交互已在 loop() 顶部统一集中调度完毕
 
     // 4. 串口交互指令
     if (Serial.available()) {
@@ -620,6 +627,21 @@ void loop() {
             float hx, hy; skeleton.getHeadPos(hx, hy);
             ai.triggerActionState(STATE_SWING, &tentacles, &skeleton, hx, hy);
             Serial.println(">>> [ACTION] Ceiling Swing triggered!");
+        } else if (cmd.equalsIgnoreCase("drive") || cmd.equalsIgnoreCase("neural") || cmd.equalsIgnoreCase("n")) {
+            ai.getNeuralCore().printDebugSummary();
+        } else if (cmd.startsWith("stim ") || cmd.startsWith("stim")) {
+            String arg = cmd.substring(4);
+            arg.trim();
+            if (arg.equalsIgnoreCase("shake")) {
+                ai.getNeuralCore().triggerSuddenMotion(1.5f);
+                Serial.println(">>> [STIM] Injected Violent Shake (threat/sensitization)!");
+            } else if (arg.equalsIgnoreCase("sound")) {
+                ai.getNeuralCore().triggerLoudSound(1.2f);
+                Serial.println(">>> [STIM] Injected Loud Sound!");
+            } else {
+                ai.getNeuralCore().triggerTouchContact(1.0f);
+                Serial.println(">>> [STIM] Injected Touch Contact (habituation test)!");
+            }
         } else if (cmd.equalsIgnoreCase("theme")) {
             renderer.nextTheme();
         }
@@ -691,7 +713,8 @@ void loop() {
     skeleton.update(dt, gx, gy, crawl_bx, crawl_by,
                     physiology.getNeuroTension(), physiology.getSpikeIntensity(),
                     dynamic_resp, is_upside_down,
-                    spec_bands);
+                    spec_bands,
+                    &ai.getMotorIntent());
 
     // 10.1 撞击“啪嗒”事件检测与触觉/飞溅联动 (Sticky Splat Feedback)
     float imp_spd, hit_x, hit_y;

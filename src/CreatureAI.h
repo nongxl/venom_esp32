@@ -10,6 +10,7 @@
 #include "LLMClient.h"
 #include "PreyBugSystem.h"
 #include "FluidSymbolSystem.h"
+#include "NeuralDrive.h"
 
 enum CreatureState {
     STATE_IDLE = 0,
@@ -109,7 +110,14 @@ public:
     void triggerInteraction(SkeletonSystem *skeleton = nullptr, TentacleRenderer *tentacles = nullptr);
     void updateSensors(float imu_gx, float imu_gy, float imu_gz, const PhysiologySystem &physiology, bool btn_a_pressed, SkeletonSystem *skeleton = nullptr, TentacleRenderer *tentacles = nullptr);
 
+    // 神经驱动核心 (Neural Behavior Core) 接口
+    const NeuralDrive& getNeuralCore() const { return neural_core; }
+    NeuralDrive& getNeuralCore() { return neural_core; }
+    const MotorIntent& getMotorIntent() const { return neural_core.getMotorIntent(); }
+
 private:
+    NeuralDrive neural_core;
+    PerceptionSignals current_perception;
     CreatureState current_state = STATE_IDLE;
     CreatureState last_state = STATE_IDLE;
     CreatureState pending_state = STATE_IDLE;
@@ -175,6 +183,7 @@ private:
     String demo_action_name = "";
 
     CreatureState decideNextState(CreatureState from_state, float hx, float hy, const PhysiologySystem &physiology);
+    CreatureState resolveBehaviorToSkill(NeuralBehaviorType beh, CreatureState from_state, float hx, float hy, const PhysiologySystem &physiology);
     void enterState(CreatureState new_state, TentacleRenderer *tentacles = nullptr, SkeletonSystem *skeleton = nullptr, float hx = 120.0f, float hy = 100.0f);
     void enterHesitation(CreatureState target_state, float delay_sec);
     void updateOrganicBreathing(float dt, const PhysiologySystem &physiology, const ExpressionLayer &expression);

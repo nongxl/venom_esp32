@@ -1,4 +1,5 @@
 #include "SkeletonSystem.h"
+#include "NeuralDrive.h"
 #include <cmath>
 #include <algorithm>
 
@@ -108,8 +109,8 @@ void SkeletonSystem::applyImpulse(float ix, float iy) {
 
 // 激发干脆利落的极速甩飞抛体运动 (彻底挣脱触手抓地力，闪电甩飞横跨屏幕)
 void SkeletonSystem::triggerSlingThrow(float dir_x, float dir_y, float speed) {
-    flying_timer = 0.65f;        // 0.65s 高速无阻尼飞行冲刺
-    launch_grace_timer = 0.18f;  // 刚甩出起飞瞬间 0.18s 内不被原起飞壁阻挡
+    flying_timer = 0.75f;        // 0.75s 高速无阻尼飞行冲刺
+    launch_grace_timer = 0.25f;  // 刚甩出起飞瞬间 0.25s 内彻底豁免任何贴壁捕获阻挡，保证 100% 腾空起飞！
     is_creeping_motion = false;  // 彻底剥离地表小触手抓力！
     clearCreepingTarget();
     clearPullTarget();           // 立即解除任何正在进行的触手牵引！
@@ -119,8 +120,9 @@ void SkeletonSystem::triggerSlingThrow(float dir_x, float dir_y, float speed) {
     sticky_clog_timer = 0.0f;
 
     for (int i = 0; i < SKELETON_NODE_COUNT; ++i) {
-        nodes[i].x += dir_x * 4.0f;
-        nodes[i].y += dir_y * 4.0f;
+        // 瞬间向脱附法线方向推离 10 像素，彻底跳出壁面吸附捕获半径
+        nodes[i].x += dir_x * 10.0f;
+        nodes[i].y += dir_y * 10.0f;
         float lead = (i == 0) ? 1.25f : 1.0f;
         nodes[i].vx = dir_x * speed * lead;
         nodes[i].vy = dir_y * speed * lead;
@@ -170,8 +172,17 @@ void SkeletonSystem::applyWallAdhesion(int i) {
     n.contact_left = 0.0f;
     n.contact_right = 0.0f;
 
-    // 荡秋千/倒挂悬挂状态由单摆物理约束接管，不触发贴壁撞击事件
-    if (is_hanging) return;
+    // 荡秋千/倒挂悬挂状态，以及甩飞起跑保护期内 (launch_grace_timer)，绝对不执行撞墙吸附捕获！
+    if (is_hanging || launch_grace_timer > 0.0f) return;
+
+    float adhes = active_motor_intent ? active_motor_intent->wall_adhesion_mod : 1.0f;
+    float wall_fric = 0.82f;
+    if (sticky_clog_timer > 0.0f) {
+        wall_fric = 0.25f;
+    } else {
+        // 附着力高时抓地摩擦增强(阻尼大)；附着力低(如受惊逃避脱附)摩擦减小易滑移起飞
+        wall_fric = std::max(0.20f, std::min(0.95f, 0.82f / std::max(0.35f, adhes)));
+    }
 
     // 1. 底部地面撞击
     float dist_b = (SCREEN_H - 1) - n.y;
@@ -191,7 +202,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
 
         if (n.vy > 0.0f) n.vy = 0.0f; // 只有向墙内运动时才消除速度，允许向外起飞
         if (flying_timer <= 0.0f) {
-            n.vx *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
+            n.vx *= wall_fric;
         }
         n.contact_bottom = std::min(1.0f, penetration / (r * 0.30f));
     }
@@ -200,7 +211,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
     float dist_t = n.y - 1;
     if (dist_t < r) {
         float penetration = r - dist_t;
-        n.y += penetration * 0.90f;
+        n.y -= penetration * 0.90f;
 
         if ((flying_timer > 0.0f && n.vy < -8.0f) || n.vy < -25.0f) {
             impact_occurred = true;
@@ -213,7 +224,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
 
         if (n.vy < 0.0f) n.vy = 0.0f;
         if (flying_timer <= 0.0f) {
-            n.vx *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
+            n.vx *= wall_fric;
         }
         n.contact_top = std::min(1.0f, penetration / (r * 0.30f));
     }
@@ -222,7 +233,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
     float dist_l = n.x - 1;
     if (dist_l < r) {
         float penetration = r - dist_l;
-        n.x += penetration * 0.90f;
+        n.x -= penetration * 0.90f;
 
         if ((flying_timer > 0.0f && n.vx < -8.0f) || n.vx < -25.0f) {
             impact_occurred = true;
@@ -238,7 +249,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
         } else {
             if (n.vx < 0.0f) n.vx = 0.0f;
         }
-        n.vy *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
+        n.vy *= wall_fric;
         n.contact_left = std::min(1.0f, penetration / (r * 0.30f));
     }
 
@@ -262,7 +273,7 @@ void SkeletonSystem::applyWallAdhesion(int i) {
         } else {
             if (n.vx > 0.0f) n.vx = 0.0f;
         }
-        n.vy *= (sticky_clog_timer > 0.0f) ? 0.25f : 0.82f;
+        n.vy *= wall_fric;
         n.contact_right = std::min(1.0f, penetration / (r * 0.30f));
     }
 }
@@ -298,7 +309,8 @@ void SkeletonSystem::updateNodePhysics(int i, float dt, float gx, float gy, floa
     n.vy += eff_gy * (g_scale / n.mass);
 
     if (flying_timer <= 0.0f) {
-        float c_lead = (i == 0) ? 1.25f : ((i == 1) ? 0.70f : ((i == 2) ? 0.35f : 0.10f));
+        float bias = active_motor_intent ? active_motor_intent->head_lead_bias : 1.0f;
+        float c_lead = (i == 0) ? (1.25f * bias) : ((i == 1) ? 0.70f : ((i == 2) ? 0.35f : 0.10f));
         n.vx += cfx * (c_lead * 0.8f / n.mass);
         n.vy += cfy * (c_lead * 0.8f / n.mass);
     }
@@ -350,6 +362,15 @@ void SkeletonSystem::updateNodePhysics(int i, float dt, float gx, float gy, floa
 
     n.vx *= damp;
     n.vy *= damp;
+
+    // 生物失稳震颤抖动注入 (受惊应激或兴奋战栗，节点自头至尾梯级衰减)
+    if (active_motor_intent && active_motor_intent->instability > 0.03f && !is_hanging) {
+        float decay = std::max(0.12f, 1.0f - (float)i * 0.18f);
+        float jitter_phase = (float)millis() * 0.035f + (float)i * 1.8f;
+        float jitter_amp = active_motor_intent->instability * 3.6f * decay;
+        n.vx += std::sin(jitter_phase) * jitter_amp * dt * 30.0f;
+        n.vy += std::cos(jitter_phase * 1.35f) * jitter_amp * dt * 30.0f;
+    }
 
     n.x += n.vx * dt * 30.0f;
     n.y += n.vy * dt * 30.0f;
@@ -474,7 +495,8 @@ void SkeletonSystem::solveSpringConstraints(float tension) {
         return;
     }
 
-    float creep_wave_phase = millis() * 0.0075f;
+    float stiff_mod = active_motor_intent ? active_motor_intent->spring_stiffness_mod : 1.0f;
+    float elong_mod = active_motor_intent ? active_motor_intent->elongation : 1.0f;
 
     for (int i = 1; i < SKELETON_NODE_COUNT; ++i) {
         SkeletonNode &prev = nodes[i - 1];
@@ -491,9 +513,11 @@ void SkeletonSystem::solveSpringConstraints(float tension) {
             // 贴地迅游时保持紧凑圆形，彻底去除水母伸缩起伏
             rest = 7.0f;
         }
+        rest *= elong_mod; // 融合运动意图拉伸比 (1.0 基线, 1.35 探出/受惊暴冲, 0.85 紧缩)
+
         if (dist > 0.01f) {
             float delta = dist - rest;
-            float force = delta * (SPRING_STIFFNESS + tension * 0.20f);
+            float force = delta * (SPRING_STIFFNESS + tension * 0.20f) * stiff_mod;
 
             float nx = dx / dist;
             float ny = dy / dist;
@@ -617,7 +641,17 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
                             float crawl_force_x, float crawl_force_y,
                             float neuro_tension, float spike_intensity,
                             float respiration, bool is_upside_down,
-                            const float *spectrum_bands) {
+                            const float *spectrum_bands,
+                            const MotorIntent *motor_intent) {
+    active_motor_intent = motor_intent;
+
+    // Node 0 冲量传导 (Section 10：冲量直接注入前导节点 Node 0，Node 1~4 依靠弹簧质量网络产生自然物理波动)
+    if (active_motor_intent && active_motor_intent->impulse_strength > 0.01f) {
+        float imp_scale = active_motor_intent->impulse_strength * 28.0f;
+        nodes[0].vx += active_motor_intent->impulse_x * imp_scale * dt;
+        nodes[0].vy += active_motor_intent->impulse_y * imp_scale * dt;
+    }
+
     if (flying_timer > 0.0f) {
         flying_timer -= dt;
         if (flying_timer < 0.0f) flying_timer = 0.0f;
@@ -680,14 +714,10 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
             triggerLocalBleb(i, 1.2f * eq_band_energy);
         }
 
-        // 呼吸起伏胸腔仿生形变（非对称背腹起伏，告别水球式对称膨胀）
-        // Node 0 (Head): 轻微抬头/吸气
-        // Node 1 (Chest): 主要胸腔起伏，吸气时向上提拔舒展，呼气时平缓下沉
-        // Node 2 (Abdomen): 腹部跟随呼吸微颤
-        // Node 3, 4 (Tail): 尾部贴地自然松弛
-        float node_resp_gain = (i == 1) ? 1.0f : ((i == 2) ? 0.70f : ((i == 0) ? 0.45f : 0.15f));
-        float resp_rise_y = respiration * node_resp_gain * 0.35f;
-        float resp_narrow_x = -respiration * node_resp_gain * 0.15f;
+        // 呼吸起伏胸腔仿生形变（温和含蓄自然起伏，杜绝尖耸高拱）
+        float node_resp_gain = (i == 1) ? 1.0f : ((i == 2) ? 0.70f : ((i == 0) ? 0.35f : 0.15f));
+        float resp_rise_y = respiration * node_resp_gain * 0.16f;
+        float resp_narrow_x = -respiration * node_resp_gain * 0.08f;
 
         float r = (n.base_radius + node_eq_pulse) * peristalsis_volume_scale;
 
@@ -749,14 +779,26 @@ void SkeletonSystem::update(float dt, float gravity_x, float gravity_y,
             // 暗中观察潜伏时保持紧凑圆润头尖，绝不被压成飞碟
             flat_x = 1.0f;
             flat_y = 1.0f;
+        } else if (!is_hanging && !is_bouncing_ball && !is_rolling) {
+            // 在常规巡游/避险/观察/休憩模式下，融入 MotorIntent 的形态张力与舒缩
+            // 头部 Node 0 权重调谐至 0.40f，保持饱满圆润球顶，形变主要由中身胸段承载
+            float squash_mod = active_motor_intent ? active_motor_intent->squash : 1.0f;
+            float elong_mod = active_motor_intent ? active_motor_intent->elongation : 1.0f;
+            float seg_weight = (i == 0) ? 0.40f : ((i == 1) ? 0.75f : ((i == 2) ? 0.65f : 0.40f));
+            flat_x *= (1.0f + (squash_mod - 1.0f) * seg_weight);
+            flat_y *= (1.0f + (elong_mod - 1.0f) * seg_weight);
         }
 
-        // 放宽形变范围，允许细丝形态
-        flat_x = std::max(0.35f, std::min(2.2f, flat_x));
-        flat_y = std::max(0.35f, std::min(2.2f, flat_y));
+        // 约束自然形变范围，杜绝尖耸高拱与极度压扁
+        flat_x = std::max(0.60f, std::min(1.50f, flat_x));
+        flat_y = std::max(0.60f, std::min(1.35f, flat_y));
 
-        n.radius_x = std::max(2.5f, r * flat_x);
-        n.radius_y = std::max(2.5f, r * flat_y);
+        // 引入流体肌肉粘弹性阻尼平滑 (时间常数约 0.14 秒，优雅柔润回弹，彻底消灭断崖变平)
+        float target_rx = std::max(2.5f, r * flat_x);
+        float target_ry = std::max(2.5f, r * flat_y);
+        float smooth_factor = std::min(1.0f, dt * 7.0f);
+        n.radius_x += (target_rx - n.radius_x) * smooth_factor;
+        n.radius_y += (target_ry - n.radius_y) * smooth_factor;
 
         // 强制全骨架节点 100% 屏幕内绝对硬安全钳位与防丢失救生圈
         if (std::isnan(n.x) || std::isnan(n.y) || std::isnan(n.vx) || std::isnan(n.vy)) {

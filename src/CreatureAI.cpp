@@ -4,6 +4,7 @@
 CreatureAI::CreatureAI() {}
 
 void CreatureAI::init() {
+    neural_core.init();
     enterState(STATE_OBSERVE);
     state_duration = 1.2f; // 开机短暂观察 1.2s 即刻精神饱满出发探索自娱自乐！
 }
@@ -38,177 +39,105 @@ void CreatureAI::enterHesitation(CreatureState target_state, float delay_sec) {
     crawl_force_y *= 0.2f;
 }
 
-CreatureState CreatureAI::decideNextState(CreatureState from_state, float hx, float hy, const PhysiologySystem &physiology) {
+CreatureState CreatureAI::resolveBehaviorToSkill(NeuralBehaviorType beh, CreatureState from_state, float hx, float hy, const PhysiologySystem &physiology) {
     float energy = physiology.getEnergy();
-    float boredom = physiology.getBoredom();
-    bool is_vertical = (std::abs(last_imu_gx) > 3.0f || std::abs(last_imu_gy) > 6.5f);
     bool near_ceiling = (hy < 45.0f);
-    bool near_edge = (hx < 35.0f || hx > (float)SCREEN_W - 35.0f || hy > (float)SCREEN_H - 35.0f || hy < 35.0f);
-    int roll = rand() % 100;
+    // 只有极度贴紧四角 (小于 16px) 且缺乏活力时才考虑边缘潜行
+    bool in_deep_corner = (hx < 16.0f || hx > (float)SCREEN_W - 16.0f || hy > (float)SCREEN_H - 16.0f);
+    bool is_vertical = (std::abs(last_imu_gx) > 3.0f || std::abs(last_imu_gy) > 6.5f);
 
-    // 【1. 潜行机警状态出度 (从 PEEK 暗中观察退出)】
-    if (from_state == STATE_PEEK) {
-        // 刚在边缘暗中观察完毕：严禁突兀地直接玩蹦床跳跃或高速翻滚！
-        // 必须维持生物动机的连续性：顺势沿边滑出漫步、或伸出触手大步出击、或探头就地警惕打量
-        if (roll < 65) {
-            return STATE_CREEP; // 65% 顺势沿边缘滑出漫步巡游
-        } else if (roll < 85) {
-            return STATE_CRAWL; // 20% 发现目标，射出粗触手向腹地开阔区大步攀爬
-        } else {
-            return STATE_OBSERVE; // 15% 探头就地观察
-        }
-    }
+    switch (beh) {
+        case BEH_ESCAPE:
+            return STATE_STARTLED;
 
-    // 【2. 地表缓慢巡游出度 (从 CREEP 退出)】
-    if (from_state == STATE_CREEP) {
-        if (roll < 45) {
-            return STATE_OBSERVE; // 45% 巡游就位后停下脚步警惕打量四周
-        } else if (near_edge && roll < 70) {
-            return STATE_PEEK;    // 25% 靠近边框时顺势缩回暗中观察
-        } else if (energy > 0.5f && roll < 88) {
-            return STATE_CATCH_DUST; // 18% 发现漂浮尘埃，突然爆发飞扑
-        } else {
-            return STATE_IDLE;    // 12% 从容发呆平复呼吸
-        }
-    }
+        case BEH_FREEZE:
+            return STATE_HESITATING;
 
-    // 【3. 大步快速攀爬出度 (从 CRAWL 退出)】
-    if (from_state == STATE_CRAWL) {
-        if (near_ceiling) {
-            // 到达天花板附近
-            if (roll < 45) {
-                return STATE_SWING;    // 45% 顺手射出蛛丝荡秋千
-            } else if (roll < 75) {
-                return STATE_BAT_HANG; // 30% 倒挂金钩发呆
-            } else {
-                return STATE_OBSERVE;  // 25% 贴顶观察
+        case BEH_OBSERVE: {
+            // 好奇观察：若贴近屏幕底边或侧边 (hy > SCREEN_H - 32 或 hx < 30 或 hx > SCREEN_W - 30)，
+            // 有 38% 几率自发进入【边缘暗中观察/窥视探头】(STATE_PEEK)，探头探脑张望外界！
+            bool at_screen_border = (hy > (float)SCREEN_H - 32.0f || hy < 28.0f || hx < 30.0f || hx > (float)SCREEN_W - 30.0f);
+            if (at_screen_border && (rand() % 100) < 38) {
+                return STATE_PEEK;
             }
-        } else {
-            // 在地面或开阔中段
-            if (roll < 35) {
-                return STATE_CATCH_DUST; // 35% 飞扑抓尘
-            } else if (roll < 60) {
-                return STATE_OBSERVE;    // 25% 驻足观察
-            } else if (energy > 0.6f && roll < 80) {
-                return STATE_BOUNCE;     // 20% 兴奋起跳玩蹦床
-            } else {
-                return STATE_CREEP;      // 20% 转为贴地潜行
+            return STATE_OBSERVE;
+        }
+
+        case BEH_EXPLORE: {
+            // 充满活力的自发玩耍与探索：能量充沛时 (energy > 0.48)
+            // 40% 概率触发原地颠球自娱自乐，35% 概率翻滚/弹跳，其余进行大触手攀爬
+            if (energy > 0.48f) {
+                int exp_pick = rand() % 100;
+                if (exp_pick < 38) {
+                    return STATE_BALL_PLAY; // 探索途中突然自娱自乐玩球！
+                } else if (exp_pick < 68) {
+                    return (rand() % 100 < 50) ? STATE_ROLL : STATE_BOUNCE; // 活力翻滚或弹跳
+                }
             }
-        }
-    }
-
-    // 【4. 高能弹跳特技出度 (从 BOUNCE 退出)】
-    if (from_state == STATE_BOUNCE) {
-        // 连续剧烈高弹跳跃落地后，动能巨大且体力消耗
-        if (roll < 45) {
-            return STATE_OBSERVE;    // 45% 砸地平稳，歪头喘息舒展身体
-        } else if (roll < 70) {
-            return STATE_ROLL;       // 25% 落地余速顺势蜷缩成球地表高速翻滚（动量守恒）
-        } else if (energy > 0.6f && roll < 90) {
-            return STATE_BALL_PLAY;  // 20% 极度兴奋，吐出共生小球自娱自乐颠球
-        } else {
-            return STATE_IDLE;       // 10% 原地喘息发呆
-        }
-    }
-
-    // 【5. 软体球形翻滚出度 (从 ROLL 退出)】
-    if (from_state == STATE_ROLL) {
-        if (roll < 50) {
-            return STATE_OBSERVE;    // 50% 舒展身体平复张望
-        } else if (roll < 80) {
-            return STATE_CREEP;      // 30% 解开球形，顺势地表游走
-        } else {
-            return STATE_BOUNCE;     // 20% 借力弹跳起飞
-        }
-    }
-
-    // 【6. 自体颠球吞噬融合出度 (从 BALL_PLAY 退出)】
-    if (from_state == STATE_BALL_PLAY) {
-        if (roll < 60) {
-            return STATE_OBSERVE;    // 60% 吞咽后心满意足环顾四周
-        } else if (roll < 85) {
-            return STATE_IDLE;       // 25% 平静休息消化
-        } else {
-            return STATE_CREEP;      // 15% 漫步巡视领地
-        }
-    }
-
-    // 【7. 高空荡秋千出度 (从 SWING 退出)】
-    if (from_state == STATE_SWING) {
-        if (hy < 50.0f && roll < 45) {
-            return STATE_BAT_HANG;   // 45% 滞留高空时倒挂小憩
-        } else if (roll < 75) {
-            return STATE_OBSERVE;    // 30% 落地张望
-        } else {
-            return STATE_ROLL;       // 25% 落地顺势受身翻滚
-        }
-    }
-
-    // 【8. 飞扑抓浮尘出度 (从 CATCH_DUST 退出)】
-    if (from_state == STATE_CATCH_DUST) {
-        if (roll < 55) {
-            return STATE_OBSERVE;    // 55% 歪头困惑注视
-        } else if (roll < 85) {
-            return STATE_CRAWL;      // 30% 没抓到，迈步向远处探索
-        } else {
-            return STATE_CREEP;      // 15% 贴地游走搜寻
-        }
-    }
-
-    // 【9. 倒挂金钩出度 (从 BAT_HANG 退出)】
-    if (from_state == STATE_BAT_HANG) {
-        if (roll < 50) {
-            return STATE_SWING;      // 50% 倒挂清醒后顺势荡秋千
-        } else {
-            return STATE_OBSERVE;    // 50% 落地观察
-        }
-    }
-
-    // 【10. 观察与发呆中枢出度 (从 OBSERVE / IDLE 退出)】
-    // 此处必须依赖 last_state 与生理参数，避免突兀乱跳！
-    
-    // 10.1 疲惫乏力（energy < 0.35）：严禁高能剧烈运动！
-    if (energy < 0.35f) {
-        if (near_ceiling && roll < 50) return STATE_BAT_HANG;
-        if (roll < 60) return STATE_CREEP;
-        return STATE_IDLE;
-    }
-
-    // 10.2 若前序状态是潜伏系 (PEEK 或 CREEP)，维持机警潜行连续性，严禁直接蹦床翻滚！
-    if (last_state == STATE_PEEK || last_state == STATE_CREEP) {
-        if (roll < 45) {
-            return (last_state == STATE_PEEK) ? STATE_CREEP : STATE_PEEK; // 潜行互转
-        } else if (roll < 75) {
-            return STATE_CRAWL;      // 30% 伸出大触手探索，打破潜行
-        } else {
-            return STATE_CATCH_DUST; // 25% 发现动静暴起飞扑
-        }
-    }
-
-    // 10.3 高能玩耍决策 (精力充足 energy >= 0.55 且无聊度高)
-    if (energy >= 0.55f && (boredom >= 0.20f || roll < 65)) {
-        if (is_vertical) {
-            // 竖屏：优先垂直跳跃与高空动作
-            if (roll < 28) return STATE_BOUNCE;
-            if (roll < 52) return STATE_BALL_PLAY;
-            if (roll < 72) return STATE_SWING;
-            if (roll < 88) return STATE_CRAWL;
-            return STATE_CATCH_DUST;
-        } else {
-            // 横屏生态
-            if (roll < 22) return STATE_BOUNCE;
-            if (roll < 42) return STATE_BALL_PLAY;
-            if (roll < 60) return STATE_ROLL;
-            if (roll < 75) return STATE_CATCH_DUST;
-            if (roll < 90) return STATE_CRAWL;
+            if (energy > 0.35f) {
+                return STATE_CRAWL; // 大触手大步流星攀爬奔向中央
+            }
             return STATE_CREEP;
         }
-    }
 
-    // 10.4 默认稳妥探索
-    if (near_edge && roll < 40) return STATE_PEEK;
-    if (roll < 60) return STATE_CRAWL;
-    return STATE_CREEP;
+        case BEH_APPROACH: {
+            // 亲近人类：大步迈向中央
+            if (energy > 0.35f) {
+                return STATE_CRAWL;
+            }
+            return STATE_CREEP;
+        }
+
+        case BEH_PROBE: {
+            return STATE_CATCH_DUST;
+        }
+
+        case BEH_REST: {
+            if (near_ceiling) {
+                return STATE_BAT_HANG;
+            }
+            if (energy < 0.20f && interaction_wake_timer <= 0.0f) {
+                return STATE_SLEEP;
+            }
+            return STATE_IDLE;
+        }
+
+        case BEH_ATTACH: {
+            // 【高阶玩耍与共生行为】：颠球(BALL_PLAY)作为首发主打招牌技能！
+            if (near_ceiling) {
+                return STATE_SWING; // 靠近天花板，顺畅拉出蛛丝荡秋千
+            }
+            if (from_state == STATE_BOUNCE) {
+                return STATE_ROLL;  // 弹跳后落地借势连贯蜷缩翻滚
+            }
+            if (is_vertical) {
+                return STATE_BOUNCE; // 设备竖直站立，原地蹦床
+            }
+            // 颠球作为高阶玩耍的第一核心动作 (65% 绝对优势胜出)：
+            if (energy > 0.38f) {
+                int play_pick = rand() % 100;
+                if (play_pick < 65) {
+                    return STATE_BALL_PLAY; // 65% 高概率自体分裂颠球
+                } else if (play_pick < 85) {
+                    return STATE_BOUNCE;    // 20% 概率原地高弹蹦床
+                } else {
+                    return STATE_ROLL;      // 15% 概率极速翻滚
+                }
+            }
+            return ((rand() % 100) < 60) ? STATE_BOUNCE : STATE_ROLL;
+        }
+
+        default:
+            return STATE_OBSERVE;
+    }
+}
+
+CreatureState CreatureAI::decideNextState(CreatureState from_state, float hx, float hy, const PhysiologySystem &physiology) {
+    // 【BehaviorSelector 行为仲裁决策中枢】
+    // 彻底告别无因果伪随机数 (No rand() % 100)！
+    // 由 8 维神经驱动 (Drive Core) 经横向抑制竞争胜出的高层行为动机驱动动作选择
+    NeuralBehaviorType winner_beh = neural_core.getWinnerBehavior();
+    return resolveBehaviorToSkill(winner_beh, from_state, hx, hy, physiology);
 }
 
 void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles, SkeletonSystem *skeleton, float hx, float hy) {
@@ -527,9 +456,26 @@ void CreatureAI::enterState(CreatureState new_state, TentacleRenderer *tentacles
 }
 
 void CreatureAI::triggerStartle(float intensity, SkeletonSystem *skeleton, TentacleRenderer *tentacles) {
+    neural_core.triggerSuddenMotion(intensity);
+
+    // 习惯化阻尼与拦截：
+    // 若机体已建立习惯化钝感 (habituation > 0.35 且阻尼生效)，且非超强极端暴力摔打
+    // 毒液不再惊惶失措弹飞，而是停下好奇探头注视 (OBSERVE)
+    float damp = neural_core.getHabituationDampingFactor();
+    if (damp < 0.70f && neural_core.getDrives().habituation > 0.35f && intensity < 1.6f) {
+        if (current_state != STATE_SWING && current_state != STATE_BAT_HANG && current_state != STATE_STARTLED) {
+            float hx = 120.0f, hy = 100.0f;
+            if (skeleton) skeleton->getHeadPos(hx, hy);
+            enterState(STATE_OBSERVE, tentacles, skeleton, hx, hy);
+        }
+        return;
+    }
+
+    neural_core.recordEvent(EVT_ESCAPE, intensity);
+    neural_core.applyMotorImpulse((rand() % 60 - 30) * 0.04f, -1.2f, intensity * damp);
     // 荡秋千/倒挂等悬挂玩耍模式下，绝对豁免受惊打断！
     if (current_state == STATE_SWING || current_state == STATE_BAT_HANG) return;
-    startle_energy = intensity;
+    startle_energy = intensity * damp;
     enterState(STATE_STARTLED, tentacles, skeleton);
 }
 
@@ -555,6 +501,9 @@ void CreatureAI::triggerReactiveCrawl(SkeletonSystem &skeleton, TentacleRenderer
 }
 
 void CreatureAI::triggerJolt(SkeletonSystem &skeleton, MetaballSystem &metaballs, float intensity) {
+    neural_core.triggerSuddenMotion(intensity * 1.3f);
+    neural_core.recordEvent(EVT_SHAKE, intensity * 1.3f);
+    neural_core.applyMotorImpulse((rand() % 80 - 40) * 0.05f, -1.5f, intensity * 1.2f);
     metaballs.triggerJoltSpurt(skeleton, intensity);
     skeleton.applyImpulse((rand() % 80 - 40) * 0.1f, -3.2f * intensity);
     enterState(STATE_JOLTING);
@@ -587,6 +536,21 @@ void CreatureAI::updateSensors(float imu_gx, float imu_gy, float imu_gz, const P
     float total_g = std::sqrt(imu_gx * imu_gx + imu_gy * imu_gy + imu_gz * imu_gz);
     float delta_g = std::abs(total_g - last_total_g);
     last_total_g = total_g;
+
+    // 更新感知信号并注入神经核心
+    current_perception.sudden_motion = std::max(0.0f, std::min(1.0f, delta_g * 1.25f));
+    if (delta_g > 0.42f) {
+        neural_core.triggerSuddenMotion(delta_g * 0.85f);
+    }
+
+    float mic_db = physiology.getMicDecibels();
+    if (mic_db > 72.0f && physiology.getAudioHigh() > 0.65f) {
+        float snd_intensity = std::min(1.0f, (mic_db - 68.0f) / 24.0f);
+        current_perception.loud_sound = snd_intensity;
+        neural_core.triggerLoudSound(snd_intensity);
+    } else {
+        current_perception.loud_sound = 0.0f;
+    }
 
     // 【多级睡眠扰动感知体系 (10+分钟深度睡眠抗扰)】
     if (isSleeping()) {
@@ -702,32 +666,8 @@ void CreatureAI::updateIdle(float dt, float hx, float hy, const PhysiologySystem
     // 静止静养：发呆时自然微弱恢复体力 (+0.015/s)
     const_cast<PhysiologySystem&>(physiology).recoverEnergy(dt * 0.015f);
 
-    float energy = physiology.getEnergy();
-    float boredom = physiology.getBoredom();
-    float curiosity = physiology.getCuriosity();
-    bool is_vertical = (std::abs(last_imu_gx) > 3.0f || std::abs(last_imu_gy) > 6.5f);
-
-    // 【1. 真正疲惫力竭入睡驱动 (Energy < 0.15 且必须无互动保鲜期 interaction_wake_timer <= 0)】：
-    // 只有在主人长时间不理它（发呆停留 8.0 秒以上）且精力确实枯竭时才自然入睡，互动期间绝对禁止秒睡！
-    if (energy < 0.15f && interaction_wake_timer <= 0.0f) {
-        if (state_timer >= 8.0f || energy < 0.06f) {
-            if (hy < 35.0f && (rand() % 100) < 40) {
-                enterState(STATE_BAT_HANG, &tentacles, &skeleton, hx, hy); // 靠近天花板时倒挂小憩
-            } else {
-                enterState(STATE_SLEEP, &tentacles, &skeleton, hx, hy);    // 蜷缩闭眼深睡
-            }
-            return;
-        }
-    }
-
-    // 【2. 好奇与警惕交织驱动 (Curiosity > 0.60 && Stress > 0.38)】：边缘暗中观察/窥视
-    if (curiosity > 0.60f && (physiology.getStress() > 0.38f || physiology.getAttachment() < 0.35f) && (rand() % 100) < 65) {
-        enterState(STATE_PEEK, &tentacles, &skeleton, hx, hy);
-        return;
-    }
-
-    // 【3. 自主活跃探索与特技游玩决策 (依据行为链与上下文决策)】
-    if (state_timer >= state_duration || boredom >= 0.25f) {
+    // 静止静养至少 2.0s 后，若神经驱动出现其他胜出动机 (非 BEH_REST)，或发呆时间已满，顺势流转后续动作
+    if ((state_timer >= 2.0f && neural_core.getWinnerBehavior() != BEH_REST) || state_timer >= state_duration) {
         const_cast<PhysiologySystem&>(physiology).reduceBoredom(0.25f);
         CreatureState nxt = decideNextState(current_state, hx, hy, physiology);
         enterState(nxt, &tentacles, &skeleton, hx, hy);
@@ -839,31 +779,8 @@ void CreatureAI::updateObserve(float dt, float hx, float hy, const PhysiologySys
     // 静止观察时自然微弱恢复体力 (+0.015/s)
     const_cast<PhysiologySystem&>(physiology).recoverEnergy(dt * 0.015f);
 
-    float energy = physiology.getEnergy();
-    float boredom = physiology.getBoredom();
-    float curiosity = physiology.getCuriosity();
-    bool is_vertical = (std::abs(last_imu_gx) > 3.0f || std::abs(last_imu_gy) > 6.5f);
-
-    // 【1. 真正疲惫力竭入睡驱动 (Energy < 0.15 且必须无互动保鲜期 interaction_wake_timer <= 0)】：
-    if (energy < 0.15f && interaction_wake_timer <= 0.0f) {
-        if (state_timer >= 8.0f || energy < 0.06f) {
-            if (hy < 35.0f && (rand() % 100) < 40) {
-                enterState(STATE_BAT_HANG, &tentacles, &skeleton, hx, hy); // 倒挂小憩
-            } else {
-                enterState(STATE_SLEEP, &tentacles, &skeleton, hx, hy);    // 蜷缩闭眼深睡
-            }
-            return;
-        }
-    }
-
-    // 【2. 好奇与警惕交织驱动 (Curiosity > 0.60 && Stress > 0.38)】：边缘暗中观察/窥视
-    if (curiosity > 0.60f && (physiology.getStress() > 0.38f || physiology.getAttachment() < 0.35f) && (rand() % 100) < 65) {
-        enterState(STATE_PEEK, &tentacles, &skeleton, hx, hy);
-        return;
-    }
-
-    // 【3. 观察完毕后依据上下文与行为链转换后续动作】
-    if (state_timer >= state_duration || boredom >= 0.25f) {
+    // 观察持续至少 1.8s 后，若神经驱动出现其他胜出动机 (非 BEH_OBSERVE)，或观察时间已满，顺畅过渡后续动作
+    if ((state_timer >= 1.8f && neural_core.getWinnerBehavior() != BEH_OBSERVE) || state_timer >= state_duration) {
         const_cast<PhysiologySystem&>(physiology).reduceBoredom(0.25f);
         CreatureState nxt = decideNextState(current_state, hx, hy, physiology);
         enterState(nxt, &tentacles, &skeleton, hx, hy);
@@ -964,6 +881,7 @@ void CreatureAI::updateCatchDust(float dt, float hx, float hy, SkeletonSystem &s
     if (state_timer >= state_duration) {
         skeleton.setBouncingMode(false);
         skeleton.setBounceDeform(1.0f, 1.0f);
+        neural_core.triggerProbeOutcome(true, 1.0f);
         CreatureState nxt = decideNextState(STATE_CATCH_DUST, hx, hy, physiology);
         enterState(nxt, &tentacles, &skeleton, hx, hy);
     }
@@ -1410,6 +1328,50 @@ void CreatureAI::update(float dt, SkeletonSystem &skeleton, MetaballSystem &meta
                         FluidSymbolSystem *fluid_symbols) {
     state_timer += dt;
 
+    // ─────────────────────────────────────────────────────────────
+    // 【神经网络感知特征合成 (Perception Synthesis)】
+    // ─────────────────────────────────────────────────────────────
+    float move_act = 0.05f;
+    switch (current_state) {
+        case STATE_CRAWL:      move_act = 0.85f; break;
+        case STATE_BOUNCE:     move_act = 0.95f; break;
+        case STATE_ROLL:       move_act = 0.90f; break;
+        case STATE_SWING:      move_act = 0.70f; break;
+        case STATE_CATCH_DUST: move_act = 0.80f; break;
+        case STATE_CREEP:      move_act = 0.40f; break;
+        case STATE_PEEK:       move_act = 0.35f; break;
+        case STATE_BALL_PLAY:  move_act = 0.65f; break;
+        case STATE_STARTLED:   move_act = 0.90f; break;
+        case STATE_JOLTING:    move_act = 0.85f; break;
+        default:               move_act = 0.05f; break;
+    }
+    current_perception.movement_activity = move_act;
+
+    // 表面贴附稳定性
+    current_perception.stable_surface = (current_state == STATE_BOUNCE && bounce_phase == 1) ? 0.15f : 1.0f;
+
+    // 猎物感知
+    current_perception.prey_detected = (bugs && bugs->hasActiveBug()) ? 0.85f : 0.0f;
+
+    // 用户在身边感知 (近期互动或微弱环境人声)
+    current_perception.user_nearby = (interaction_wake_timer > 0.0f || physiology.getMicDecibels() > 48.0f) ? 0.75f : 0.0f;
+
+    // 瞬态信号自然衰减
+    current_perception.sudden_motion = std::max(0.0f, current_perception.sudden_motion - dt * 1.8f);
+    current_perception.loud_sound    = std::max(0.0f, current_perception.loud_sound - dt * 2.2f);
+    current_perception.touch_contact = std::max(0.0f, current_perception.touch_contact - dt * 2.5f);
+
+    // 驱动神经核心动力学、8维连续Drive演化与行为竞争打分
+    neural_core.update(dt, current_perception);
+
+    // 突发高威胁紧急避险抢占 (Emergency Escape Preemption)
+    if (neural_core.getWinnerBehavior() == BEH_ESCAPE && neural_core.getDrives().threat > 0.58f) {
+        if (current_state != STATE_SWING && current_state != STATE_BAT_HANG &&
+            current_state != STATE_STARTLED && current_state != STATE_JOLTING) {
+            triggerStartle(neural_core.getDrives().threat * 1.5f, &skeleton, &tentacles);
+        }
+    }
+
     updateOrganicBreathing(dt, physiology, expression);
     updateMicroBehaviors(dt, skeleton, physiology);
 
@@ -1501,6 +1463,7 @@ void CreatureAI::update(float dt, SkeletonSystem &skeleton, MetaballSystem &meta
 }
 
 void CreatureAI::handleSingleTap(FluidSymbolSystem &symbols, ExpressionLayer &expr, PhysiologySystem &phys) {
+    neural_core.triggerTouchContact(0.7f);
     interaction_wake_timer = 35.0f; // 注入 35 秒互动活跃保鲜期
     if (isSleeping()) {
         // 睡眠中轻敲：缓慢半睁眼（微眯惺忪状态），不惊醒，若无后续事件 2.8 秒后继续深睡
@@ -1519,6 +1482,8 @@ void CreatureAI::handleSingleTap(FluidSymbolSystem &symbols, ExpressionLayer &ex
 
 void CreatureAI::handleDoubleTap(FluidSymbolSystem &symbols, ExpressionLayer &expr, PhysiologySystem &phys,
                                  SkeletonSystem &skeleton, TentacleRenderer &tentacles) {
+    neural_core.triggerTouchContact(1.0f);
+    neural_core.triggerPositiveInteraction(0.08f);
     interaction_wake_timer = 45.0f; // 双击注入 45 秒高能互动保鲜期，绝对禁止秒睡
     phys.recoverEnergy(0.08f);      // 互动振奋精神
 
@@ -1538,29 +1503,37 @@ void CreatureAI::handleDoubleTap(FluidSymbolSystem &symbols, ExpressionLayer &ex
     }
 
     // 闲置/清醒时双击设备：与主人亲密互动！
-    // 随机 3 种惊喜：
-    // 1. 主动荡秋千（延长至 22 秒，尽情玩耍）+ 吐出爱心
-    // 2. 喷出水墨爱心图腾 (宽敞开阔处漂浮)
-    // 3. 喷出水墨问号图腾
+    // 由神经驱动核心（依恋度 attachment、好奇心 curiosity）与物理环境（天花板距离）因果驱动：
+    // 1. 高依恋且靠近天花板：射出蛛丝悬挂荡秋千（尽情摇摆 22 秒）
+    // 2. 建立良好依恋：从头部喷出水墨爱心图腾并温柔注视主人
+    // 3. 初识或探求：喷出水墨问号图腾歪头好奇打量
     float sym_x = std::max(45.0f, std::min((float)SCREEN_W - 45.0f, hx));
     float sym_y = (hy > 65.0f) ? (hy - 48.0f) : (hy + 45.0f);
-    int choice = rand() % 3;
+    const DriveState &dr = neural_core.getDrives();
+    bool near_ceiling = (hy < 50.0f);
 
-    if (choice == 0) {
-        // 1. 主动进入荡秋千状态（不喷符号），延长秋千时间至 22.0 秒！
+    if (dr.threat > 0.35f) {
+        // 当前受惊或紧张戒备：喷问号探视防备，绝对禁止违和吐爱心！
+        enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
+        state_duration = 3.5f;
+        symbols.trigger("?", sym_x, sym_y, hx, hy);
+        expr.triggerExpression(EXPR_CURIOSITY, 3.0f);
+        phys.applyStimulus(0.10f, 0.10f);
+    } else if (dr.attachment > 0.45f && near_ceiling) {
+        // 1. 高依恋且靠近天花板：主动进入荡秋千玩耍
         enterState(STATE_SWING, &tentacles, &skeleton, hx, hy);
-        state_duration = 22.0f; // 延长荡秋千时间，尽情摇摆！
+        state_duration = 22.0f; // 尽情玩耍 22 秒！
         expr.triggerExpression(EXPR_TRUST, 4.0f);
         phys.applyStimulus(0.0f, 0.50f);
-    } else if (choice == 1) {
-        // 2. 喷出水墨爱心图腾 (从头部喷出并进入观察互动)
+    } else if (dr.attachment > 0.32f && dr.threat <= 0.30f) {
+        // 2. 建立良好依恋且心绪平静安详：从头部喷出水墨爱心图腾
         enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
         state_duration = 4.5f;
         symbols.trigger("heart", sym_x, sym_y, hx, hy);
         expr.triggerExpression(EXPR_TRUST, 4.0f);
         phys.applyStimulus(0.0f, 0.45f); // 提升 comfort
     } else {
-        // 3. 喷出水墨问号图腾
+        // 3. 初识或好奇探索：喷出水墨问号图腾
         enterState(STATE_OBSERVE, &tentacles, &skeleton, hx, hy);
         state_duration = 4.5f;
         symbols.trigger("?", sym_x, sym_y, hx, hy);
@@ -1571,29 +1544,38 @@ void CreatureAI::handleDoubleTap(FluidSymbolSystem &symbols, ExpressionLayer &ex
 
 void CreatureAI::handleMultiTapIrritate(FluidSymbolSystem &symbols, ExpressionLayer &expr, PhysiologySystem &phys,
                                        SkeletonSystem &skeleton) {
-    // 连续多次敲击（激惹骚扰）：毒液感到强烈烦躁与愤怒！
     interaction_wake_timer = 40.0f;
     is_sleep_peeking = false;
     sleep_peek_timer = 0.0f;
-
-    // 强行注入最高应激与神经张力 -> 触发 EMOTION_ANGER -> 表皮亮起青色荧光神经脉冲！
-    phys.applyStimulus(0.95f, 0.95f);
-    expr.triggerExpression(EXPR_WARNING, 4.5f);
 
     float hx = skeleton.getNode(0).x;
     float hy = skeleton.getNode(0).y;
     float sym_x = std::max(45.0f, std::min((float)SCREEN_W - 45.0f, hx));
     float sym_y = (hy > 65.0f) ? (hy - 48.0f) : (hy + 45.0f);
 
-    // 喷出感叹号 "!"
-    symbols.trigger("!", sym_x, sym_y, hx, hy);
+    const DriveState &dr = neural_core.getDrives();
+    if (dr.habituation > 0.28f) {
+        // 【关键习惯化生效】敲击或震动多次后，毒液完全习惯化，表现出真实生物的冷静与钝感：
+        // 绝对不再喷吐任何符号，转入静默凝视或从容待机，身体平静无波！
+        enterState(STATE_OBSERVE, nullptr, &skeleton, hx, hy);
+        state_duration = 4.0f;
+        expr.triggerExpression(EXPR_SILENT_OBSERVATION, 4.0f);
+        return;
+    }
 
-    // 触发身体局部鼓包应力突变与受惊震颤
-    skeleton.triggerLocalBleb(1, 1.5f);
-    skeleton.triggerLocalBleb(2, 1.5f);
-    skeleton.triggerLocalBleb(3, 1.5f);
-    skeleton.applyImpulse(((rand() % 60) - 30) * 0.1f, -1.8f);
-    triggerStartle(1.5f);
+    // 仅在完全未习惯化（初次连续敲击）且威胁感明显时，才偶尔喷出一次感叹号警告
+    if (dr.threat > 0.45f && (rand() % 100) < 60) {
+        neural_core.triggerSuddenMotion(0.65f);
+        phys.applyStimulus(0.70f, 0.70f);
+        expr.triggerExpression(EXPR_WARNING, 3.5f);
+        symbols.trigger("!", sym_x, sym_y, hx, hy);
+        triggerStartle(1.2f, &skeleton, nullptr);
+    } else {
+        // 轻度未习惯化：仅仅歪头注视，不乱喷符号
+        enterState(STATE_OBSERVE, nullptr, &skeleton, hx, hy);
+        state_duration = 3.0f;
+        expr.triggerExpression(EXPR_CURIOSITY, 3.0f);
+    }
 }
 
 void CreatureAI::updatePeek(float dt, float hx, float hy, SkeletonSystem &skeleton, TentacleRenderer &tentacles, PhysiologySystem &physiology, ExpressionLayer &expression) {

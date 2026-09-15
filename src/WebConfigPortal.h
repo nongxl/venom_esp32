@@ -7,9 +7,25 @@
 #include <functional>
 #include "ConfigManager.h"
 
+class CreatureAI;
+class PhysiologySystem;
+class RelationshipSystem;
+class ExpressionLayer;
+class LLMClient;
+
 class WebConfigPortal {
 public:
     WebConfigPortal();
+
+    void setNeuralDataSource(const CreatureAI *ai, const PhysiologySystem *phys,
+                             const RelationshipSystem *rel, const ExpressionLayer *expr,
+                             const LLMClient *llm) {
+        src_ai = ai;
+        src_phys = phys;
+        src_rel = rel;
+        src_expr = expr;
+        src_llm = llm;
+    }
 
     void start(M5Canvas *canvas = nullptr);
     void update();
@@ -28,6 +44,12 @@ private:
     DNSServer dns_server;
     M5Canvas *portal_canvas = nullptr;
 
+    const CreatureAI *src_ai = nullptr;
+    const PhysiologySystem *src_phys = nullptr;
+    const RelationshipSystem *src_rel = nullptr;
+    const ExpressionLayer *src_expr = nullptr;
+    const LLMClient *src_llm = nullptr;
+
     bool running = false;
     bool blocking_screen = true;
     bool routes_configured = false;
@@ -44,8 +66,10 @@ private:
     void handleScan();
     void handleSave();
     void handleDemo();
+    void handleNeural();
     void handleNotFound();
 
     void renderPortalScreen();
     String generateHTMLPage();
 };
+

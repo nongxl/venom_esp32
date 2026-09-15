@@ -43,7 +43,9 @@ public:
 
     void sendScreenshotSerial();
     void toggleHUD();
-    bool isHUDActive() const { return show_hud; }
+    bool isHUDActive() const { return hud_mode != 0; }
+    int getHUDMode() const { return hud_mode; }
+    void setHUDMode(int mode) { hud_mode = mode; }
     M5Canvas* getCanvas() { return canvas; }
 
     // 触发心声打字机涌现
@@ -52,7 +54,7 @@ public:
 private:
     M5Canvas *canvas = nullptr;
     BackgroundTheme current_theme = THEME_DESIGN_BLUE;
-    bool show_hud = false;
+    int hud_mode = 0; // 0: 关, 1: 神经驱动核心 HUD (Neural Core), 2: 传统生理关系 HUD (Legacy)
 
     // 动态打字机心流状态
     MindEchoState echo_state = ECHO_IDLE;
@@ -67,6 +69,7 @@ private:
     void renderHUD(const CreatureAI &ai, const PhysiologySystem &physiology,
                    const RelationshipSystem &relationship, const ExpressionLayer &expression,
                    const ConsciousnessStateV3 &v3_state, float fps);
+    void renderNeuralHUD(const CreatureAI &ai, float fps);
 
     void updateMindEchoLifecycle(float dt, const ConsciousnessStateV3 &v3_state);
     void renderMindEchoPanel();

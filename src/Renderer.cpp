@@ -17,9 +17,14 @@ void Renderer::nextTheme() {
 }
 
 void Renderer::toggleHUD() {
-    show_hud = !show_hud;
-    if (show_hud) {
+    hud_mode = (hud_mode + 1) % 3;
+    if (hud_mode == 1) {
+        Serial.println(">>> [HUD] Mode 1: NEURAL CORE (Drive & Behavior Score Overlay)");
+    } else if (hud_mode == 2) {
+        Serial.println(">>> [HUD] Mode 2: TELEMETRY (Legacy Physiology & Relationship)");
         triggerMindEcho();
+    } else {
+        Serial.println(">>> [HUD] Mode 0: OFF");
     }
 }
 
@@ -130,14 +135,21 @@ void Renderer::updateMindEchoLifecycle(float dt, const ConsciousnessStateV3 &v3_
 
         case ECHO_TYPING: {
             char_timer += dt;
-            int total_len = strlen(current_echo_text);
-            if (char_timer >= 0.045f) {
+            int total_bytes = strlen(current_echo_text);
+            if (char_timer >= 0.055f) { // 字符打字节奏
                 char_timer = 0.0f;
-                typed_char_count += 2; // 每次推进 2 字符以保证流畅感
-                if (typed_char_count >= total_len) {
-                    typed_char_count = total_len;
-                    echo_state = ECHO_SUSTAIN;
-                    state_timer = 0.0f;
+                if (typed_char_count < total_bytes) {
+                    unsigned char c = (unsigned char)current_echo_text[typed_char_count];
+                    int char_len = 1;
+                    if ((c & 0xE0) == 0xC0) char_len = 2;
+                    else if ((c & 0xF0) == 0xE0) char_len = 3;
+                    else if ((c & 0xF8) == 0xF0) char_len = 4;
+                    typed_char_count += char_len;
+                    if (typed_char_count >= total_bytes) {
+                        typed_char_count = total_bytes;
+                        echo_state = ECHO_SUSTAIN;
+                        state_timer = 0.0f;
+                    }
                 }
             }
             break;
@@ -165,9 +177,9 @@ void Renderer::renderMindEchoPanel() {
     if (echo_state == ECHO_IDLE || typed_char_count <= 0) return;
 
     int panel_x = 2;
-    int panel_y = 48;
+    int panel_y = 50;
     int panel_w = SCREEN_W - 4;
-    int panel_h = 38;
+    int panel_h = 46;
 
     // 直接显存指针超高速半透明压暗 (零开销, 50% 透光)
     uint16_t *fb = (uint16_t*)canvas->getBuffer();
@@ -180,48 +192,39 @@ void Renderer::renderMindEchoPanel() {
         }
     }
 
-    uint16_t border_col = (echo_state == ECHO_FADING) ? 0x6000 : 0xF800; // 红色边框
+    uint16_t border_col = (echo_state == ECHO_FADING) ? 0x6000 : 0xF800; // 红色边框 (共生体心灵感应)
     uint16_t title_col  = (echo_state == ECHO_FADING) ? 0x8800 : COLOR_GLOW_CYAN;
     uint16_t text_col   = (echo_state == ECHO_FADING) ? 0x7BEF : 0xFFFF;
 
     canvas->drawRect(panel_x, panel_y, panel_w, panel_h, border_col);
 
+    // 切换至平滑中文点阵字体
+    canvas->setFont(&fonts::efontCN_12);
     canvas->setTextSize(1);
-    canvas->setTextColor(title_col);
-    canvas->setCursor(6, 51);
-    canvas->print("[TELEPATHY] 意识心流:");
 
-    // 动态截取已打出的字符
-    char display_buf[128];
-    strncpy(display_buf, current_echo_text, typed_char_count);
-    display_buf[typed_char_count] = '\0';
+    canvas->setTextColor(title_col);
+    canvas->setCursor(panel_x + 5, panel_y + 4);
+    canvas->print("[意识心流]");
+
+    // 动态截取已打出的 UTF-8 字符序列
+    char display_buf[160];
+    int copy_len = (typed_char_count < (int)sizeof(display_buf) - 2) ? typed_char_count : (sizeof(display_buf) - 2);
+    strncpy(display_buf, current_echo_text, copy_len);
+    display_buf[copy_len] = '\0';
 
     bool show_cursor = (echo_state == ECHO_TYPING) || ((echo_state == ECHO_SUSTAIN) && ((millis() / 250) % 2 == 0));
-
-    // 分行绘制
-    char line1[42] = "";
-    char line2[42] = "";
-
-    if (typed_char_count <= 36) {
-        strncpy(line1, display_buf, 36);
-        line1[36] = '\0';
-        if (show_cursor) strncat(line1, "_", 2);
-    } else {
-        strncpy(line1, display_buf, 36);
-        line1[36] = '\0';
-        strncpy(line2, display_buf + 36, 36);
-        line2[36] = '\0';
-        if (show_cursor) strncat(line2, "_", 2);
+    if (show_cursor && copy_len + 1 < (int)sizeof(display_buf)) {
+        strcat(display_buf, "_");
     }
 
     canvas->setTextColor(text_col);
-    canvas->setCursor(6, 62);
-    canvas->print(line1);
+    canvas->setTextWrap(true);
+    canvas->setCursor(panel_x + 5, panel_y + 20);
+    canvas->print(display_buf);
+    canvas->setTextWrap(false);
 
-    if (line2[0] != '\0') {
-        canvas->setCursor(6, 73);
-        canvas->print(line2);
-    }
+    // 恢复默认基础字体，确保不干扰后续 HUD 渲染
+    canvas->setFont(&fonts::Font0);
 }
 
 void Renderer::renderHUD(const CreatureAI &ai, const PhysiologySystem &physiology,
@@ -299,6 +302,77 @@ void Renderer::renderHUD(const CreatureAI &ai, const PhysiologySystem &physiolog
     renderMindEchoPanel();
 }
 
+static const char* getMiniBar(float val) {
+    if (val >= 0.75f) return "===";
+    if (val >= 0.45f) return "== ";
+    if (val >= 0.18f) return "=  ";
+    return "   ";
+}
+
+void Renderer::renderNeuralHUD(const CreatureAI &ai, float fps) {
+    int panel_x = 2;
+    int panel_y = 2;
+    int panel_w = SCREEN_W - 4;
+    int panel_h = 44;
+
+    uint16_t *fb = (uint16_t*)canvas->getBuffer();
+    if (fb) {
+        for (int py = panel_y; py < panel_y + panel_h; ++py) {
+            uint16_t *row = fb + py * SCREEN_W + panel_x;
+            for (int px = 0; px < panel_w; ++px) {
+                row[px] = ((row[px] >> 1) & 0x7BEF) | 0x0821;
+            }
+        }
+    }
+    canvas->drawRect(panel_x, panel_y, panel_w, panel_h, 0x07E0); // 翠绿边框 (Neural Core)
+
+    canvas->setTextSize(1);
+    canvas->setTextColor(TFT_WHITE);
+
+    const NeuralDrive &core = ai.getNeuralCore();
+    const DriveState &d = core.getDrives();
+    const BehaviorScores &sc = core.getScores();
+
+    if (millis() - last_hud_refresh_ms >= 180) {
+        last_hud_refresh_ms = millis();
+
+        snprintf(hud_line1_ai,  sizeof(hud_line1_ai),  "AI:%-6s", ai.getStateName());
+        snprintf(hud_line1_emo, sizeof(hud_line1_emo), "WIN:%-7s", core.getCurrentBehaviorName());
+        snprintf(hud_line1_fps, sizeof(hud_line1_fps), "FPS:%4.1f", fps);
+
+        snprintf(hud_line2_nrg, sizeof(hud_line2_nrg), "T[%s].%02d", getMiniBar(d.threat), (int)(d.threat * 99));
+        snprintf(hud_line2_tru, sizeof(hud_line2_tru), "C[%s].%02d", getMiniBar(d.curiosity), (int)(d.curiosity * 99));
+        snprintf(hud_line2_exp, sizeof(hud_line2_exp), "A[%s].%02d", getMiniBar(d.attachment), (int)(d.attachment * 99));
+
+        snprintf(hud_line3_mic, sizeof(hud_line3_mic), "R[%s].%02d", getMiniBar(d.arousal), (int)(d.arousal * 99));
+        snprintf(hud_line3_res, sizeof(hud_line3_res), "E[%s].%02d", getMiniBar(d.energy), (int)(d.energy * 99));
+        snprintf(hud_line3_soc, sizeof(hud_line3_soc), "F[%s].%02d", getMiniBar(d.fatigue), (int)(d.fatigue * 99));
+
+        snprintf(hud_line4_int, sizeof(hud_line4_int), "H:%02d(%.2fx) EVT:%-6s 2ND:%-6s",
+                 (int)(d.habituation * 99), core.getHabituationDampingFactor(),
+                 core.getLatestEventName(),
+                 getNeuralBehaviorName(sc.runner_up));
+    }
+
+    // 行 1: [AI状态] | [胜出神经行为] | [FPS]
+    canvas->setCursor(6, 4);   canvas->print(hud_line1_ai);
+    canvas->setCursor(76, 4);  canvas->print(hud_line1_emo);
+    canvas->setCursor(168, 4); canvas->print(hud_line1_fps);
+
+    // 行 2: [T 威胁] | [C 好奇] | [A 依恋]
+    canvas->setCursor(6, 14);  canvas->print(hud_line2_nrg);
+    canvas->setCursor(82, 14); canvas->print(hud_line2_tru);
+    canvas->setCursor(158, 14); canvas->print(hud_line2_exp);
+
+    // 行 3: [R 激活] | [E 体力] | [F 疲劳]
+    canvas->setCursor(6, 24);  canvas->print(hud_line3_mic);
+    canvas->setCursor(82, 24); canvas->print(hud_line3_res);
+    canvas->setCursor(158, 24); canvas->print(hud_line3_soc);
+
+    // 行 4: [M 舒适] [H 习惯化] | [次高分行为与得分]
+    canvas->setCursor(6, 34);  canvas->print(hud_line4_int);
+}
+
 void Renderer::render(const SkeletonSystem &skeleton, const MetaballSystem &metaballs,
                     const EyeSystem &eye, const TentacleRenderer &tentacles,
                     const CreatureAI &ai, const PhysiologySystem &physiology,
@@ -330,7 +404,9 @@ void Renderer::render(const SkeletonSystem &skeleton, const MetaballSystem &meta
     }
     eye.draw(*canvas, physiology);
 
-    if (show_hud) {
+    if (hud_mode == 1) {
+        renderNeuralHUD(ai, fps);
+    } else if (hud_mode == 2) {
         renderHUD(ai, physiology, relationship, expression, v3_state, fps);
     }
 }

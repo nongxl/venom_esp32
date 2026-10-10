@@ -299,6 +299,29 @@ void setup() {
     cfg.internal_spk = true;
     M5.begin(cfg);
 
+    // ─────────────────────────────────────────────────────────────
+    // 【电源与背光抗频闪优化 (针对电池供电模式)】
+    // ─────────────────────────────────────────────────────────────
+    // 1. 关闭外部 5V 升压输出，杜绝电池供电下的升压空载损耗与开关电源噪声
+    M5.Power.setExtOutput(false);
+
+    // 2. 优化背光 PWM 频率：
+    // M5GFX 官方库对 M5StickS3 默认背光 PWM 仅 256Hz。
+    // 在锂电池供电时，电池内阻大且去耦电容小，256Hz 脉冲大电流会导致 3.3V 供电轨剧烈波动，
+    // 并与 ST7789 屏幕 60Hz 内部扫描发生拍频干涉（~16Hz），造成肉眼可见的明暗闪烁；插 USB 则电源平稳无此现象。
+    // 将背光 PWM 频率提升至 4000Hz (4kHz)，配合板载去耦电容彻底平滑电流，消除肉眼闪烁。
+    int bl_pin = 38;
+    auto board = M5.getBoard();
+    if (board == m5::board_t::board_M5StickCPlus2) {
+        bl_pin = 27;
+    } else if (board == m5::board_t::board_M5StickC || board == m5::board_t::board_M5StickCPlus) {
+        bl_pin = -1;
+    }
+    if (bl_pin > 0) {
+        ledcSetup(7, 4000, 9);
+        ledcAttachPin(bl_pin, 7);
+    }
+
     M5.Display.setRotation(1);
     M5.Display.setBrightness(SYSTEM_BRIGHTNESS);
     canvas.setPsram(false);
